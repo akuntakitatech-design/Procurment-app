@@ -85,7 +85,7 @@ export default function Reports() {
   };
 
   useEffect(() => {
-    api.get("/reports/mro-traceability").then((r) => setTrace(r.data));
+    loadTrace("", "");
     api.get("/reports/lead-time").then((r) => setLead(r.data));
   }, []);
 

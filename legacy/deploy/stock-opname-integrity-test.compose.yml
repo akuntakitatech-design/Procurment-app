@@ -1,0 +1,59 @@
+services:
+  stock-opname-mongodb:
+    image: mongo:7.0
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - stock_opname_integrity_test_mongo:/data/db
+
+  stock-opname-api:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      stock-opname-mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://stock-opname-mongodb:27017
+      DB_NAME: procurement_stock_opname_integrity_test
+      JWT_SECRET: ${SAAS_STAGING_JWT_SECRET:?SAAS_STAGING_JWT_SECRET wajib tersedia}
+      ADMIN_EMAIL: ${SAAS_STAGING_ADMIN_EMAIL:?SAAS_STAGING_ADMIN_EMAIL wajib tersedia}
+      ADMIN_PASSWORD: ${SAAS_STAGING_ADMIN_PASSWORD:?SAAS_STAGING_ADMIN_PASSWORD wajib tersedia}
+      DEFAULT_TENANT_ID: tenant-stock-opname-test
+      DEFAULT_COMPANY_ID: company-stock-opname-test
+      DEFAULT_TENANT_SLUG: stock-opname-test
+      DEFAULT_TENANT_NAME: PT REAL STOCK OPNAME TEST
+      DEFAULT_TENANT_MAX_USERS: 25
+      ENABLE_PUBLIC_TENANT_REGISTRATION: "false"
+      DISABLE_LEGACY_USER_SELF_REGISTER: "true"
+      ALLOW_DEMO_SEED: "false"
+      WRITE_TEST_CREDENTIALS: "false"
+      STORAGE_DRIVER: local
+      FRONTEND_URL: http://localhost:3000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/docs"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+
+  stock-opname-runner:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      stock-opname-mongodb:
+        condition: service_healthy
+      stock-opname-api:
+        condition: service_healthy
+    environment:
+      TEST_API_URL: http://stock-opname-api:8000/api
+      ADMIN_EMAIL: ${SAAS_STAGING_ADMIN_EMAIL:?SAAS_STAGING_ADMIN_EMAIL wajib tersedia}
+      ADMIN_PASSWORD: ${SAAS_STAGING_ADMIN_PASSWORD:?SAAS_STAGING_ADMIN_PASSWORD wajib tersedia}
+    command: ["python", "stock_opname_integrity_test.py"]
+
+volumes:
+  stock_opname_integrity_test_mongo:

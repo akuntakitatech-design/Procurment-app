@@ -2,8 +2,13 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { Layout } from "@/components/Layout";
 import Login from "@/pages/Login";
+import RegisterTenant from "@/pages/RegisterTenant";
+import AcceptInvite from "@/pages/AcceptInvite";
+import PlatformAdmin from "@/pages/PlatformAdmin";
+import SubscriptionLocked from "@/pages/SubscriptionLocked";
 import Dashboard from "@/pages/Dashboard";
 import ModuleHub from "@/pages/ModuleHub";
 import ActivityLog from "@/pages/ActivityLog";
@@ -27,61 +32,81 @@ import Loan from "@/pages/Loan";
 import Adjustment from "@/pages/Adjustment";
 import Opname from "@/pages/Opname";
 
+function Loading() {
+  return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Memuat...</div>;
+}
+
 function Protected({ children }) {
-  const { user } = useAuth();
-  if (user === null) return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Memuat...</div>;
+  const { user, subscription } = useAuth();
+  if (user === null) return <Loading />;
   if (user === false) return <Navigate to="/login" replace />;
+  if (user?.is_platform_admin) return <Navigate to="/platform" replace />;
+  if (subscription === null) return <Loading />;
+  if (subscription?.access_mode === "locked") return <SubscriptionLocked />;
   return <Layout>{children}</Layout>;
+}
+
+function PlatformProtected({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <Loading />;
+  if (user === false) return <Navigate to="/login" replace />;
+  if (!user?.is_platform_admin) return <Navigate to="/" replace />;
+  return children;
 }
 
 function App() {
   return (
-    <div className="App">
-      <BrowserRouter>
-        <AuthProvider>
-          <Toaster position="top-right" />
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/verify/:code" element={<Verify />} />
-            <Route path="/" element={<Protected><Dashboard /></Protected>} />
-            <Route path="/warehouse" element={<Protected><ModuleHub type="warehouse" /></Protected>} />
-            <Route path="/purchasing" element={<Protected><ModuleHub type="purchasing" /></Protected>} />
-            <Route path="/persediaan" element={<Protected><ModuleHub type="inventory" /></Protected>} />
-            <Route path="/laporan" element={<Protected><ModuleHub type="reporting" /></Protected>} />
-            <Route path="/system" element={<Protected><ModuleHub type="system" /></Protected>} />
-            <Route path="/activity-log" element={<Protected><ActivityLog /></Protected>} />
-            <Route path="/print-layouts" element={<Protected><PrintLayouts /></Protected>} />
-            <Route path="/excel-import" element={<Protected><ExcelImport /></Protected>} />
-            <Route path="/approval" element={<Protected><Approval /></Protected>} />
-            <Route path="/mro" element={<Protected><MroList /></Protected>} />
-            <Route path="/mro/new" element={<Protected><MroForm /></Protected>} />
-            <Route path="/mro/:id" element={<Protected><MroForm /></Protected>} />
-            <Route path="/ro" element={<Protected><RoList /></Protected>} />
-            <Route path="/ro/new" element={<Protected><RoForm /></Protected>} />
-            <Route path="/ro/:id" element={<Protected><RoForm /></Protected>} />
-            <Route path="/po" element={<Protected><PoList /></Protected>} />
-            <Route path="/po/new" element={<Protected><PoForm /></Protected>} />
-            <Route path="/po/:id" element={<Protected><PoForm /></Protected>} />
-            <Route path="/do" element={<Protected><DoList /></Protected>} />
-            <Route path="/do/new" element={<Protected><DoForm /></Protected>} />
-            <Route path="/do/:id" element={<Protected><DoForm /></Protected>} />
-            <Route path="/mi" element={<Protected><MiList /></Protected>} />
-            <Route path="/mi/new" element={<Protected><MiForm /></Protected>} />
-            <Route path="/mi/:id" element={<Protected><MiForm /></Protected>} />
-            <Route path="/transfer" element={<Protected><Transfer /></Protected>} />
-            <Route path="/loan" element={<Protected><Loan /></Protected>} />
-            <Route path="/adjustment" element={<Protected><Adjustment /></Protected>} />
-            <Route path="/opname" element={<Protected><Opname /></Protected>} />
-            <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
-            <Route path="/traceability" element={<Protected><TraceabilityPage /></Protected>} />
-            <Route path="/reports" element={<Protected><Reports /></Protected>} />
-            <Route path="/master" element={<Protected><MasterData /></Protected>} />
-            <Route path="/users" element={<Protected><Users /></Protected>} />
-            <Route path="/settings" element={<Protected><Settings /></Protected>} />
-          </Routes>
-        </AuthProvider>
-      </BrowserRouter>
-    </div>
+    <AppErrorBoundary>
+      <div className="App">
+        <BrowserRouter>
+          <AuthProvider>
+            <Toaster position="top-right" />
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/daftar" element={<RegisterTenant />} />
+              <Route path="/invite/:code" element={<AcceptInvite />} />
+              <Route path="/platform" element={<PlatformProtected><PlatformAdmin /></PlatformProtected>} />
+              <Route path="/verify/:code" element={<Verify />} />
+              <Route path="/" element={<Protected><Dashboard /></Protected>} />
+              <Route path="/warehouse" element={<Protected><ModuleHub type="warehouse" /></Protected>} />
+              <Route path="/purchasing" element={<Protected><ModuleHub type="purchasing" /></Protected>} />
+              <Route path="/persediaan" element={<Protected><ModuleHub type="inventory" /></Protected>} />
+              <Route path="/laporan" element={<Protected><ModuleHub type="reporting" /></Protected>} />
+              <Route path="/system" element={<Protected><ModuleHub type="system" /></Protected>} />
+              <Route path="/activity-log" element={<Protected><ActivityLog /></Protected>} />
+              <Route path="/print-layouts" element={<Protected><PrintLayouts /></Protected>} />
+              <Route path="/excel-import" element={<Protected><ExcelImport /></Protected>} />
+              <Route path="/approval" element={<Protected><Approval /></Protected>} />
+              <Route path="/mro" element={<Protected><MroList /></Protected>} />
+              <Route path="/mro/new" element={<Protected><MroForm /></Protected>} />
+              <Route path="/mro/:id" element={<Protected><MroForm /></Protected>} />
+              <Route path="/ro" element={<Protected><RoList /></Protected>} />
+              <Route path="/ro/new" element={<Protected><RoForm /></Protected>} />
+              <Route path="/ro/:id" element={<Protected><RoForm /></Protected>} />
+              <Route path="/po" element={<Protected><PoList /></Protected>} />
+              <Route path="/po/new" element={<Protected><PoForm /></Protected>} />
+              <Route path="/po/:id" element={<Protected><PoForm /></Protected>} />
+              <Route path="/do" element={<Protected><DoList /></Protected>} />
+              <Route path="/do/new" element={<Protected><DoForm /></Protected>} />
+              <Route path="/do/:id" element={<Protected><DoForm /></Protected>} />
+              <Route path="/mi" element={<Protected><MiList /></Protected>} />
+              <Route path="/mi/new" element={<Protected><MiForm /></Protected>} />
+              <Route path="/mi/:id" element={<Protected><MiForm /></Protected>} />
+              <Route path="/transfer" element={<Protected><Transfer /></Protected>} />
+              <Route path="/loan" element={<Protected><Loan /></Protected>} />
+              <Route path="/adjustment" element={<Protected><Adjustment /></Protected>} />
+              <Route path="/opname" element={<Protected><Opname /></Protected>} />
+              <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
+              <Route path="/traceability" element={<Protected><TraceabilityPage /></Protected>} />
+              <Route path="/reports" element={<Protected><Reports /></Protected>} />
+              <Route path="/master" element={<Protected><MasterData /></Protected>} />
+              <Route path="/users" element={<Protected><Users /></Protected>} />
+              <Route path="/settings" element={<Protected><Settings /></Protected>} />
+            </Routes>
+          </AuthProvider>
+        </BrowserRouter>
+      </div>
+    </AppErrorBoundary>
   );
 }
 

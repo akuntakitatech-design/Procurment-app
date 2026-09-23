@@ -1,0 +1,59 @@
+services:
+  do-test-mongodb:
+    image: mongo:7.0
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - do_receipt_integrity_test_mongo:/data/db
+
+  do-test-api:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      do-test-mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://do-test-mongodb:27017
+      DB_NAME: procurement_do_receipt_integrity_test
+      JWT_SECRET: procurement_do_receipt_integrity_test_secret_only
+      ADMIN_EMAIL: do-admin@example.test
+      ADMIN_PASSWORD: DoAdmin!123
+      DEFAULT_TENANT_ID: tenant-pt-real
+      DEFAULT_COMPANY_ID: company-pt-real
+      DEFAULT_TENANT_SLUG: pt-real
+      DEFAULT_TENANT_NAME: PT REAL DO TEST
+      DEFAULT_TENANT_MAX_USERS: 25
+      ENABLE_PUBLIC_TENANT_REGISTRATION: "false"
+      DISABLE_LEGACY_USER_SELF_REGISTER: "true"
+      ALLOW_DEMO_SEED: "false"
+      WRITE_TEST_CREDENTIALS: "false"
+      STORAGE_DRIVER: local
+      FRONTEND_URL: http://localhost:3000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/docs"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+
+  do-test-runner:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      do-test-mongodb:
+        condition: service_healthy
+      do-test-api:
+        condition: service_healthy
+    environment:
+      TEST_API_URL: http://do-test-api:8000/api
+      ADMIN_EMAIL: do-admin@example.test
+      ADMIN_PASSWORD: DoAdmin!123
+    command: ["python", "do_receipt_integrity_test.py"]
+
+volumes:
+  do_receipt_integrity_test_mongo:

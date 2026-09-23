@@ -1,9 +1,8 @@
-"""Safety wrapper for transaction edit/delete stock reversals.
+"""Safety wrapper for transaction stock mutations.
 
-A posted inbound transaction (for example DO) may have been consumed by later
-stock issues without a direct document allocation. Reversing that receipt must
-not drive physical stock negative. This wrapper blocks edit/delete until the
-stock is available again, even when no document dependency exists.
+Protects edit/delete reversals when stock produced by an earlier transaction has
+already been consumed. It also prevents stock adjustments (including damaged
+stock write-offs) from driving usable inventory below zero on create or edit.
 """
 from fastapi import Depends, HTTPException
 
@@ -45,8 +44,83 @@ async def _stock_blockers(server, did):
     return blockers
 
 
+async def _adjustment_reversal_impact(server, did):
+    if not did:
+        return {}
+    rows = await server.db.stock_ledger.find({
+        "doc_id": did,
+        "is_reversal": {"$ne": True},
+        "reversed": {"$ne": True},
+    }, {"_id": 0}).to_list(10000)
+    impact = {}
+    for row in rows:
+        key = (row.get("item_id"), row.get("warehouse_id"))
+        impact[key] = impact.get(key, 0.0) + float(row.get("qty_out") or 0) - float(row.get("qty_in") or 0)
+    return impact
+
+
+async def _validate_adjustment(server, body, did=None):
+    body = body or {}
+    old = None
+    if did:
+        old = await server.db.adjustments.find_one({"id": did}, {"_id": 0})
+        if not old:
+            raise HTTPException(404, "Adjustment tidak ditemukan")
+
+    warehouse_id = body.get("warehouse_id") or (old or {}).get("warehouse_id")
+    if not warehouse_id:
+        raise HTTPException(400, "Gudang adjustment wajib dipilih")
+
+    lines = body.get("lines")
+    if not isinstance(lines, list) or not lines:
+        raise HTTPException(400, "Adjustment minimal memiliki satu baris barang")
+
+    deltas = {}
+    for line in lines:
+        item_id = line.get("item_id")
+        if not item_id:
+            raise HTTPException(400, "Barang adjustment wajib dipilih")
+        try:
+            delta = float(line.get("adjustment") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Qty adjustment tidak valid")
+        deltas[item_id] = deltas.get(item_id, 0.0) + delta
+
+    reversal = await _adjustment_reversal_impact(server, did)
+    for item_id, delta in deltas.items():
+        current = float(await server.stock_balance(item_id, warehouse_id) or 0)
+        available_after_old_reversal = current + reversal.get((item_id, warehouse_id), 0.0)
+        after = available_after_old_reversal + delta
+        if after < -1e-9:
+            item = await server.db.items.find_one({"id": item_id}, {"_id": 0}) or {}
+            wh = await server.db.warehouses.find_one({"id": warehouse_id}, {"_id": 0}) or {}
+            label = item.get("code") or item.get("name") or item_id
+            wh_name = wh.get("name") or warehouse_id
+            raise HTTPException(
+                400,
+                f"Adjustment {label} melebihi stok {wh_name}. Stok tersedia {available_after_old_reversal:g}; hasil adjustment {after:g}",
+            )
+
+
 def install(server):
     app = server.app
+
+    # Create adjustment must never produce negative usable stock.
+    adjustment_route = _find_route(app, "/api/adjustments", "POST")
+    if adjustment_route:
+        original_adjustment = adjustment_route.endpoint
+        app.router.routes.remove(adjustment_route)
+
+        async def safe_create_adjustment(body: dict, user=Depends(server.current_user)):
+            await _validate_adjustment(server, body)
+            return await original_adjustment(body, user)
+
+        app.add_api_route(
+            "/api/adjustments",
+            safe_create_adjustment,
+            methods=["POST"],
+            tags=["stock-safety"],
+        )
 
     cap_route = _find_route(app, "/api/transactions/{module}/{did}/capability", "GET")
     if cap_route:
@@ -75,6 +149,8 @@ def install(server):
                 stock = await _stock_blockers(server, did)
                 if stock:
                     raise HTTPException(409, "Stok dari transaksi ini sudah terpakai. Hapus/koreksi transaksi pemakaian stok terlebih dahulu.")
+                if module == "adjustment":
+                    await _validate_adjustment(server, body, did)
                 return await original_endpoint(module, did, body, user)
             return safe_edit
 

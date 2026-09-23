@@ -14,6 +14,13 @@ def _find_route(app, path, method):
     return None
 
 
+def _base_qty(loan_line, qty):
+    factor = float((loan_line or {}).get("conversion_factor") or 1)
+    if factor <= 0:
+        factor = 1.0
+    return float(qty or 0) * factor
+
+
 async def _reverse_blockers(server, rid):
     rows = await server.db.stock_ledger.find({"doc_id": rid, "is_reversal": {"$ne": True}, "reversed": {"$ne": True}}, {"_id": 0}).to_list(5000)
     impact = {}
@@ -112,8 +119,7 @@ def install(server):
             requested=[]
             for raw in (body or {}).get("lines",[]):
                 ll=await server.db.loan_lines.find_one({"id":raw.get("loan_line_id")},{"_id":0}) or {}
-                factor=float(ll.get("conversion_factor") or 1)
-                requested.append({"loan_line_id":raw.get("loan_line_id"),"item_id":ll.get("item_id"),"qty":float(raw.get("qty") or 0)*factor})
+                requested.append({"loan_line_id":raw.get("loan_line_id"),"item_id":ll.get("item_id"),"qty":_base_qty(ll, raw.get("qty"))})
             result=await original(did,body,user)
             ret=await server.db.loan_returns.find_one({"loan_id":did,"id":{"$nin":list(before)}},{"_id":0},sort=[("created_at",-1)])
             if ret:
@@ -163,7 +169,7 @@ def install(server):
         for raw in (body or {}).get("lines",[]):
             ll=await server.db.loan_lines.find_one({"id":raw.get("loan_line_id")},{"_id":0})
             if not ll: raise HTTPException(400,"Baris pinjaman tidak ditemukan")
-            qty=float(raw.get("qty") or 0)
+            qty=_base_qty(ll, raw.get("qty"))
             rem=float(ll.get("qty") or 0)-float(ll.get("returned") or 0)
             if qty>rem+1e-6 and not server.has_perm(user,"override_qty"): raise HTTPException(400,"Qty return melebihi outstanding pinjaman")
             if qty<=0: continue

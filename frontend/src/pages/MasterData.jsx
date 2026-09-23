@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
@@ -225,16 +225,16 @@ function MasterTab({ name }) {
   const [form, setForm] = useState({});
   const [q, setQ] = useState("");
 
-  const load = useCallback(() => api.get(`/master/${name}`).then((r) => setRows(r.data)), [name]);
-  const loadRef = useCallback((rn) => api.get(`/master/${rn}?active_only=true`).then((r) => setRefs((s) => ({ ...s, [rn]: r.data }))), []);
+  const load = () => api.get(`/master/${name}`).then((r) => setRows(r.data));
+  const loadRef = (rn) => api.get(`/master/${rn}?active_only=true`).then((r) => setRefs((s) => ({ ...s, [rn]: r.data })));
 
   useEffect(() => {
     load();
-    const needed = [...new Set((CONFIGS[name]?.fields || []).filter((f) => f.ref).map((f) => f.ref))];
+    const needed = [...new Set(cfg.fields.filter((f) => f.ref).map((f) => f.ref))];
     if (name === "items" && !needed.includes("uoms")) needed.push("uoms");
     if (name === "suppliers") ["supplier_categories", "taxes", "item_categories"].forEach((x) => { if (!needed.includes(x)) needed.push(x); });
     needed.forEach(loadRef);
-  }, [name, load, loadRef]);
+  }, [name]);
 
   const openAdd = async () => {
     let code = "";

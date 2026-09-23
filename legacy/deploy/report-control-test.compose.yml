@@ -1,0 +1,60 @@
+services:
+  report-control-mongodb:
+    image: mongo:7.0
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - report_control_test_mongo:/data/db
+
+  report-control-api:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      report-control-mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://report-control-mongodb:27017
+      DB_NAME: procurement_report_control_test
+      JWT_SECRET: ${SAAS_STAGING_JWT_SECRET:?SAAS_STAGING_JWT_SECRET wajib tersedia}
+      ADMIN_EMAIL: ${SAAS_STAGING_ADMIN_EMAIL:?SAAS_STAGING_ADMIN_EMAIL wajib tersedia}
+      ADMIN_PASSWORD: ${SAAS_STAGING_ADMIN_PASSWORD:?SAAS_STAGING_ADMIN_PASSWORD wajib tersedia}
+      DEFAULT_TENANT_ID: tenant-report-control-test
+      DEFAULT_COMPANY_ID: company-report-control-test
+      DEFAULT_TENANT_SLUG: report-control-test
+      DEFAULT_TENANT_NAME: PT REAL REPORT CONTROL TEST
+      DEFAULT_TENANT_MAX_USERS: 25
+      ENABLE_PUBLIC_TENANT_REGISTRATION: "false"
+      DISABLE_LEGACY_USER_SELF_REGISTER: "true"
+      ALLOW_DEMO_SEED: "false"
+      WRITE_TEST_CREDENTIALS: "false"
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_PATH: /app/data/uploads
+      FRONTEND_URL: http://localhost:3000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/docs"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+
+  report-control-runner:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      report-control-mongodb:
+        condition: service_healthy
+      report-control-api:
+        condition: service_healthy
+    environment:
+      TEST_API_URL: http://report-control-api:8000/api
+      ADMIN_EMAIL: ${SAAS_STAGING_ADMIN_EMAIL:?SAAS_STAGING_ADMIN_EMAIL wajib tersedia}
+      ADMIN_PASSWORD: ${SAAS_STAGING_ADMIN_PASSWORD:?SAAS_STAGING_ADMIN_PASSWORD wajib tersedia}
+    command: ["python", "report_control_integrity_test.py"]
+
+volumes:
+  report_control_test_mongo:

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useMasters } from "@/hooks/useMasters";
@@ -30,8 +30,8 @@ export function MiForm(){
   const{id}=useParams();const nav=useNavigate();const{can}=useAuth();const masters=useMasters();
   const[h,setH]=useState({date:todayISO(),division_id:"",default_warehouse_id:"",default_project_id:"",default_unit_id:"",spk:"",receiver:"",department:"",source_type:"MRO",notes:"",document_message:null});
   const[lines,setLines]=useState([]);const[doc,setDoc]=useState(null);const[pull,setPull]=useState(false);const[editing,setEditing]=useState(false);const isNew=!id;const editable=isNew||editing;
-  const load=useCallback(()=>api.get(`/mi/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>({...l,_readonly:true})));setEditing(false);}),[id]);
-  useEffect(()=>{if(id)load();},[id,load]);
+  const load=()=>api.get(`/mi/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>({...l,_readonly:true})));setEditing(false);});
+  useEffect(()=>{if(id)load();},[id]);
   const beginEdit=()=>{setEditing(true);setLines(cur=>cur.map(l=>({...l,_readonly:false})));};
   const onPull=picked=>{const add=picked.map(p=>({item_id:p.item_id,qty:p._qty,unit:p.unit,uom_id:p.uom_id,conversion_factor:p.conversion_factor||1,warehouse_id:p.warehouse_id||h.default_warehouse_id,project_id:p.project_id||h.default_project_id,unit_id:p.unit_id||h.default_unit_id,_warehouseOverride:!!p.warehouse_id,_projectOverride:!!p.project_id,_unitOverride:!!p.unit_id,notes:"",_locked:true,_sourceHeader:p.source_header||null,_sourceLabel:`MRO: ${p.mro_no} (tersedia ${num(p.available)} ${p.unit||""})`,mro_id:p.mro_id,mro_line_id:p.line_id,sources:[{mro_id:p.mro_id,line_id:p.line_id,qty:p._qty,base_qty:p._qty*(p.conversion_factor||1)}]}));const combined=[...lines,...add];setLines(combined);setH(cur=>inheritSourceHeader(cur,combined));};
   const save=async()=>{try{if(isNew){const res=await api.post("/mi",{...h,lines});await saveDocumentMessage("mi",res.data.id,h.document_message);toast.success("MI diposting, stok berkurang dalam satuan dasar");nav(`/mi/${res.data.id}`);}else{await api.put(`/transactions/mi/${id}`,{...h,lines});await saveDocumentMessage("mi",id,h.document_message);toast.success("MI diperbarui. Sistem membalik stok lama lalu memposting ulang perubahan.");load();}}catch(e){toast.error(apiError(e.response?.data?.detail));}};const ownQty=l=>num(l.display_qty??((Number(l.qty)||0)/(Number(l.conversion_factor)||1))),unitText=l=>l.display_unit||l.unit||"";

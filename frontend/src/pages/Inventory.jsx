@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -76,10 +76,10 @@ export default function Inventory() {
   const itemMap = useMemo(() => Object.fromEntries(items.map((x) => [x.id, x])), [items]);
   const categoryMap = useMemo(() => Object.fromEntries(categories.map((x) => [x.id, x])), [categories]);
 
-  const categoryName = useCallback((item) => {
+  const categoryName = (item) => {
     if (!item) return "Tanpa Kategori";
     return categoryMap[item.category_id]?.name || item.category || "Tanpa Kategori";
-  }, [categoryMap]);
+  };
 
   const categoryOptions = useMemo(() => {
     const names = new Set();
@@ -126,7 +126,7 @@ export default function Inventory() {
       ...g,
       status: stockStatus(g.on_hand, g.min_total, g.max_total),
     }));
-  }, [pos, itemMap, categoryFilter, warehouseFilter, categoryName]);
+  }, [pos, itemMap, categoryFilter, warehouseFilter, categoryMap]);
 
   const summary = useMemo(() => ({
     total: grouped.length,
@@ -148,7 +148,7 @@ export default function Inventory() {
     if (categoryFilter !== ALL && categoryName(item) !== categoryFilter) return false;
     if (!q) return true;
     return `${l.item_code || ""} ${l.item_name || ""} ${l.warehouse_name || ""} ${l.doc_no || ""}`.toLowerCase().includes(q.toLowerCase());
-  }), [ledger, warehouseFilter, categoryFilter, q, itemMap, categoryName]);
+  }), [ledger, warehouseFilter, categoryFilter, q, itemMap, categoryMap]);
 
   const resetFilters = () => {
     setQ("");

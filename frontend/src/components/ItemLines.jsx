@@ -10,14 +10,8 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const uoms = masters.map("uoms");
   const taxes = masters.map("taxes");
   const prev = useRef({ warehouse_id: "", project_id: "", unit_id: "" });
-  const linesRef = useRef(lines);
-  const onChangeRef = useRef(onChange);
-  linesRef.current = lines;
-  onChangeRef.current = onChange;
 
   useEffect(() => {
-    const lines = linesRef.current;
-    const onChange = onChangeRef.current;
     const now = { warehouse_id: defaults.warehouse_id || "", project_id: defaults.project_id || "", unit_id: defaults.unit_id || "" };
     const old = prev.current;
     const keys = Object.keys(now).filter((k) => now[k] !== old[k]);

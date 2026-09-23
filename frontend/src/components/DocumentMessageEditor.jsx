@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
 import { FileText, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,10 +26,6 @@ export async function saveDocumentMessage(module, id, text) {
 export function DocumentMessageEditor({ module, value, onChange, readOnly = false, useDefault = false, title = "Pesan / Ketentuan Dokumen" }) {
   const [defaultText, setDefaultText] = useState("");
   const [loadingDefault, setLoadingDefault] = useState(false);
-  const valueRef = useRef(value);
-  const onChangeRef = useRef(onChange);
-  valueRef.current = value;
-  onChangeRef.current = onChange;
 
   useEffect(() => {
     let active = true;
@@ -39,7 +35,7 @@ export function DocumentMessageEditor({ module, value, onChange, readOnly = fals
       if (!active) return;
       const next = mods?.[module] || "";
       setDefaultText(next);
-      if (valueRef.current == null && onChangeRef.current) onChangeRef.current(next);
+      if (value == null && onChange) onChange(next);
     }).catch((e) => toast.error(apiError(e.response?.data?.detail) || "Gagal memuat pesan default")).finally(() => active && setLoadingDefault(false));
     return () => { active = false; };
   }, [module, useDefault]);

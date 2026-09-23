@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -23,20 +23,19 @@ export default function Approval() {
   const [moduleFilter, setModuleFilter] = useState("all");
   const [loading, setLoading] = useState(false);
 
-  const isAdmin = user?.role === "admin";
-  const load = useCallback(async () => {
+  const load = async () => {
     try {
       setLoading(true);
-      const res = await api.get(`/approvals/inbox?scope=${isAdmin ? scope : "mine"}`);
+      const res = await api.get(`/approvals/inbox?scope=${user?.role === "admin" ? scope : "mine"}`);
       setRows(res.data || []);
     } catch (e) {
       toast.error(apiError(e.response?.data?.detail));
     } finally {
       setLoading(false);
     }
-  }, [scope, isAdmin]);
+  };
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [scope]);
 
   const modules = useMemo(() => Array.from(new Set(rows.map((r) => r.module).filter(Boolean))), [rows]);
   const filtered = useMemo(() => rows.filter((r) => {

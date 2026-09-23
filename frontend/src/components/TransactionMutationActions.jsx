@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -10,14 +10,14 @@ export function TransactionMutationActions({ module, id, onEdit, onDeleted, comp
   const [cap, setCap] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(() => {
+  const load = () => {
     if (!module || !id) return;
     api.get(`/transactions/${module}/${id}/capability`)
       .then((r) => setCap(r.data))
       .catch(() => setCap(null));
-  }, [module, id]);
+  };
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [module, id]);
 
   if (!id || (!can("edit") && !can("delete"))) return null;
 

@@ -3,7 +3,7 @@ import { useNavigate, useLocation, NavLink } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Warehouse, ShoppingCart, ClipboardCheck, Boxes, Database, Users, Bell, Search,
-  Sun, Moon, LogOut, BarChart3, Settings, Menu, ChevronRight
+  Sun, Moon, LogOut, BarChart3, Settings, Menu, ChevronRight, Clock3, TriangleAlert
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,11 +90,36 @@ function NotifBell() {
   );
 }
 
+function SubscriptionBanner({ status }) {
+  if (!status?.show_banner) return null;
+  const tone = status.severity === "danger"
+    ? "border-rose-200 bg-rose-50 text-rose-900"
+    : status.severity === "warning"
+      ? "border-amber-200 bg-amber-50 text-amber-900"
+      : "border-sky-200 bg-sky-50 text-sky-900";
+  const Icon = status.severity === "danger" ? TriangleAlert : Clock3;
+  return (
+    <div className={`mb-5 rounded-xl border px-4 py-3 ${tone}`}>
+      <div className="flex items-start gap-3">
+        <Icon className="h-5 w-5 mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <div className="font-semibold text-sm">
+            {status.status === "trial" ? "Informasi Masa Trial" : status.status === "grace" ? "Masa Tenggang Langganan" : status.status === "expired" ? "Langganan Berakhir" : "Informasi Langganan"}
+          </div>
+          <div className="text-xs mt-1 leading-5">{status.message}</div>
+          {status.tenant_code && <div className="text-[11px] mt-1 opacity-75">Kode Tenant: {status.tenant_code}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Layout({ children }) {
   const { user, logout } = useAuth();
   const [dark, setDark] = useState(document.documentElement.classList.contains("dark"));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [brand, setBrand] = useState({ name: "App Proc", subtitle: "Procurement & Inventory", logo_available: false, logo_version: null });
+  const [subscription, setSubscription] = useState(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -102,6 +127,7 @@ export function Layout({ children }) {
       setBrand(r.data || {});
       document.title = r.data?.name ? `App Proc | ${r.data.name}` : "App Proc";
     }).catch(() => { document.title = "App Proc"; });
+    api.get("/subscription/status").then((r) => setSubscription(r.data || null)).catch(() => setSubscription(null));
   }, []);
 
   const toggleDark = () => { document.documentElement.classList.toggle("dark"); setDark(!dark); };
@@ -168,7 +194,10 @@ export function Layout({ children }) {
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <div className="p-4 sm:p-6 lg:p-7 max-w-[1680px] w-full mx-auto">{children}</div>
+          <div className="p-4 sm:p-6 lg:p-7 max-w-[1680px] w-full mx-auto">
+            <SubscriptionBanner status={subscription} />
+            {children}
+          </div>
         </main>
       </div>
     </div>

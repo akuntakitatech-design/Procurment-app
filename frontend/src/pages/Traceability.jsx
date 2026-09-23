@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
@@ -17,12 +17,12 @@ export default function Traceability() {
   const [q, setQ] = useState(params.get("mro") || "");
   const [data, setData] = useState(null);
 
-  const run = useCallback(async (val) => {
+  const run = async (val) => {
     if (!val) return;
     try { const r = await api.get(`/traceability/${encodeURIComponent(val)}`); setData(r.data); }
     catch (e) { toast.error(apiError(e.response?.data?.detail)); setData(null); }
-  }, []);
-  useEffect(() => { const mro = params.get("mro"); if (mro) run(mro); }, [params, run]);
+  };
+  useEffect(() => { if (params.get("mro")) run(params.get("mro")); }, []);
 
   const stages = data ? [
     { label: "MRO", nodes: [{ no: data.mro.no }], done: true },

@@ -1,0 +1,61 @@
+services:
+  rehearsal-mongodb:
+    image: mongo:7.0
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - release_rehearsal_mongo:/data/db
+
+  rehearsal-files:
+    image: alpine:3.20
+    restart: "no"
+    volumes:
+      - release_rehearsal_uploads:/target
+    command: ["sh", "-c", "true"]
+
+  rehearsal-backend:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      rehearsal-mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://rehearsal-mongodb:27017
+      DB_NAME: procurement_release_rehearsal
+      JWT_SECRET: ${SAAS_STAGING_JWT_SECRET:?SAAS_STAGING_JWT_SECRET wajib tersedia}
+      ADMIN_EMAIL: ${SAAS_STAGING_ADMIN_EMAIL:?SAAS_STAGING_ADMIN_EMAIL wajib tersedia}
+      ADMIN_PASSWORD: ${SAAS_STAGING_ADMIN_PASSWORD:?SAAS_STAGING_ADMIN_PASSWORD wajib tersedia}
+      DEFAULT_TENANT_ID: tenant-pt-real
+      DEFAULT_COMPANY_ID: company-pt-real
+      DEFAULT_TENANT_SLUG: pt-real
+      DEFAULT_TENANT_NAME: PT REAL
+      DEFAULT_TENANT_MAX_USERS: 100
+      ENABLE_PUBLIC_TENANT_REGISTRATION: "false"
+      TENANT_TRIAL_DAYS: 14
+      DISABLE_LEGACY_USER_SELF_REGISTER: "true"
+      PLATFORM_ADMIN_EMAIL: ${SAAS_STAGING_PLATFORM_EMAIL:-platform-rehearsal@akuntakita.com}
+      PLATFORM_ADMIN_PASSWORD: ${SAAS_STAGING_PLATFORM_PASSWORD:?SAAS_STAGING_PLATFORM_PASSWORD wajib tersedia}
+      PLATFORM_ADMIN_NAME: Release Rehearsal Super Admin
+      ALLOW_DEMO_SEED: "false"
+      WRITE_TEST_CREDENTIALS: "false"
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_PATH: /app/data/uploads
+      FRONTEND_URL: http://localhost:18082
+    volumes:
+      - release_rehearsal_uploads:/app/data/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/docs"]
+      interval: 2s
+      timeout: 4s
+      retries: 60
+    ports:
+      - "127.0.0.1:18082:8000"
+
+volumes:
+  release_rehearsal_mongo:
+  release_rehearsal_uploads:

@@ -1,0 +1,60 @@
+services:
+  full-e2e-mongodb:
+    image: mongo:7.0
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - procurement_full_e2e_test_mongo:/data/db
+
+  full-e2e-api:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      full-e2e-mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://full-e2e-mongodb:27017
+      DB_NAME: procurement_full_e2e_test
+      JWT_SECRET: ${SAAS_STAGING_JWT_SECRET:?SAAS_STAGING_JWT_SECRET wajib tersedia}
+      ADMIN_EMAIL: ${SAAS_STAGING_ADMIN_EMAIL:?SAAS_STAGING_ADMIN_EMAIL wajib tersedia}
+      ADMIN_PASSWORD: ${SAAS_STAGING_ADMIN_PASSWORD:?SAAS_STAGING_ADMIN_PASSWORD wajib tersedia}
+      DEFAULT_TENANT_ID: tenant-full-e2e-test
+      DEFAULT_COMPANY_ID: company-full-e2e-test
+      DEFAULT_TENANT_SLUG: full-e2e-test
+      DEFAULT_TENANT_NAME: PT REAL FULL E2E TEST
+      DEFAULT_TENANT_MAX_USERS: 25
+      ENABLE_PUBLIC_TENANT_REGISTRATION: "false"
+      DISABLE_LEGACY_USER_SELF_REGISTER: "true"
+      ALLOW_DEMO_SEED: "false"
+      WRITE_TEST_CREDENTIALS: "false"
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_PATH: /app/data/uploads
+      FRONTEND_URL: http://localhost:3000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/docs"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+
+  full-e2e-runner:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      full-e2e-mongodb:
+        condition: service_healthy
+      full-e2e-api:
+        condition: service_healthy
+    environment:
+      TEST_API_URL: http://full-e2e-api:8000/api
+      ADMIN_EMAIL: ${SAAS_STAGING_ADMIN_EMAIL:?SAAS_STAGING_ADMIN_EMAIL wajib tersedia}
+      ADMIN_PASSWORD: ${SAAS_STAGING_ADMIN_PASSWORD:?SAAS_STAGING_ADMIN_PASSWORD wajib tersedia}
+    command: ["python", "full_e2e_integrity_test.py"]
+
+volumes:
+  procurement_full_e2e_test_mongo:
