@@ -5,6 +5,8 @@ admin test credentials to disk on startup. Production disables both behaviours b
 """
 import os
 
+os.environ.setdefault("PROCUREFLOW_ENTRY", "bootstrap")
+
 import uvicorn
 
 import server

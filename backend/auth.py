@@ -47,16 +47,38 @@ def create_refresh_token(user_id: str, token_version: int = 0) -> str:
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
-def set_auth_cookies(response, access_token: str, refresh_token: str):
-    response.set_cookie(key="access_token", value=access_token, httponly=True,
-                        secure=True, samesite="none", max_age=3600, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True,
-                        secure=True, samesite="none", max_age=604800, path="/")
+# COOKIE_SECURE: auto (default) | true | false.
+# auto = flag Secure mengikuti protokol request (X-Forwarded-Proto dari Nginx/Traefik).
+# SameSite: "none" hanya bila Secure (lintas domain + HTTPS), selain itu "lax".
+COOKIE_SECURE_SETTING = os.environ.get("COOKIE_SECURE", "auto").strip().lower()
 
 
-def clear_auth_cookies(response):
-    response.delete_cookie("access_token", path="/")
-    response.delete_cookie("refresh_token", path="/")
+def is_secure_request(request) -> bool:
+    if COOKIE_SECURE_SETTING == "true":
+        return True
+    if COOKIE_SECURE_SETTING == "false":
+        return False
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower() if request is not None else ""
+    if proto:
+        return proto == "https"
+    return bool(request is not None and request.url.scheme == "https")
+
+
+def cookie_params(request=None) -> dict:
+    secure = is_secure_request(request)
+    return {"httponly": True, "secure": secure, "samesite": "none" if secure else "lax", "path": "/"}
+
+
+def set_auth_cookies(response, access_token: str, refresh_token: str, request=None):
+    params = cookie_params(request)
+    response.set_cookie(key="access_token", value=access_token, max_age=3600, **params)
+    response.set_cookie(key="refresh_token", value=refresh_token, max_age=604800, **params)
+
+
+def clear_auth_cookies(response, request=None):
+    params = cookie_params(request)
+    response.delete_cookie("access_token", path="/", secure=params["secure"], samesite=params["samesite"], httponly=True)
+    response.delete_cookie("refresh_token", path="/", secure=params["secure"], samesite=params["samesite"], httponly=True)
 
 
 def hash_token(token: str) -> str:

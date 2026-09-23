@@ -4,7 +4,6 @@ from pathlib import Path
 load_dotenv(Path(__file__).parent / '.env')
 
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os, uuid, logging
 from datetime import datetime, timezone
 from typing import Optional, List
@@ -16,9 +15,24 @@ import storage as S
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("procureflow")
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# ---------------------------------------------------------------------------
+# Database: MariaDB melalui lapisan kompatibel-Motor (lihat mariadb_motor.py).
+# Env DATABASE_URL=mysql://user:pass@host:3306/db . Untuk kompatibilitas mundur,
+# jika DATABASE_URL kosong dan MONGO_URL terisi, MongoDB tetap bisa dipakai
+# (berguna untuk pembandingan/validasi migrasi).
+# ---------------------------------------------------------------------------
+if os.environ.get("DATABASE_URL", "").strip():
+    import mariadb_motor
+    client = mariadb_motor.MariaClient(os.environ["DATABASE_URL"],
+                                       auto_schema=os.environ.get("DB_AUTO_SCHEMA", "true").lower() not in ("0", "false", "no"),
+                                       pool_size=int(os.environ.get("DATABASE_POOL_SIZE", "10")))
+    db = client[os.environ.get("DB_NAME", "default")]
+    DB_BACKEND = "mariadb"
+else:
+    from motor.motor_asyncio import AsyncIOMotorClient
+    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+    db = client[os.environ["DB_NAME"]]
+    DB_BACKEND = "mongodb"
 
 app = FastAPI(title="ProcureFlow API")
 api = APIRouter(prefix="/api")
@@ -140,7 +154,7 @@ async def register(body: RegisterIn, response: Response):
            "permissions": ["view", "create"], "scope": "limited", "is_active": True,
            "token_version": 0, "signature_url": None, "created_at": now_iso()}
     await db.users.insert_one(doc)
-    A.set_auth_cookies(response, A.create_access_token(uid, email, 0), A.create_refresh_token(uid, 0))
+    A.set_auth_cookies(response, A.create_access_token(uid, email, 0), A.create_refresh_token(uid, 0), request)
     clean(doc); doc.pop("password_hash", None)
     doc["token"] = A.create_access_token(uid, email, 0)
     return doc
@@ -164,14 +178,14 @@ async def login(body: LoginIn, request: Request, response: Response):
         raise HTTPException(status_code=403, detail="Akun nonaktif")
     await db.login_attempts.delete_many({"identifier": ident})
     tv = user.get("token_version", 0)
-    A.set_auth_cookies(response, A.create_access_token(user["id"], email, tv), A.create_refresh_token(user["id"], tv))
+    A.set_auth_cookies(response, A.create_access_token(user["id"], email, tv), A.create_refresh_token(user["id"], tv), request)
     clean(user); user.pop("password_hash", None)
     user["token"] = A.create_access_token(user["id"], email, tv)
     return user
 
 @api.post("/auth/logout")
-async def logout(response: Response):
-    A.clear_auth_cookies(response)
+async def logout(request: Request, response: Response):
+    A.clear_auth_cookies(response, request)
     return {"ok": True}
 
 @api.get("/auth/me")
@@ -346,13 +360,27 @@ import doc_procurement  # noqa: E402,F401
 import doc_warehouse    # noqa: E402,F401
 import doc_reports      # noqa: E402,F401
 
+@api.get("/_healthcheck")
+async def _healthcheck():
+    return {"message": "Success", "db": DB_BACKEND}
+
+@api.get("/_system")
+async def _system(request: Request):
+    return {"ok": True, "db": DB_BACKEND, "storage": S.STORAGE_DRIVER,
+            "cookieSecure": A.is_secure_request(request), "cookieSecureSetting": A.COOKIE_SECURE_SETTING,
+            "requestProto": request.headers.get("x-forwarded-proto") or request.url.scheme}
+
 app.include_router(api)
+_cors_origins = [o.strip().rstrip("/") for o in (os.environ.get("CORS_ORIGINS") or os.environ.get("FRONTEND_URL", "http://localhost:3000")).split(",") if o.strip()]
 app.add_middleware(CORSMiddleware, allow_credentials=True,
-                   allow_origins=[os.environ.get("FRONTEND_URL", "http://localhost:3000")],
+                   allow_origins=_cors_origins,
                    allow_methods=["*"], allow_headers=["*"])
 
 @app.on_event("startup")
 async def startup():
+    if DB_BACKEND == "mariadb":
+        await db.ping()
+        logger.info("Database: MariaDB (%s)", os.environ.get("DATABASE_URL", "").split("@")[-1])
     await A.seed_admin(db)
     try:
         await db.users.create_index("email", unique=True)
@@ -434,3 +462,12 @@ async def write_test_credentials():
 
 Cookies httpOnly; frontend uses withCredentials. Bearer header also supported.
 """)
+
+
+# ---------------------------------------------------------------------------
+# Entry point tunggal: `uvicorn server:app` otomatis memasang seluruh layer
+# (sama seperti `python production_bootstrap.py`). production_bootstrap mengeset
+# PROCUREFLOW_ENTRY=bootstrap sebelum mengimpor modul ini untuk mencegah impor ganda.
+# ---------------------------------------------------------------------------
+if os.environ.get("PROCUREFLOW_ENTRY") != "bootstrap":
+    import production_bootstrap  # noqa: E402,F401
