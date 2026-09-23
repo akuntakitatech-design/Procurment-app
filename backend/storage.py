@@ -16,13 +16,29 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger(__name__)
 
 APP_NAME = "procureflow"
-STORAGE_DRIVER = os.environ.get("STORAGE_DRIVER", "local").strip().lower()
-LOCAL_PATH = Path(os.environ.get("STORAGE_LOCAL_PATH", "/app/data/uploads"))
-S3_ENDPOINT = os.environ.get("S3_ENDPOINT", "http://minio:9000").strip()
-S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "").strip()
-S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "").strip()
-S3_BUCKET = os.environ.get("S3_BUCKET", "procureflow").strip().lower()
-S3_REGION = os.environ.get("S3_REGION", "us-east-1").strip()
+
+
+def _env(*names, default=""):
+    """Ambil env pertama yang terisi. Mendukung alias R2_* (Cloudflare R2) dan S3_* (MinIO/S3)."""
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return default
+
+
+_R2_ACCOUNT_ID = _env("R2_ACCOUNT_ID")
+STORAGE_DRIVER = _env("STORAGE_DRIVER", default="local").lower()
+if STORAGE_DRIVER == "r2":
+    STORAGE_DRIVER = "s3"
+LOCAL_PATH = Path(_env("STORAGE_LOCAL_PATH", default="/app/data/uploads"))
+S3_ENDPOINT = _env("R2_ENDPOINT", "S3_ENDPOINT",
+                   default=(f"https://{_R2_ACCOUNT_ID}.r2.cloudflarestorage.com" if _R2_ACCOUNT_ID else "http://minio:9000"))
+S3_ACCESS_KEY = _env("R2_ACCESS_KEY_ID", "S3_ACCESS_KEY")
+S3_SECRET_KEY = _env("R2_SECRET_ACCESS_KEY", "S3_SECRET_KEY")
+S3_BUCKET = _env("R2_BUCKET", "S3_BUCKET", default="procureflow").lower()
+S3_REGION = _env("S3_REGION", default=("auto" if "r2.cloudflarestorage.com" in S3_ENDPOINT else "us-east-1"))
+IS_R2 = "r2.cloudflarestorage.com" in S3_ENDPOINT
 
 MIME_TYPES = {
     "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif",
@@ -74,9 +90,12 @@ def init_storage(force: bool = False):
         client = _s3_client()
         try:
             client.head_bucket(Bucket=S3_BUCKET)
-        except ClientError:
+        except ClientError as exc:
+            if IS_R2:
+                # Token R2 umumnya tidak berhak membuat bucket; bucket harus sudah ada.
+                raise RuntimeError(f"Bucket R2 '{S3_BUCKET}' tidak dapat diakses: {exc}") from exc
             client.create_bucket(Bucket=S3_BUCKET)
-        logger.info("Attachment storage: %s (%s/%s)", STORAGE_DRIVER, S3_ENDPOINT, S3_BUCKET)
+        logger.info("Attachment storage: %s (%s/%s)", "r2" if IS_R2 else STORAGE_DRIVER, S3_ENDPOINT, S3_BUCKET)
         return S3_BUCKET
 
     raise RuntimeError(f"Unsupported STORAGE_DRIVER: {STORAGE_DRIVER}")
