@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useMasters } from "@/hooks/useMasters";
@@ -33,7 +33,7 @@ export function RoForm() {
   const {id}=useParams(); const nav=useNavigate(); const {can}=useAuth(); const masters=useMasters();
   const [h,setH]=useState({date:todayISO(),need_date:null,requester:"",department:"",division_id:"",default_warehouse_id:"",default_project_id:"",default_unit_id:"",spk:"",notes:"",document_message:null});
   const [lines,setLines]=useState([]); const [doc,setDoc]=useState(null); const [pull,setPull]=useState(false); const [editing,setEditing]=useState(false); const isNew=!id; const waitingApproval=doc?.approval_status==="Waiting Approval"; const readOnly=!isNew&&!editing;
-  const load=()=>api.get(`/ro/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>({...l,_readonly:true})));setEditing(false);}); useEffect(()=>{if(id)load();},[id]);
+  const load=useCallback(()=>api.get(`/ro/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>({...l,_readonly:true})));setEditing(false);}),[id]); useEffect(()=>{if(id)load();},[id,load]);
   const beginEdit=()=>{setEditing(true);setLines(cur=>cur.map(l=>({...l,_readonly:false})));};
   const onPull=(picked)=>{
     const add=picked.map(p=>({item_id:p.item_id,qty:p._qty,unit:p.unit,uom_id:p.uom_id,conversion_factor:p.conversion_factor||1,warehouse_id:p.warehouse_id||h.default_warehouse_id,project_id:p.project_id||h.default_project_id,unit_id:p.unit_id||h.default_unit_id,_warehouseOverride:!!p.warehouse_id,_projectOverride:!!p.project_id,_unitOverride:!!p.unit_id,notes:"",_locked:true,_sourceHeader:p.source_header||null,_sourceLabel:`MRO: ${p.mro_no}`,sources:[{mro_id:p.mro_id,line_id:p.line_id,qty:p._qty,base_qty:p._qty*(p.conversion_factor||1)}]}));

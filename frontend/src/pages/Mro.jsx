@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useMasters } from "@/hooks/useMasters";
@@ -50,8 +50,8 @@ export function MroForm() {
   const { id } = useParams(); const nav = useNavigate(); const { can } = useAuth(); const masters = useMasters();
   const [h, setH] = useState({ date: todayISO(), requester: "", department: "", division_id: "", default_warehouse_id: "", default_project_id: "", default_unit_id: "", spk: "", need_date: null, notes: "", document_message: null });
   const [lines, setLines] = useState([]); const [doc, setDoc] = useState(null); const [editing,setEditing]=useState(false); const isNew = !id;
-  const load = () => api.get(`/mro/${id}`).then((r) => { setDoc(r.data); setH(r.data); setLines(r.data.lines.map((l) => ({ ...l }))); setEditing(false); });
-  useEffect(() => { if (id) load(); }, [id]); const submitted = doc?.submitted; const waitingApproval = doc?.approval_status === "Waiting Approval"; const readOnly = !isNew && !editing && (submitted || waitingApproval);
+  const load = useCallback(() => api.get(`/mro/${id}`).then((r) => { setDoc(r.data); setH(r.data); setLines(r.data.lines.map((l) => ({ ...l }))); setEditing(false); }), [id]);
+  useEffect(() => { if (id) load(); }, [id, load]); const submitted = doc?.submitted; const waitingApproval = doc?.approval_status === "Waiting Approval"; const readOnly = !isNew && !editing && (submitted || waitingApproval);
   const save = async (submit=false) => { try { const payload={...h,submitted:false,lines}; let res; if(isNew) res=await api.post("/mro",payload); else { await api.put(`/transactions/mro/${id}`,payload); res={data:{id}}; } await saveDocumentMessage("mro",res.data.id,h.document_message); if(submit) await api.post(`/mro/${res.data.id}/submit`); toast.success(submit?"MRO disubmit":"MRO tersimpan"); nav(`/mro/${res.data.id}`); if(!isNew) load(); } catch(e){toast.error(apiError(e.response?.data?.detail));} };
   const doSubmit=async()=>{try{await api.post(`/mro/${id}/submit`);toast.success("MRO disubmit");load();}catch(e){toast.error(apiError(e.response?.data?.detail));}}; const doCancel=async()=>{await api.post(`/mro/${id}/cancel`,{reason:"Dibatalkan user"});toast.success("MRO dibatalkan");load();};
   const factor=(l)=>Number(l.conversion_factor)||1, q=(l,v)=>num((Number(v)||0)/factor(l)), unitText=(l)=>l.display_unit||l.unit||"";
