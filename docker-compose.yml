@@ -1,0 +1,79 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: procurement-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 }).ok' | grep 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - procurement
+
+  backend:
+    build:
+      context: ./backend
+    container_name: procurement-backend
+    restart: unless-stopped
+    environment:
+      MONGO_URL: ${MONGO_URL}
+      DB_NAME: ${DB_NAME}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      FRONTEND_URL: ${PUBLIC_URL}
+      ALLOW_DEMO_SEED: "false"
+      WRITE_TEST_CREDENTIALS: "false"
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_LOCAL_PATH: /app/data/uploads
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Procurement}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+    volumes:
+      - attachment_data:/app/data/uploads
+      - backend_memory:/app/memory
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - procurement
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_BACKEND_URL: ""
+    container_name: procurement-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:${APP_PORT:-8188}:80"
+    networks:
+      procurement:
+      caddy_proxy:
+        aliases:
+          - procurement-frontend
+
+volumes:
+  mongo_data:
+  attachment_data:
+  backend_memory:
+
+networks:
+  procurement:
+    driver: bridge
+  caddy_proxy:
+    external: true
+    name: ${CADDY_NETWORK:-02-vps-selfhost_kebun}

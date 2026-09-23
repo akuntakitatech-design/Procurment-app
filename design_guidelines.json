@@ -1,0 +1,129 @@
+{
+  "project_title": "Enterprise Procurement, Warehouse & Inventory Control System (Indonesian ERP - IDR)",
+  "design_archetype": "The High-Density Swiss Enterprise (Precision & Command Center)",
+  "language_and_currency": {
+    "language": "Bahasa Indonesia (Indonesian)",
+    "currency": "Rupiah (IDR)",
+    "currency_format_example": "Rp 150.000.000",
+    "date_format": "DD/MM/YYYY (HH:mm WIB)",
+    "key_terminology": {
+      "MRO": "Material Request Order (Pengajuan Material)",
+      "RO": "Request Order (Permintaan Pembelian / Barang)",
+      "PO": "Purchase Order (Pesanan Pembelian)",
+      "DO": "Delivery Order / Goods Receipt (Surat Jalan / Penerimaan Barang)",
+      "MI": "Material Issued (Pengeluaran Material)",
+      "Stock Opname": "Stock Opname (Cek Fisik Stok)",
+      "Stock Ledger": "Kartu Stok / Ledger Persediaan",
+      "Inter-warehouse Loan": "Pinjam Antar Gudang",
+      "Stock Adjustment": "Penyesuaian Stok"
+    }
+  },
+  "typography": {
+    "font_families": {
+      "headings": "Plus Jakarta Sans, sans-serif",
+      "body": "IBM Plex Sans, sans-serif",
+      "monospace_codes": "JetBrains Mono, Roboto Mono, monospace"
+    },
+    "hierarchy_rules": {
+      "h1_page_title": "text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100",
+      "h2_section_header": "text-lg sm:text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100",
+      "h3_card_title": "text-base font-semibold text-slate-800 dark:text-slate-200",
+      "table_header": "text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400",
+      "body_text": "text-sm font-normal text-slate-700 dark:text-slate-300",
+      "code_sku_badge": "font-mono text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+    },
+    "forbidden_fonts": ["Inter for headings", "Space Grotesk"]
+  },
+  "colors": {
+    "theme_mode": "Hybrid (Supports Light & Dark theme toggle via 'dark' class on <html>)",
+    "palette": {
+      "primary_brand": "hsl(224, 64%, 33%)",
+      "primary_brand_hover": "hsl(224, 64%, 28%)",
+      "primary_accent": "hsl(217, 91%, 60%)",
+      "background_light": "hsl(210, 20%, 98%)",
+      "surface_light": "hsl(0, 0%, 100%)",
+      "background_dark": "hsl(222, 47%, 11%)",
+      "surface_dark": "hsl(222, 47%, 15%)",
+      "border_light": "hsl(214, 32%, 91%)",
+      "border_dark": "hsl(217, 33%, 22%)",
+      "text_muted_light": "hsl(215, 16%, 47%)",
+      "text_muted_dark": "hsl(215, 20%, 65%)"
+    },
+    "status_badge_colors": {
+      "draft": "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700",
+      "pending_approval": "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800",
+      "approved": "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
+      "rejected": "bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border-rose-200 dark:border-rose-800",
+      "partial_fulfilled": "bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border-sky-200 dark:border-sky-800",
+      "completed": "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800",
+      "cancelled": "bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-500 line-through"
+    },
+    "forbidden_colors": ["#1B93A4 (Teal forbidden for dashboards)", "#7351B7"]
+  },
+  "spacing_and_layout": {
+    "density_mode": "MODE B: High Density Enterprise Grid",
+    "table_padding": "py-2.5 px-3 text-sm",
+    "card_padding": "p-5 sm:p-6",
+    "form_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6",
+    "line_item_table_container": "border rounded-md overflow-hidden bg-white dark:bg-slate-900 shadow-sm",
+    "modal_padding": "p-6 max-w-4xl max-h-[90vh] overflow-y-auto"
+  },
+  "document_lifecycle_traceability": {
+    "flow": ["MRO (Request Material)", "RO (Purchase Request)", "PO (Purchase Order + Approval)", "DO (Goods Receipt)", "MI (Material Issued)"],
+    "pull_document_dialog": {
+      "title": "Tarik Dokumen Referensi (MRO / RO / PO)",
+      "search_placeholder": "Cari Nomor Dokumen, Proyek, Supplier...",
+      "multi_select_rule": "User can select full document or individual line-items with Outstanding Qty > 0",
+      "auto_fill_fields": ["item_id", "item_code", "item_name", "unit", "requested_qty", "outstanding_qty", "unit_price"]
+    },
+    "traceability_visualization": "Use horizontal step timeline with clickable node popovers showing document number, timestamp, executor name, status, and linked target documents."
+  },
+  "components_and_ui_patterns": {
+    "file_extension_note": "Target components are JavaScript files (.js / .jsx)",
+    "shadcn_overrides": {
+      "dropdown_menu": "Must NEVER have transparent background. Apply 'bg-popover text-popover-foreground shadow-md border border-border z-50'",
+      "tab_list": "Override h-9 to h-auto p-1 bg-slate-100 dark:bg-slate-800 rounded-lg border",
+      "table": "Must include sticky headers for long tables and zebra striping option for fast scanning",
+      "date_picker": "Use Shadcn Calendar component inside Popover (DO NOT use native HTML <input type='date'>)",
+      "toast": "Use Sonner toast notifications with data-testid='toast-message'"
+    },
+    "master_data_management": {
+      "modules": ["Master Item (Barang)", "Gudang (Warehouses)", "Proyek (Projects)", "Aset / Unit (Assets)", "Divisi (Divisions)", "Pemasok (Suppliers)"],
+      "features": ["Filterable data tables", "Quick inline view/edit modal", "CSV/Excel export & import option", "Active/Inactive status toggle"]
+    },
+    "stock_control_modules": {
+      "warehouse_transfer": "Transfer stok antar gudang dengan verifikasi pengirim & penerima",
+      "inter_warehouse_loan": "Pinjam & Pengembalian barang antar gudang / proyek dengan tanggal jatuh tempo",
+      "stock_adjustment": "Penyesuaian stok manual dengan alasan (Hilang, Rusak, Selisih Opname)",
+      "stock_opname": "Fitur Cek Fisik Stok berkala dengan perbandingan Sistem vs Fisik & Auto Adjustment"
+    },
+    "print_designer_and_pdf": {
+      "features": "Preview mode, custom company logo header, signatures block for Creator/Checker/Approver, QR Code verification containing verification hash + doc ID",
+      "print_styles": "@media print { body { bg: white; } .no-print { display: none; } }"
+    }
+  },
+  "image_urls": {
+    "warehouse_banner": "https://images.pexels.com/photos/4487383/pexels-photo-4487383.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "inventory_aisle": "https://images.pexels.com/photos/31112251/pexels-photo-31112251.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "user_avatar": "https://images.unsplash.com/photo-1740252117044-2af197eea287?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzJ8MHwxfHNlYXJjaHwxfHx3YXJlaG91c2UlMjBpbnZlbnRvcnklMjBsb2dpc3RpY3MlMjB3b3JrZXIlMjBhdmF0YXJ8ZW58MHx8fHwxNzg5NTYzNDIzfDA&ixlib=rb-4.1.0&q=85"
+  },
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "You tend to converge toward generic outputs. In frontend design, this creates 'AI slop'. Avoid this by designing crisp, data-dense, enterprise-grade UIs.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as heavy full-screen gradients.",
+    "Create depth through subtle 1px crisp borders (border-slate-200 dark:border-slate-800) and layered card structures.",
+    "You MUST NOT apply universal transition (e.g. 'transition: all'). Always apply specific transitions like 'transition-colors duration-150' or 'transition-opacity'.",
+    "You MUST NOT center align the app container (.App { text-align: center }). Left-align reading flows for high readability.",
+    "Every interaction needs micro-interactions: hover highlights on table rows, subtle scale on button presses, clear active focus rings.",
+    "Cramped designs look cheap. Use balanced padding (p-4 to p-6) inside data cards.",
+    "All interactive elements MUST include data-testid attributes (e.g. data-testid='create-mro-button', data-testid='tarik-ro-select-all').",
+    "Header and dropdown menus MUST NOT have pure transparent backgrounds; use backdrop-blur and opaque elevated surfaces."
+  ],
+  "instructions_to_main_agent": [
+    "Ensure all user-facing text uses proper Bahasa Indonesia terms (Pengajuan Material, Surat Jalan, Supplier, Stock Opname, Kartu Stok).",
+    "All currency figures must be formatted as Indonesian Rupiah (e.g., Rp 12.500.000).",
+    "Ensure document status badges use consistent color coding across MRO, RO, PO, DO, and MI.",
+    "Implement the 'Tarik Dokumen' modal logic allowing multi-select of pending line-items with auto-calculation of outstanding quantities.",
+    "Provide search & filtering on all tables including global search in top navigation.",
+    "Include Audit Trail tab or timeline for document history and approval approvals."
+  ]
+}

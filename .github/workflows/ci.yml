@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - self-hosted-production
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Compile backend
+        run: python -m compileall -q backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: yarn install --non-interactive
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          REACT_APP_BACKEND_URL: ''
+          CI: 'false'
+        run: yarn build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Compose
+        env:
+          APP_PORT: '8088'
+          PUBLIC_URL: 'https://procurement.example.com'
+          MONGO_ROOT_USERNAME: 'procurement_admin'
+          MONGO_ROOT_PASSWORD: 'test_password_123'
+          DB_NAME: 'procurement'
+          MONGO_URL: 'mongodb://procurement_admin:test_password_123@mongodb:27017/procurement?authSource=admin'
+          JWT_SECRET: 'test_jwt_secret_1234567890'
+          ADMIN_EMAIL: 'admin@example.com'
+          ADMIN_PASSWORD: 'test_admin_password'
+          STORAGE_DRIVER: 'minio'
+          MINIO_ROOT_USER: 'procurement_storage'
+          MINIO_ROOT_PASSWORD: 'test_minio_password_123'
+          S3_BUCKET: 'procureflow'
+          S3_REGION: 'us-east-1'
+        run: docker compose config >/dev/null
