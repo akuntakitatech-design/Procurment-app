@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useMasters } from "@/hooks/useMasters";
@@ -34,8 +34,8 @@ export function DoForm(){
   const projOpts=(masters.data.projects||[]).map(d=>({value:d.id,label:`${d.code?d.code+" — ":""}${d.name}${d.pic?` · PIC ${d.pic}`:""}`,selectedLabel:d.name}));
   const unitOpts=(masters.data.units||[]).map(d=>({value:d.id,label:`${d.code?d.code+" — ":""}${d.name}${d.plate_no?` (${d.plate_no})`:""}${d.asset_no?` · Asset ${d.asset_no}`:""}`,selectedLabel:d.plate_no||d.name}));
   const conditionOpts=[{value:"Baik",label:"Baik"},{value:"Rusak",label:"Rusak"},{value:"Kurang",label:"Kurang"},{value:"Lebih",label:"Lebih"}];
-  const load=()=>api.get(`/do/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>({...l,exception_qty:Number(l.exception_qty)||0,_readonly:true})));setEditing(false);});
-  useEffect(()=>{if(id)load();},[id]);
+  const load=useCallback(()=>api.get(`/do/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>({...l,exception_qty:Number(l.exception_qty)||0,_readonly:true})));setEditing(false);}),[id]);
+  useEffect(()=>{if(id)load();},[id,load]);
   const beginEdit=()=>{setEditing(true);setLines(cur=>cur.map(l=>({...l,_readonly:false,exception_qty:Number(l.exception_qty)||0,sources:l.po_line_id?[{po_id:l.po_id,line_id:l.po_line_id,qty:l.qty,base_qty:l.qty}]:[]})));};
   const setHeader=(next)=>{const n=typeof next==="function"?next(h):next;const changed=["default_project_id","default_unit_id"].filter(k=>(n[k]||"")!==(h[k]||""));if(changed.length)setLines(cur=>cur.map(l=>{const x={...l};changed.forEach(k=>{const field=k==="default_project_id"?"project_id":"unit_id",flag=k==="default_project_id"?"_projectOverride":"_unitOverride";if(!x[flag]&&(!x[field]||x[field]===h[k]))x[field]=n[k]||"";});return x;}));setH(n);};
   const changeWarehouse=v=>{const old=h.default_warehouse_id;setH({...h,default_warehouse_id:v});setLines(cur=>cur.map(l=>(!l._warehouseOverride&&(!l.warehouse_id||l.warehouse_id===old)?{...l,warehouse_id:v}:l)));};

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import api, { apiError } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,12 +65,12 @@ export default function ActivityLog() {
     return p.toString();
   }, [applied, page]);
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     api.get(`/activity-log?${params}`).then((r) => setData(r.data)).catch((e) => toast.error(apiError(e.response?.data?.detail))).finally(() => setLoading(false));
-  };
+  }, [params]);
 
-  useEffect(() => { load(); }, [params]);
+  useEffect(() => { load(); }, [load]);
 
   const apply = (e) => {
     e?.preventDefault?.();

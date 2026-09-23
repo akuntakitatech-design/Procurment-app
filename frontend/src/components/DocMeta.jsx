@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import api, { API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Paperclip, Upload, Trash2, FileText, History } from "lucide-react";
@@ -8,11 +8,11 @@ import { toast } from "sonner";
 export function AttachmentPanel({ entity, entityId }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const load = () => {
+  const load = useCallback(() => {
     if (!entityId) { setFiles([]); return; }
     api.get(`/attachments?entity=${entity}&entity_id=${entityId}`).then((r) => setFiles(r.data));
-  };
-  useEffect(() => { load(); }, [entity, entityId]);
+  }, [entity, entityId]);
+  useEffect(() => { load(); }, [load]);
 
   const upload = async (e) => {
     const file = e.target.files[0];
