@@ -57,6 +57,11 @@ PLATFORM_ADMIN_NAME=Akuntakita Super Admin
 # Opsional: SMTP untuk email PO/undangan (SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM, SMTP_FROM_NAME, SMTP_USE_TLS)
 ```
 
+> **Status cut-over 2026-09-23 (MariaDB Coolify `:46791`)**: data produksi app.akuntakita.com (949 item, 63 supplier, 357 stock ledger, dst.)
+> sudah di-backfill sebagai tenant pertama `tenant-pt-real` ("PT. Rajawali Emas Ancora Lestari"), branding + logo KelolaKita terpasang
+> (logo di R2), Platform Super Admin `platform@akuntakita.com` sudah dibuat. Env di atas (`DEFAULT_TENANT_ID=tenant-pt-real`, dst.)
+> **wajib sama** agar backend Coolify mengenali tenant tersebut. Password `agustrnt@gmail.com` = password yang berlaku di app.akuntakita.com.
+
 > **Penting (data dari staging KelolaKita di VPS):** data staging memakai `DEFAULT_TENANT_ID=tenant-pt-real-staging`,
 > `DEFAULT_COMPANY_ID=company-pt-real-staging`, `DEFAULT_TENANT_SLUG=pt-real-staging`, `DEFAULT_TENANT_NAME=PT REAL STAGING`.
 > Bila data yang dimigrasi berasal dari staging tersebut, **samakan nilai `DEFAULT_*` dengan sumbernya** agar tenant pertama

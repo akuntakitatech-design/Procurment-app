@@ -757,15 +757,22 @@ class MariaCollection:
                 return None, UpdateResult(0, 0)
             targets = rows if many else rows[:1]
             modified = 0; first_before = None; first_after = None
+            pending = []
+            now = datetime.utcnow()
             for i, (pk, doc) in enumerate(targets):
                 before = deepcopy(doc)
                 after = _apply_update(deepcopy(doc), update)
                 after.pop("_id", None)
                 if i == 0: first_before, first_after = before, after
                 if after != before:
-                    await db._execute(f"UPDATE {_q(self.name)} SET doc = %s, updated_at = %s WHERE pk = %s",
-                                      [_json_dumps(after), datetime.utcnow(), pk], conn=conn)
+                    pending.append([_json_dumps(after), now, pk])
                     modified += 1
+            if pending:
+                # satu baris → execute biasa; banyak baris (update_many) → batch agar cepat walau latensi tinggi
+                if len(pending) == 1:
+                    await db._execute(f"UPDATE {_q(self.name)} SET doc = %s, updated_at = %s WHERE pk = %s", pending[0], conn=conn)
+                else:
+                    await db._executemany(f"UPDATE {_q(self.name)} SET doc = %s, updated_at = %s WHERE pk = %s", pending, conn=conn)
             result = UpdateResult(len(targets), modified)
             if return_doc is not None:
                 chosen = first_before if return_doc == ReturnDocument.BEFORE else first_after
@@ -973,6 +980,23 @@ class MariaDatabase:
         async with pool.acquire() as c:
             async with c.cursor() as cur:
                 await cur.execute(sql, params); return cur.rowcount
+
+    async def _executemany(self, sql: str, seq_params: Sequence[Sequence], conn=None, chunk: int = 200) -> int:
+        """Eksekusi batch (executemany per chunk) — memangkas round-trip untuk update_many/backfill."""
+        total = 0
+        rows = list(seq_params)
+        if not rows: return 0
+        async def run(cur):
+            nonlocal total
+            for i in range(0, len(rows), chunk):
+                await cur.executemany(sql, rows[i:i + chunk]); total += cur.rowcount or 0
+        if conn is not None:
+            async with conn.cursor() as cur: await run(cur)
+            return total
+        pool = await self._get_pool()
+        async with pool.acquire() as c:
+            async with c.cursor() as cur: await run(cur)
+        return total
 
     async def ping(self):
         await self._fetchall("SELECT 1", []); return True
