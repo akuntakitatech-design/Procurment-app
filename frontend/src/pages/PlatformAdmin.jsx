@@ -131,7 +131,10 @@ export default function PlatformAdmin() {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

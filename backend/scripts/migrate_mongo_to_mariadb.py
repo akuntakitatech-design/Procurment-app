@@ -38,12 +38,20 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 import mariadb_motor as M  # noqa: E402
 
 
-def deterministic_pk(coll: str, doc: dict) -> str:
+def deterministic_pk(coll: str, doc: dict, seen: set | None = None) -> str:
+    """pk sama dengan aturan runtime shim (M._pick_pk): id, atau tenant_id:id untuk data multi-tenant.
+    Bila masih bentrok dalam satu koleksi (Mongo mengizinkan id ganda), pakai UUID."""
     if isinstance(doc.get("id"), str) and doc["id"]:
-        return doc["id"]
-    if coll == "item_warehouse" and doc.get("item_id") and doc.get("warehouse_id"):
-        return "iw-" + hashlib.sha1(f"{doc['item_id']}|{doc['warehouse_id']}".encode()).hexdigest()[:40]
-    return str(uuid.uuid4())
+        pk = M._pick_pk(doc)
+    elif coll == "item_warehouse" and doc.get("item_id") and doc.get("warehouse_id"):
+        pk = "iw-" + hashlib.sha1(f"{doc['item_id']}|{doc['warehouse_id']}".encode()).hexdigest()[:40]
+    else:
+        pk = str(uuid.uuid4())
+    if seen is not None:
+        if pk in seen:
+            pk = str(uuid.uuid4())
+        seen.add(pk)
+    return pk
 
 
 def parse_dt(value):
@@ -93,9 +101,10 @@ async def migrate(args):
             await db._execute(f"DELETE FROM {M._q(coll)}", [])
         docs = list(mongo[coll].find({}))
         rows_to_insert = []
+        seen_pk: set = set()
         for raw in docs:
             doc = to_jsonable(raw)
-            pk = deterministic_pk(coll, doc)
+            pk = deterministic_pk(coll, doc, seen_pk)
             created = parse_dt(doc.get("created_at")) or parse_dt(doc.get("at")) or parse_dt(doc.get("date")) or datetime.utcnow()
             rows_to_insert.append((pk, json.dumps(doc, ensure_ascii=False, default=str), created, datetime.utcnow()))
         # batch insert (multi-row) agar cepat walau latensi jaringan tinggi

@@ -47,7 +47,10 @@ export default function PlatformInvitations({ tenantId }) {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
 
   const saveAccessDays = async () => {
     const days = Number(accessDays);
