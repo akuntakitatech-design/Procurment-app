@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useMasters } from "@/hooks/useMasters";
@@ -34,7 +34,7 @@ export function PoForm(){
   const supplierMap=masters.map("suppliers"),taxesMap=masters.map("taxes"),divisionMap=masters.map("divisions"),selectedSupplier=supplierMap[h.supplier_id]||null;
   const bankOptions=(selectedSupplier?.banks||[]).map(b=>({value:b.id,label:`${b.bank_name||"Bank"} — ${b.account_no||"-"}${b.account_name?` · ${b.account_name}`:""}${b.is_primary?" · Utama":""}`,selectedLabel:`${b.bank_name||"Bank"} · ${b.account_no||"-"}`}));
   const buyerOptions=(masters.data.contacts||[]).map(c=>({value:c.id,label:`${c.name||"Tanpa Nama"}${c.position?` — ${c.position}`:""}${c.division_id&&divisionMap[c.division_id]?.name?` · ${divisionMap[c.division_id].name}`:""}`,selectedLabel:c.name||c.code}));
-  const load=()=>api.get(`/po/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>({...l,_taxInitialized:true,_readonly:true})));setEditing(false);});useEffect(()=>{if(id)load();},[id]);
+  const load=useCallback(()=>api.get(`/po/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>({...l,_taxInitialized:true,_readonly:true})));setEditing(false);}),[id]);useEffect(()=>{if(id)load();},[id,load]);
   const beginEdit=()=>{setEditing(true);setLines(cur=>cur.map(l=>({...l,_readonly:false})));};
   const taxPatch=(taxId)=>{const t=taxId?taxesMap[taxId]:null;return{tax_id:taxId||"",tax:Number(t?.rate)||0,tax_name:t?.name||null,_taxInitialized:true};};
   const handleLinesChange=(next)=>setLines(next.map(l=>l._taxInitialized?l:({...l,...taxPatch(h.default_tax_id)})));

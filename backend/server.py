@@ -144,7 +144,7 @@ class LoginIn(BaseModel):
     password: str
 
 @api.post("/auth/register")
-async def register(body: RegisterIn, response: Response):
+async def register(body: RegisterIn, request: Request, response: Response):
     email = body.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email sudah terdaftar")
