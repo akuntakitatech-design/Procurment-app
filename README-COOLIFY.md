@@ -39,7 +39,34 @@ R2_ACCOUNT_ID=<account id cloudflare>
 R2_ACCESS_KEY_ID=<access key>
 R2_SECRET_ACCESS_KEY=<secret>
 R2_BUCKET=media-procurmentapp
+
+# --- Multi-tenant / SaaS (versi KelolaKita) — WAJIB ---
+DEFAULT_TENANT_ID=tenant-pt-real
+DEFAULT_COMPANY_ID=company-pt-real
+DEFAULT_TENANT_SLUG=pt-real
+DEFAULT_TENANT_NAME=PT REAL
+DEFAULT_TENANT_MAX_USERS=25
+ENABLE_PUBLIC_TENANT_REGISTRATION=false
+TENANT_TRIAL_DAYS=14
+DISABLE_LEGACY_USER_SELF_REGISTER=true
+PLATFORM_ADMIN_EMAIL=<email super admin platform>
+PLATFORM_ADMIN_PASSWORD=<password kuat>
+PLATFORM_ADMIN_NAME=Akuntakita Super Admin
+# Opsional: batas upload lampiran (MB), default 15
+# MAX_UPLOAD_MB=15
+# Opsional: SMTP untuk email PO/undangan (SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM, SMTP_FROM_NAME, SMTP_USE_TLS)
 ```
+
+> **Status cut-over 2026-09-23 (MariaDB Coolify `:46791`)**: data produksi app.akuntakita.com (949 item, 63 supplier, 357 stock ledger, dst.)
+> sudah di-backfill sebagai tenant pertama `tenant-pt-real` ("PT. Rajawali Emas Ancora Lestari"), branding + logo KelolaKita terpasang
+> (logo di R2), Platform Super Admin `platform@akuntakita.com` sudah dibuat. Env di atas (`DEFAULT_TENANT_ID=tenant-pt-real`, dst.)
+> **wajib sama** agar backend Coolify mengenali tenant tersebut. Password `agustrnt@gmail.com` = password yang berlaku di app.akuntakita.com.
+
+> **Penting (data dari staging KelolaKita di VPS):** data staging memakai `DEFAULT_TENANT_ID=tenant-pt-real-staging`,
+> `DEFAULT_COMPANY_ID=company-pt-real-staging`, `DEFAULT_TENANT_SLUG=pt-real-staging`, `DEFAULT_TENANT_NAME=PT REAL STAGING`.
+> Bila data yang dimigrasi berasal dari staging tersebut, **samakan nilai `DEFAULT_*` dengan sumbernya** agar tenant pertama
+> tidak dibuat ganda. Platform Super Admin: `PLATFORM_ADMIN_EMAIL` yang sama dengan sumber (`platform-staging@akuntakita.com`)
+> — bila sudah ada, password lama dipertahankan.
 
 Backend tidak perlu domain publik; frontend mem-proxy `/api`. Bila memakai domain terpisah untuk API,
 isi `FRONTEND_URL`/`CORS_ORIGINS` dengan origin frontend (cookie otomatis `SameSite=None; Secure` di HTTPS).
@@ -115,8 +142,16 @@ python scripts/poc_diff_endpoints.py --mariadb http://localhost:8000 --mongo-url
        --mongo-db procurement_migrasi --email <admin> --password <pass> --start-mongo-backend
 ```
 
-Hasil migrasi 2026-09-23: **41/41 koleksi cocok** (mis. items 949, stock_ledger 357, audit_logs 1.438),
-5 lampiran terunggah, differential test 56/59 endpoint identik (3 sisanya perbedaan lingkungan uji, bukan bug).
+Riwayat migrasi:
+- 2026-09-23 (versi lama PT Rajawali, `/opt/procurement`): 41/41 koleksi cocok, 5 lampiran, differential test 56/59 identik.
+- 2026-09-23 (versi **KelolaKita** multi-tenant, `procurement-tenant-test` / `procurement_saas_staging`): **47/47 koleksi cocok**
+  (2 tenant, 3 user, 10 item, 2 PO, 36 stock_ledger, platform_settings + branding), 4 file branding (logo platform & company) ke R2,
+  differential test tenant admin **72/75** dan platform admin **59/61** identik (sisanya stempel `updated_at` startup & logo pada
+  instance uji berstorage lokal), 13 test integritas penulis (`*_test.py` via HTTP) lulus di MariaDB
+  (`bash scripts/run_integrity_tests_mariadb.sh`).
+
+Catatan multi-tenant pada MariaDB: dokumen dengan `id` sama di beberapa tenant (mis. `settings.numbering` per tenant)
+disimpan dengan `pk = "<tenant_id>:<id>"`; lookup tetap memakai kolom generated `id` yang terindeks.
 
 ## 6. Skema & regenerasi
 

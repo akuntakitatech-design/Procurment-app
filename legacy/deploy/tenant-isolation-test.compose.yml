@@ -1,0 +1,27 @@
+services:
+  tenant-test-mongodb:
+    image: mongo:7.0
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - tenant_test_mongo:/data/db
+
+  tenant-test-runner:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      tenant-test-mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://tenant-test-mongodb:27017
+      DB_NAME: procurement_tenant_test
+      JWT_SECRET: tenant_test_jwt_secret_only
+    command: ["python", "tenant_isolation_integration_test.py"]
+
+volumes:
+  tenant_test_mongo:

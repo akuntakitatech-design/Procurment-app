@@ -53,15 +53,41 @@ function MiniRank({ title, icon: Icon, rows, financial }) {
   </CardContent></Card>;
 }
 
+function SubscriptionBanner({ subscription }) {
+  if (!subscription?.show_banner) return null;
+  const danger = subscription.severity === "danger";
+  const style = danger
+    ? "border-[#EEDADA] bg-[#FBF3F3] text-[#8F3F3F]"
+    : "border-[#EEE2CA] bg-[#FBF7EF] text-[#80571D]";
+  const label = ({ trial: "Masa Trial", active: "Langganan", grace: "Masa Tenggang", expired: "Langganan Berakhir", suspended: "Langganan Ditangguhkan" })[subscription.status] || "Informasi Langganan";
+  return <div className={`rounded-2xl border p-4 sm:p-5 ${style}`}>
+    <div className="flex items-start gap-3">
+      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="font-head text-sm font-semibold">{label}</div>
+        <div className="mt-1 text-sm leading-6">{subscription.message}</div>
+        {subscription.tenant_code && <div className="mt-2 text-[11px] opacity-80">Kode Tenant: <span className="font-mono font-semibold">{subscription.tenant_code}</span></div>}
+      </div>
+    </div>
+  </div>;
+}
+
 export default function Dashboard() {
   const [d, setD] = useState(null);
   const [p, setP] = useState(null);
+  const [subscription, setSubscription] = useState(null);
   const [expanded, setExpanded] = useState({});
   const nav = useNavigate();
 
   useEffect(() => {
-    Promise.all([api.get("/dashboard"), api.get("/dashboard-premium")]).then(([base, premium]) => {
-      setD(base.data); setP(premium.data);
+    Promise.all([
+      api.get("/dashboard"),
+      api.get("/dashboard-premium"),
+      api.get("/subscription/status").catch(() => ({ data: null })),
+    ]).then(([base, premium, sub]) => {
+      setD(base.data);
+      setP(premium.data);
+      setSubscription(sub.data || null);
     });
   }, []);
 
@@ -91,6 +117,8 @@ export default function Dashboard() {
       <Button variant="outline" onClick={() => nav("/mro/new")} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />MRO Baru</Button>
       <Button onClick={() => nav("/po/new")} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />PO Baru</Button>
     </PageHeader>
+
+    <SubscriptionBanner subscription={subscription} />
 
     <section className="space-y-4">
       <SectionTitle title="Ringkasan Pembelian" subtitle={`Kinerja Purchase Order tahun ${p.year}. Nilai menggunakan basis DPP / sebelum pajak.`} />

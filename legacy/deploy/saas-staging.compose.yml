@@ -1,0 +1,63 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - saas_staging_mongo:/data/db
+
+  backend:
+    build:
+      context: ../backend
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://mongodb:27017
+      DB_NAME: procurement_saas_staging
+      JWT_SECRET: ${SAAS_STAGING_JWT_SECRET:?SAAS_STAGING_JWT_SECRET wajib diisi}
+      ADMIN_EMAIL: ${SAAS_STAGING_ADMIN_EMAIL:-bootstrap-staging@akuntakita.com}
+      ADMIN_PASSWORD: ${SAAS_STAGING_ADMIN_PASSWORD:?SAAS_STAGING_ADMIN_PASSWORD wajib diisi}
+      DEFAULT_TENANT_ID: tenant-pt-real-staging
+      DEFAULT_COMPANY_ID: company-pt-real-staging
+      DEFAULT_TENANT_SLUG: pt-real-staging
+      DEFAULT_TENANT_NAME: PT REAL STAGING
+      DEFAULT_TENANT_MAX_USERS: 25
+      ENABLE_PUBLIC_TENANT_REGISTRATION: "true"
+      TENANT_TRIAL_DAYS: 14
+      DISABLE_LEGACY_USER_SELF_REGISTER: "true"
+      PLATFORM_ADMIN_EMAIL: ${SAAS_STAGING_PLATFORM_EMAIL:-platform-staging@akuntakita.com}
+      PLATFORM_ADMIN_PASSWORD: ${SAAS_STAGING_PLATFORM_PASSWORD:?SAAS_STAGING_PLATFORM_PASSWORD wajib diisi}
+      PLATFORM_ADMIN_NAME: Akuntakita Staging Super Admin
+      ALLOW_DEMO_SEED: "false"
+      WRITE_TEST_CREDENTIALS: "false"
+      STORAGE_DRIVER: local
+      FRONTEND_URL: http://localhost:18080
+    volumes:
+      - saas_staging_uploads:/app/data/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/docs"]
+      interval: 3s
+      timeout: 4s
+      retries: 45
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        REACT_APP_BACKEND_URL: ""
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:18080:80"
+
+volumes:
+  saas_staging_mongo:
+  saas_staging_uploads:

@@ -109,6 +109,20 @@ def _normalize_modules(raw):
 def install(server):
     app = server.app
 
+    # The legacy router already exposes /api/settings/{key}. Because Starlette/FastAPI
+    # resolves matching routes in registration order, that generic route would otherwise
+    # swallow /api/settings/print_layouts before this specialized normalized handler runs.
+    # Temporarily move only the generic settings GET/PUT routes to the end; all other
+    # settings keys keep the exact same endpoint and behavior.
+    generic_settings_routes = []
+    for route in list(app.router.routes):
+        if getattr(route, "path", None) != "/api/settings/{key}":
+            continue
+        methods = getattr(route, "methods", set()) or set()
+        if "GET" in methods or "PUT" in methods:
+            app.router.routes.remove(route)
+            generic_settings_routes.append(route)
+
     @app.get("/api/settings/print_layouts", tags=["settings"])
     async def get_print_layouts(user=Depends(server.current_user)):
         server.require(user, "view")
@@ -126,3 +140,7 @@ def install(server):
         )
         await server.audit(user, "edit", "settings", "print_layouts", "Layout Dokumen")
         return {"id": "print_layouts", "modules": modules}
+
+    # Restore the exact legacy route objects after the specialized print-layout handlers.
+    # This changes only route precedence, not their implementation or permissions.
+    app.router.routes.extend(generic_settings_routes)

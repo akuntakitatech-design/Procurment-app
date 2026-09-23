@@ -598,6 +598,31 @@ def _sql_value(v: Any):
     return v
 
 
+def _pick_pk(doc: dict) -> str:
+    """Primary key deterministik untuk dokumen baru.
+
+    - `id` string → pk = id (kompatibel dengan data lama, lookup by id cepat).
+    - Bila dokumen ber-`tenant_id` (multi-tenant), pk = "<tenant_id>:<id>" karena `id` yang sama
+      (mis. settings `numbering`, `company`) boleh ada di tiap tenant.
+    - Panjang dibatasi 64 karakter (kolom pk); bila lebih, dipadatkan dengan sha1.
+    - Tanpa `id` → UUID.
+    """
+    doc_id = doc.get("id")
+    if not (isinstance(doc_id, str) and doc_id):
+        return str(uuid.uuid4())
+    tenant = doc.get("tenant_id")
+    pk = f"{tenant}:{doc_id}" if isinstance(tenant, str) and tenant else doc_id
+    if len(pk) > 64:
+        import hashlib
+        pk = pk[:23] + "~" + hashlib.sha1(pk.encode("utf-8")).hexdigest()
+    return pk
+
+
+def _is_duplicate_pk(exc: Exception) -> bool:
+    args = getattr(exc, "args", ())
+    return bool(args) and args[0] == 1062
+
+
 class MariaCollection:
     def __init__(self, db: "MariaDatabase", name: str):
         self.database = db; self.name = name; self.full_name = name
@@ -679,11 +704,20 @@ class MariaCollection:
     async def insert_one(self, document: dict, *args, **kwargs) -> InsertOneResult:
         await self._columns()
         doc = dict(document); doc.pop("_id", None)
-        pk = doc.get("id") if isinstance(doc.get("id"), str) and doc.get("id") else str(uuid.uuid4())
+        pk = _pick_pk(doc)
         created = _parse_dt(doc.get("created_at")) or _parse_dt(doc.get("at")) or datetime.utcnow()
-        await self.database._execute(
-            f"INSERT INTO {_q(self.name)} (pk, doc, created_at, updated_at) VALUES (%s, %s, %s, %s)",
-            [pk, _json_dumps(doc), created, datetime.utcnow()])
+        try:
+            await self.database._execute(
+                f"INSERT INTO {_q(self.name)} (pk, doc, created_at, updated_at) VALUES (%s, %s, %s, %s)",
+                [pk, _json_dumps(doc), created, datetime.utcnow()])
+        except Exception as exc:  # noqa: BLE001
+            # Mongo mengizinkan beberapa dokumen dengan `id` sama (mis. settings per tenant);
+            # bila pk deterministik bentrok, pakai UUID agar semantik Mongo tetap terjaga.
+            if not _is_duplicate_pk(exc): raise
+            pk = str(uuid.uuid4())
+            await self.database._execute(
+                f"INSERT INTO {_q(self.name)} (pk, doc, created_at, updated_at) VALUES (%s, %s, %s, %s)",
+                [pk, _json_dumps(doc), created, datetime.utcnow()])
         return InsertOneResult(pk)
 
     async def insert_many(self, documents: Iterable[dict], *args, **kwargs) -> InsertManyResult:
@@ -707,25 +741,38 @@ class MariaCollection:
                     seed = _upsert_seed(flt)
                     new = _apply_update(seed, update, is_insert=True)
                     new.pop("_id", None)
-                    pk = new.get("id") if isinstance(new.get("id"), str) and new.get("id") else str(uuid.uuid4())
+                    pk = _pick_pk(new)
                     created = _parse_dt(new.get("created_at")) or datetime.utcnow()
-                    await db._execute(f"INSERT INTO {_q(self.name)} (pk, doc, created_at, updated_at) VALUES (%s, %s, %s, %s)",
-                                      [pk, _json_dumps(new), created, datetime.utcnow()], conn=conn)
+                    try:
+                        await db._execute(f"INSERT INTO {_q(self.name)} (pk, doc, created_at, updated_at) VALUES (%s, %s, %s, %s)",
+                                          [pk, _json_dumps(new), created, datetime.utcnow()], conn=conn)
+                    except Exception as exc:  # noqa: BLE001
+                        if not _is_duplicate_pk(exc): raise
+                        pk = str(uuid.uuid4())
+                        await db._execute(f"INSERT INTO {_q(self.name)} (pk, doc, created_at, updated_at) VALUES (%s, %s, %s, %s)",
+                                          [pk, _json_dumps(new), created, datetime.utcnow()], conn=conn)
                     if return_doc is not None:
                         return (None if return_doc == ReturnDocument.BEFORE else _project(new, projection)), UpdateResult(0, 0, pk)
                     return None, UpdateResult(0, 0, pk)
                 return None, UpdateResult(0, 0)
             targets = rows if many else rows[:1]
             modified = 0; first_before = None; first_after = None
+            pending = []
+            now = datetime.utcnow()
             for i, (pk, doc) in enumerate(targets):
                 before = deepcopy(doc)
                 after = _apply_update(deepcopy(doc), update)
                 after.pop("_id", None)
                 if i == 0: first_before, first_after = before, after
                 if after != before:
-                    await db._execute(f"UPDATE {_q(self.name)} SET doc = %s, updated_at = %s WHERE pk = %s",
-                                      [_json_dumps(after), datetime.utcnow(), pk], conn=conn)
+                    pending.append([_json_dumps(after), now, pk])
                     modified += 1
+            if pending:
+                # satu baris → execute biasa; banyak baris (update_many) → batch agar cepat walau latensi tinggi
+                if len(pending) == 1:
+                    await db._execute(f"UPDATE {_q(self.name)} SET doc = %s, updated_at = %s WHERE pk = %s", pending[0], conn=conn)
+                else:
+                    await db._executemany(f"UPDATE {_q(self.name)} SET doc = %s, updated_at = %s WHERE pk = %s", pending, conn=conn)
             result = UpdateResult(len(targets), modified)
             if return_doc is not None:
                 chosen = first_before if return_doc == ReturnDocument.BEFORE else first_after
@@ -884,7 +931,14 @@ class MariaDatabase:
     def get_collection(self, name: str) -> MariaCollection: return self[name]
 
     async def list_collection_names(self) -> List[str]:
-        rows = await self._fetchall("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'", [])
+        # Hanya tabel berformat koleksi (memiliki kolom pk + doc); tabel internal seperti
+        # `_schema_meta` atau tabel bantu lain tidak dianggap koleksi Mongo.
+        rows = await self._fetchall(
+            "SELECT t.TABLE_NAME FROM information_schema.TABLES t"
+            " WHERE t.TABLE_SCHEMA = DATABASE() AND t.TABLE_TYPE = 'BASE TABLE'"
+            "   AND t.TABLE_NAME NOT LIKE '\\_%%'"
+            "   AND EXISTS (SELECT 1 FROM information_schema.COLUMNS c WHERE c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME AND c.COLUMN_NAME = 'pk')"
+            "   AND EXISTS (SELECT 1 FROM information_schema.COLUMNS c WHERE c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME AND c.COLUMN_NAME = 'doc')", [])
         return [r[0] for r in rows]
 
     async def command(self, cmd, *a, **k):
@@ -926,6 +980,23 @@ class MariaDatabase:
         async with pool.acquire() as c:
             async with c.cursor() as cur:
                 await cur.execute(sql, params); return cur.rowcount
+
+    async def _executemany(self, sql: str, seq_params: Sequence[Sequence], conn=None, chunk: int = 200) -> int:
+        """Eksekusi batch (executemany per chunk) — memangkas round-trip untuk update_many/backfill."""
+        total = 0
+        rows = list(seq_params)
+        if not rows: return 0
+        async def run(cur):
+            nonlocal total
+            for i in range(0, len(rows), chunk):
+                await cur.executemany(sql, rows[i:i + chunk]); total += cur.rowcount or 0
+        if conn is not None:
+            async with conn.cursor() as cur: await run(cur)
+            return total
+        pool = await self._get_pool()
+        async with pool.acquire() as c:
+            async with c.cursor() as cur: await run(cur)
+        return total
 
     async def ping(self):
         await self._fetchall("SELECT 1", []); return True

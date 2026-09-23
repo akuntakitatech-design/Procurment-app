@@ -1,0 +1,63 @@
+services:
+  tenant-test-mongodb:
+    image: mongo:7.0
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - tenant_security_test_mongo:/data/db
+
+  tenant-test-api:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      tenant-test-mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_URL: mongodb://tenant-test-mongodb:27017
+      DB_NAME: procurement_tenant_security_test
+      JWT_SECRET: tenant_security_test_jwt_secret_only
+      ADMIN_EMAIL: bootstrap-security-test@akuntakita.com
+      ADMIN_PASSWORD: BootstrapSecurityTest!123
+      DEFAULT_TENANT_ID: tenant-pt-real
+      DEFAULT_COMPANY_ID: company-pt-real
+      DEFAULT_TENANT_SLUG: pt-real
+      DEFAULT_TENANT_NAME: PT REAL SECURITY TEST
+      DEFAULT_TENANT_MAX_USERS: 25
+      ENABLE_PUBLIC_TENANT_REGISTRATION: "false"
+      ALLOW_DEMO_SEED: "false"
+      WRITE_TEST_CREDENTIALS: "false"
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_PATH: /tmp/tenant-security-uploads
+      FRONTEND_URL: http://localhost:3000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/docs"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+
+  tenant-security-test-runner:
+    build:
+      context: ../backend
+    restart: "no"
+    depends_on:
+      tenant-test-mongodb:
+        condition: service_healthy
+      tenant-test-api:
+        condition: service_healthy
+    environment:
+      TEST_API_URL: http://tenant-test-api:8000/api
+      MONGO_URL: mongodb://tenant-test-mongodb:27017
+      DB_NAME: procurement_tenant_security_test
+      JWT_SECRET: tenant_security_test_jwt_secret_only
+      DEFAULT_TENANT_ID: tenant-pt-real
+      DEFAULT_COMPANY_ID: company-pt-real
+      TEST_EMAIL_DOMAIN: akuntakita.com
+    command: ["python", "tenant_security_hardening_integration_test.py"]
+
+volumes:
+  tenant_security_test_mongo:

@@ -1,8 +1,9 @@
 """Safe deletion for master data.
 
 Unused master records may be permanently removed. Records already referenced by
-transactions or dependent master data are protected so historical documents and
-operational references never become orphaned.
+transactions, transaction lines, ledgers, users, or dependent master data are
+protected so historical documents and operational references never become
+orphaned.
 """
 from fastapi import Depends, HTTPException
 
@@ -26,6 +27,12 @@ TRANSACTION_COLLECTIONS = [
     "adjustments", "opname",
 ]
 
+TRANSACTION_LINE_COLLECTIONS = [
+    "mro_lines", "ro_lines", "po_lines", "do_lines", "mi_lines",
+    "transfer_lines", "loan_lines", "loan_return_lines",
+    "adjustment_lines", "opname_lines",
+]
+
 
 def _find_route(app, path, method):
     for route in list(app.router.routes):
@@ -35,9 +42,22 @@ def _find_route(app, path, method):
 
 
 async def _first_reference(server, collection, query, label):
-    row = await server.db[collection].find_one(query, {"_id": 0, "id": 1, "no": 1, "code": 1, "name": 1})
+    row = await server.db[collection].find_one(
+        query,
+        {"_id": 0, "id": 1, "no": 1, "code": 1, "name": 1,
+         "mro_id": 1, "ro_id": 1, "po_id": 1, "do_id": 1, "mi_id": 1,
+         "transfer_id": 1, "loan_id": 1, "return_id": 1,
+         "adjustment_id": 1, "opname_id": 1},
+    )
     if row:
-        ref = row.get("no") or row.get("code") or row.get("name") or row.get("id") or "data terkait"
+        ref = (
+            row.get("no") or row.get("code") or row.get("name")
+            or row.get("mro_id") or row.get("ro_id") or row.get("po_id")
+            or row.get("do_id") or row.get("mi_id") or row.get("transfer_id")
+            or row.get("loan_id") or row.get("return_id")
+            or row.get("adjustment_id") or row.get("opname_id")
+            or row.get("id") or "data terkait"
+        )
         return f"{label}: {ref}"
     return None
 
@@ -51,21 +71,47 @@ async def _transaction_reference(server, rid, fields):
     return None
 
 
+async def _transaction_line_reference(server, rid, fields):
+    query = {"$or": [{field: rid} for field in fields]}
+    for collection in TRANSACTION_LINE_COLLECTIONS:
+        hit = await _first_reference(server, collection, query, collection.upper())
+        if hit:
+            return hit
+    return None
+
+
 async def _dependency(server, name, rid):
-    # Direct transaction references.
-    tx_fields = {
-        "items": ["item_id", "lines.item_id"],
-        "warehouses": ["warehouse_id", "default_warehouse_id", "from_warehouse_id", "to_warehouse_id", "lines.warehouse_id", "lines.from_warehouse_id", "lines.to_warehouse_id"],
-        "projects": ["project_id", "default_project_id", "lines.project_id"],
-        "units": ["unit_id", "default_unit_id", "lines.unit_id"],
-        "suppliers": ["supplier_id", "lines.supplier_id"],
-        "divisions": ["division_id", "lines.division_id"],
+    # Direct references stored on transaction headers.
+    header_fields = {
+        "warehouses": ["warehouse_id", "default_warehouse_id", "from_warehouse_id", "to_warehouse_id"],
+        "projects": ["project_id", "default_project_id"],
+        "units": ["unit_id", "default_unit_id"],
+        "suppliers": ["supplier_id"],
+        "divisions": ["division_id"],
         "contacts": ["buyer_contact_id", "requester_contact_id", "receiver_contact_id"],
-        "uoms": ["uom_id", "lines.uom_id"],
-        "taxes": ["default_tax_id", "tax_id", "lines.tax_id"],
+        "taxes": ["default_tax_id"],
     }
-    if name in tx_fields:
-        hit = await _transaction_reference(server, rid, tx_fields[name])
+    if name in header_fields:
+        hit = await _transaction_reference(server, rid, header_fields[name])
+        if hit:
+            return hit
+
+    # Historical references stored on transaction line collections. These must
+    # be checked separately because procurement documents do not embed lines in
+    # their headers.
+    line_fields = {
+        "items": ["item_id"],
+        "warehouses": ["warehouse_id", "from_warehouse_id", "to_warehouse_id"],
+        "projects": ["project_id"],
+        "units": ["unit_id"],
+        "suppliers": ["supplier_id"],
+        "divisions": ["division_id"],
+        "contacts": ["buyer_contact_id", "requester_contact_id", "receiver_contact_id"],
+        "uoms": ["uom_id", "base_uom_id"],
+        "taxes": ["tax_id"],
+    }
+    if name in line_fields:
+        hit = await _transaction_line_reference(server, rid, line_fields[name])
         if hit:
             return hit
 
@@ -83,12 +129,13 @@ async def _dependency(server, name, rid):
             return hit
 
     # Master-to-master dependencies. These are blocked too, otherwise dropdown
-    # references would become invalid even before a transaction exists.
+    # references and access-control assignments would become invalid.
     master_refs = {
         "item_categories": [("items", {"category_id": rid}, "Barang"), ("suppliers", {"supplied_category_ids": rid}, "Supplier")],
         "uoms": [("items", {"$or": [{"base_uom_id": rid}, {"uoms.uom_id": rid}]}, "Barang")],
         "taxes": [("suppliers", {"default_tax_id": rid}, "Supplier")],
         "supplier_categories": [("suppliers", {"supplier_category_id": rid}, "Supplier")],
+        "warehouses": [("users", {"warehouses": rid}, "User")],
         "divisions": [
             ("items", {"division_id": rid}, "Barang"),
             ("warehouses", {"division_id": rid}, "Gudang"),
@@ -105,11 +152,17 @@ async def _dependency(server, name, rid):
     # Inventory balance/configuration is removable together with an item or
     # warehouse only when it has no stock. Non-zero stock is always protected.
     if name == "items":
-        row = await server.db.item_warehouse.find_one({"item_id": rid, "current_stock": {"$ne": 0}}, {"_id": 0, "warehouse_id": 1, "current_stock": 1})
+        row = await server.db.item_warehouse.find_one(
+            {"item_id": rid, "current_stock": {"$ne": 0}},
+            {"_id": 0, "warehouse_id": 1, "current_stock": 1},
+        )
         if row:
             return f"Persediaan masih memiliki saldo {row.get('current_stock', 0)}"
     if name == "warehouses":
-        row = await server.db.item_warehouse.find_one({"warehouse_id": rid, "current_stock": {"$ne": 0}}, {"_id": 0, "item_id": 1, "current_stock": 1})
+        row = await server.db.item_warehouse.find_one(
+            {"warehouse_id": rid, "current_stock": {"$ne": 0}},
+            {"_id": 0, "item_id": 1, "current_stock": 1},
+        )
         if row:
             return f"Gudang masih memiliki saldo persediaan {row.get('current_stock', 0)}"
 
@@ -134,14 +187,23 @@ def install(server):
         used_by = await _dependency(server, name, rid)
         if used_by:
             label = MASTER_LABELS.get(name, "Data master")
-            raise HTTPException(status_code=409, detail=f"{label} tidak dapat dihapus karena sudah digunakan / direferensikan oleh {used_by}")
+            raise HTTPException(
+                status_code=409,
+                detail=f"{label} tidak dapat dihapus karena sudah digunakan / direferensikan oleh {used_by}",
+            )
 
         # Clean non-historical configuration rows that point to an otherwise
         # unused item/warehouse. Transaction ledgers are never deleted here.
         if name == "items":
-            await server.db.item_warehouse.delete_many({"item_id": rid, "$or": [{"current_stock": 0}, {"current_stock": {"$exists": False}}]})
+            await server.db.item_warehouse.delete_many({
+                "item_id": rid,
+                "$or": [{"current_stock": 0}, {"current_stock": {"$exists": False}}],
+            })
         elif name == "warehouses":
-            await server.db.item_warehouse.delete_many({"warehouse_id": rid, "$or": [{"current_stock": 0}, {"current_stock": {"$exists": False}}]})
+            await server.db.item_warehouse.delete_many({
+                "warehouse_id": rid,
+                "$or": [{"current_stock": 0}, {"current_stock": {"$exists": False}}],
+            })
 
         await col.delete_one({"id": rid})
         await server.audit(
@@ -151,4 +213,9 @@ def install(server):
         )
         return {"ok": True, "deleted": True}
 
-    app.add_api_route("/api/master/{name}/{rid}", delete_master_safe, methods=["DELETE"], tags=["master"])
+    app.add_api_route(
+        "/api/master/{name}/{rid}",
+        delete_master_safe,
+        methods=["DELETE"],
+        tags=["master"],
+    )

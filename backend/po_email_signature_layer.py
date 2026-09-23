@@ -95,11 +95,12 @@ def install(server):
         if len(data) > 5 * 1024 * 1024:
             raise HTTPException(400, "Ukuran tanda tangan maksimal 5 MB")
         ext = IMAGE_TYPES[ctype]
-        path = f"settings/po-signature.{ext}"
-        S.put_object(path, data, ctype)
+        requested_path = f"settings/po-signature.{ext}"
+        stored = S.put_object(requested_path, data, ctype)
+        stored_path = stored.get("path") or requested_path
         version = server.now_iso()
         values = {
-            "po_signature_path": path,
+            "po_signature_path": stored_path,
             "po_signature_content_type": ctype,
             "po_signature_version": version,
             "updated_by": user.get("email"),
@@ -118,7 +119,7 @@ def install(server):
             upsert=True,
         )
         await server.audit(user, "edit", "settings", SIGNATURE_SETTING_ID, reason="Tanda tangan PO diperbarui")
-        return {"ok": True, "path": path, "version": version}
+        return {"ok": True, "path": stored_path, "version": version}
 
     @app.get("/api/settings/print_layouts/po/signature", tags=["settings"])
     async def get_po_signature(user=Depends(server.current_user)):
