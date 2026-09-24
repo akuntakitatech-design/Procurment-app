@@ -1,5 +1,10 @@
 # Procurement (ProcureFlow) — Akuntakita
 
+[![frontend proc.akuntakita.com](https://img.shields.io/badge/frontend-proc.akuntakita.com-1f6feb?style=flat-square&logo=globe&logoColor=white)](https://proc.akuntakita.com) [![api proc.akuntakita.com/api](https://img.shields.io/badge/api-proc.akuntakita.com%2Fapi-2ea043?style=flat-square&logo=serverless&logoColor=white)](https://proc.akuntakita.com/api) ![media Cloudflare R2](https://img.shields.io/badge/media-Cloudflare%20R2-f38020?style=flat-square&logo=cloudflare&logoColor=white) ![workflow PR only · emergent-agent](https://img.shields.io/badge/workflow-PR%20only%20%C2%B7%20emergent--agent-8957e5?style=flat-square&logo=github&logoColor=white)
+
+![Python 3.12](https://img.shields.io/badge/Python-3.12-3776ab?style=flat-square&logo=python&logoColor=white) ![FastAPI 0.110](https://img.shields.io/badge/FastAPI-0.110-009688?style=flat-square&logo=fastapi&logoColor=white) ![MariaDB 11](https://img.shields.io/badge/MariaDB-11-003545?style=flat-square&logo=mariadb&logoColor=white) ![React 19](https://img.shields.io/badge/React-19-20232a?style=flat-square&logo=react&logoColor=61dafb) ![CRA 5 · CRACO 7](https://img.shields.io/badge/CRA-5%20%C2%B7%20CRACO%207-09d3ac?style=flat-square&logo=createreactapp&logoColor=black) ![Tailwind 3.4](https://img.shields.io/badge/Tailwind-3.4-06b6d4?style=flat-square&logo=tailwindcss&logoColor=white) ![Nginx 1.27](https://img.shields.io/badge/Nginx-1.27-009639?style=flat-square&logo=nginx&logoColor=white) ![Docker Coolify](https://img.shields.io/badge/Docker-Coolify-2496ed?style=flat-square&logo=docker&logoColor=white)
+
+
 Aplikasi web **pengadaan & pengelolaan gudang** (procurement-to-warehouse) untuk perusahaan dengan banyak
 divisi/gudang: permintaan barang (MRO), permintaan pembelian (RO), purchase order (PO) dengan alur
 approval, penerimaan barang (DO), pengeluaran barang (MI), pinjaman & retur, transfer antar gudang,
