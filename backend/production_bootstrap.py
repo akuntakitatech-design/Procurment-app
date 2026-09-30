@@ -60,6 +60,7 @@ import do_receipt_guard_layer
 import do_receipt_condition_layer
 import excel_import_layer
 import opening_inventory_layer
+import spk_layer
 
 
 async def production_seed_defaults():
@@ -180,6 +181,12 @@ do_receipt_condition_layer.install(server)
 opening_inventory_layer.install(server, excel_import_layer)
 # Install last so transaction imports call the final wrapped transaction endpoints.
 excel_import_layer.install(server)
+
+# CP1 — SPK Foundation: Master SPK, budget policy (tenant default + per-SPK), documents,
+# effective-policy service and audit. Registered with the business layers (before isolation)
+# so its non-global collections (spk, spk_documents, spk_budget_allocations,
+# budget_policy_audit_logs) are automatically tenant-scoped by the isolation proxy.
+spk_layer.install(server)
 
 # SaaS registration/platform routes are registered before isolation activation. Their startup
 # bootstrap runs after the default PT REAL tenant backfill and creates only platform metadata.

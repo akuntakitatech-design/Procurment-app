@@ -9,8 +9,53 @@ import { Field } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
 import { clearDocumentMessageDefaultsCache } from "@/components/DocumentMessageEditor";
 import { EmailOutbound } from "@/components/EmailOutboundSettings";
-import { Save, Trash2, Image as ImageIcon, Plus, ArrowUp, ArrowDown, FileText } from "lucide-react";
+import { Save, Trash2, Image as ImageIcon, Plus, ArrowUp, ArrowDown, FileText, ShieldCheck } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
+
+const POLICY_OPTS = [{ value: "WARNING_ONLY", label: "Warning Only" }, { value: "HARD_BLOCK", label: "Hard Block" }];
+
+function BudgetControl() {
+  const { can } = useAuth();
+  const canManage = can("procurement_budget_policy:manage");
+  const canView = can("procurement_budget_policy:view") || canManage;
+  const [p, setP] = useState(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { api.get("/procurement/budget-policy").then((r) => setP(r.data)).catch(() => setP(null)); }, []);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/procurement/budget-policy", {
+        default_global_budget_policy: p.default_global_budget_policy,
+        default_category_budget_policy: p.default_category_budget_policy,
+      });
+      toast.success("Budget Control Policy tersimpan");
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
+    finally { setSaving(false); }
+  };
+  if (!canView) return <Card><CardContent className="pt-6 text-sm text-muted-foreground">Anda tidak memiliki izin melihat Budget Control Policy.</CardContent></Card>;
+  if (!p) return <Card><CardContent className="pt-6 text-sm text-muted-foreground">Memuat...</CardContent></Card>;
+  return <Card><CardContent className="pt-6 space-y-5">
+    <div className="flex items-start gap-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/8 text-primary"><ShieldCheck className="h-4.5 w-4.5" /></div>
+      <div><div className="font-head font-semibold">Default Budget Control Policy Tenant</div>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">Kebijakan default ketika budget procurement terlampaui. Global dan Category dapat berbeda. SPK dapat mengikuti default ini atau memakai policy custom.</p></div>
+    </div>
+    <div className="grid md:grid-cols-2 gap-4 max-w-2xl">
+      <Field label="Default Global Budget Control">
+        <Combobox options={POLICY_OPTS} value={p.default_global_budget_policy} onChange={(v) => canManage && setP({ ...p, default_global_budget_policy: v })} />
+      </Field>
+      <Field label="Default Category Budget Control">
+        <Combobox options={POLICY_OPTS} value={p.default_category_budget_policy} onChange={(v) => canManage && setP({ ...p, default_category_budget_policy: v })} />
+      </Field>
+    </div>
+    <div className="rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground max-w-2xl">
+      <b>Warning Only</b>: transaksi tetap lanjut namun over-budget dicatat & diberi peringatan. <b>Hard Block</b>: transaksi tidak dapat difinalisasi bila melebihi budget (berlaku saat submit/approval nanti).
+    </div>
+    {canManage ? <Button onClick={save} disabled={saving} data-testid="budget-policy-save"><Save className="h-4 w-4 mr-2" />{saving ? "Menyimpan..." : "Simpan Budget Control"}</Button>
+      : <div className="text-xs text-muted-foreground">Mode read-only (butuh izin procurement_budget_policy:manage untuk mengubah).</div>}
+  </CardContent></Card>;
+}
 
 function Company() {
   const [c, setC] = useState({});
@@ -181,5 +226,5 @@ function DocumentMessages() {
 }
 
 export default function Settings() {
-  return <div><PageHeader title="System Settings" subtitle="Konfigurasi perusahaan, branding, email outbound, penomoran, approval, dan pesan dokumen" /><Tabs defaultValue="company"><TabsList className="flex-wrap h-auto"><TabsTrigger value="company">Perusahaan</TabsTrigger><TabsTrigger value="email">Email Outbound</TabsTrigger><TabsTrigger value="numbering">Penomoran</TabsTrigger><TabsTrigger value="approval">Approval</TabsTrigger><TabsTrigger value="messages">Pesan Default Dokumen</TabsTrigger></TabsList><TabsContent value="company" className="mt-4"><Company /></TabsContent><TabsContent value="email" className="mt-4"><EmailOutbound /></TabsContent><TabsContent value="numbering" className="mt-4"><Numbering /></TabsContent><TabsContent value="approval" className="mt-4"><ApprovalLevels /></TabsContent><TabsContent value="messages" className="mt-4"><DocumentMessages /></TabsContent></Tabs></div>;
+  return <div><PageHeader title="System Settings" subtitle="Konfigurasi perusahaan, branding, email outbound, penomoran, approval, dan pesan dokumen" /><Tabs defaultValue="company"><TabsList className="flex-wrap h-auto"><TabsTrigger value="company">Perusahaan</TabsTrigger><TabsTrigger value="email">Email Outbound</TabsTrigger><TabsTrigger value="numbering">Penomoran</TabsTrigger><TabsTrigger value="approval">Approval</TabsTrigger><TabsTrigger value="procurement">Procurement</TabsTrigger><TabsTrigger value="messages">Pesan Default Dokumen</TabsTrigger></TabsList><TabsContent value="company" className="mt-4"><Company /></TabsContent><TabsContent value="email" className="mt-4"><EmailOutbound /></TabsContent><TabsContent value="numbering" className="mt-4"><Numbering /></TabsContent><TabsContent value="approval" className="mt-4"><ApprovalLevels /></TabsContent><TabsContent value="procurement" className="mt-4"><BudgetControl /></TabsContent><TabsContent value="messages" className="mt-4"><DocumentMessages /></TabsContent></Tabs></div>;
 }
