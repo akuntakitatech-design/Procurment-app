@@ -21,9 +21,11 @@ export default function PlatformBranding() {
   });
 
   const [file, setFile] = useState(null);
+  const [faviconFile, setFaviconFile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingFav, setUploadingFav] = useState(false);
   const [err, setErr] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -50,6 +52,21 @@ export default function PlatformBranding() {
         data.logo_version || "1"
       )}`
     : null;
+
+  const faviconUrl = data.favicon_available
+    ? `${API}/platform-branding/favicon?v=${encodeURIComponent(
+        data.favicon_version || "1"
+      )}`
+    : null;
+
+  const applyFavicon = (href) => {
+    if (!href) return;
+    ["icon", "shortcut icon", "apple-touch-icon"].forEach((rel) => {
+      let link = document.querySelector(`link[rel='${rel}']`);
+      if (!link) { link = document.createElement("link"); link.rel = rel; document.head.appendChild(link); }
+      link.href = href;
+    });
+  };
 
   const save = async (e) => {
     e.preventDefault();
@@ -115,6 +132,44 @@ export default function PlatformBranding() {
 
       setFile(null);
       setSuccess("Logo aplikasi berhasil dihapus.");
+    } catch (e) {
+      setErr(apiError(e.response?.data?.detail) || e.message);
+    }
+  };
+
+  const uploadFavicon = async () => {
+    if (!faviconFile) return;
+    if (faviconFile.size > 1024 * 1024) { setErr("Ukuran favicon maksimal 1 MB."); return; }
+    setUploadingFav(true);
+    setErr("");
+    setSuccess("");
+    try {
+      const form = new FormData();
+      form.append("file", faviconFile);
+      const r = await api.post("/platform/branding/favicon", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setData(r.data || data);
+      setFaviconFile(null);
+      const href = `${API}/platform-branding/favicon?v=${encodeURIComponent(r.data?.favicon_version || Date.now())}`;
+      applyFavicon(href);
+      setSuccess("Favicon berhasil diupload & aktif di tab browser.");
+    } catch (e) {
+      setErr(apiError(e.response?.data?.detail) || e.message);
+    } finally {
+      setUploadingFav(false);
+    }
+  };
+
+  const removeFavicon = async () => {
+    if (!window.confirm("Hapus favicon saat ini? Aplikasi akan memakai favicon default.")) return;
+    setErr("");
+    setSuccess("");
+    try {
+      await api.delete("/platform/branding/favicon");
+      setData((x) => ({ ...x, favicon_available: false, favicon_version: null }));
+      setFaviconFile(null);
+      setSuccess("Favicon berhasil dihapus. Memakai favicon default.");
     } catch (e) {
       setErr(apiError(e.response?.data?.detail) || e.message);
     }
@@ -205,6 +260,54 @@ export default function PlatformBranding() {
           <p className="mt-2 text-[11px] text-muted-foreground">
             PNG, JPG, atau WEBP. Maksimal 5 MB.
           </p>
+
+          <div className="mt-5 pt-5 border-t">
+            <div className="text-xs font-semibold text-slate-700 mb-2">Favicon</div>
+            <div className="rounded-2xl border bg-slate-50 min-h-[96px] flex items-center justify-center p-4" data-testid="favicon-preview">
+              {faviconUrl ? (
+                <img src={faviconUrl} alt="Favicon" className="h-12 w-12 object-contain" />
+              ) : (
+                <div className="text-center">
+                  <Image className="h-7 w-7 mx-auto text-slate-300" />
+                  <div className="mt-1 text-[11px] text-muted-foreground">Favicon default</div>
+                </div>
+              )}
+            </div>
+            <div className="mt-3">
+              <Input
+                type="file"
+                accept="image/png,image/webp,image/x-icon,.ico"
+                onChange={(e) => setFaviconFile(e.target.files?.[0] || null)}
+                data-testid="favicon-file-input"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-2 w-full"
+              disabled={!faviconFile || uploadingFav}
+              onClick={uploadFavicon}
+              data-testid="favicon-upload-btn"
+            >
+              {uploadingFav ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              Upload Favicon
+            </Button>
+            {data.favicon_available && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="mt-1 w-full text-red-600 hover:text-red-700"
+                onClick={removeFavicon}
+                data-testid="favicon-delete-btn"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Hapus Favicon
+              </Button>
+            )}
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              PNG, ICO, atau WEBP. Maksimal 1 MB. Tampil di tab browser semua halaman.
+            </p>
+          </div>
         </div>
 
         <form onSubmit={save} className="space-y-4">

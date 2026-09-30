@@ -19,7 +19,16 @@ ALLOWED_TYPES = {
     "image/webp": "webp",
 }
 
+ALLOWED_FAVICON_TYPES = {
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/x-icon": "ico",
+    "image/vnd.microsoft.icon": "ico",
+    "image/ico": "ico",
+}
+
 MAX_LOGO_SIZE = 5 * 1024 * 1024
+MAX_FAVICON_SIZE = 1 * 1024 * 1024
 
 
 def _global_db(server):
@@ -107,6 +116,8 @@ def install(server):
             "subtitle": row.get("subtitle") or defaults["subtitle"],
             "logo_available": bool(row.get("logo_path")),
             "logo_version": row.get("logo_version"),
+            "favicon_available": bool(row.get("favicon_path")),
+            "favicon_version": row.get("favicon_version"),
         }
 
     @app.get("/api/platform-branding/logo", tags=["platform-branding"])
@@ -188,6 +199,100 @@ def install(server):
         })
 
         return await public_platform_branding()
+
+    @app.get("/api/platform-branding/favicon", tags=["platform-branding"])
+    async def public_platform_favicon():
+        db = _global_db(server)
+        row = await db.platform_settings.find_one({"id": BRANDING_ID}, {"_id": 0}) or {}
+        path = row.get("favicon_path")
+        if not path:
+            raise HTTPException(status_code=404, detail="Favicon belum diupload")
+        try:
+            data, detected_type = _global_get_object(path)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="File favicon tidak ditemukan")
+        content_type = row.get("favicon_content_type") or detected_type or "image/png"
+        return Response(content=data, media_type=content_type, headers={"Cache-Control": "no-cache"})
+
+    @app.post("/api/platform/branding/favicon", tags=["platform"])
+    async def upload_platform_favicon(file: UploadFile = File(...), user=Depends(server.current_user)):
+        _require_platform_admin(user)
+        db = _global_db(server)
+
+        content_type = (file.content_type or "").lower()
+        ext = ALLOWED_FAVICON_TYPES.get(content_type)
+        # Some browsers send .ico as application/octet-stream — fall back to file extension.
+        if not ext:
+            fname = (file.filename or "").lower()
+            if fname.endswith(".ico"):
+                ext, content_type = "ico", "image/x-icon"
+            elif fname.endswith(".png"):
+                ext, content_type = "png", "image/png"
+            elif fname.endswith(".webp"):
+                ext, content_type = "webp", "image/webp"
+        if not ext:
+            raise HTTPException(status_code=400, detail="Favicon harus PNG, ICO, atau WEBP")
+
+        data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="File favicon kosong")
+        if len(data) > MAX_FAVICON_SIZE:
+            raise HTTPException(status_code=400, detail="Ukuran favicon maksimal 1 MB")
+
+        path = f"{S.APP_NAME}/branding/platform-favicon.{ext}"
+        result = _global_put_object(path, data, content_type)
+        version = server.now_iso()
+        update = {
+            "favicon_path": result["path"],
+            "favicon_filename": Path(file.filename or f"platform-favicon.{ext}").name,
+            "favicon_content_type": content_type,
+            "favicon_size": result.get("size", len(data)),
+            "favicon_version": version,
+            "updated_at": version,
+        }
+        await db.platform_settings.update_one(
+            {"id": BRANDING_ID},
+            {"$set": update, "$setOnInsert": {
+                "id": BRANDING_ID,
+                "name": "KelolaKita Procurement",
+                "tagline": "Kelola Bersama. Tumbuh Bersama.",
+                "subtitle": "Procurement • Warehouse • Inventory",
+            }},
+            upsert=True,
+        )
+        await db.platform_audit_logs.insert_one({
+            "id": str(uuid.uuid4()),
+            "action": "platform.branding.favicon.upload",
+            "tenant_id": None,
+            "user_id": user.get("id"),
+            "user_email": user.get("email"),
+            "after": {"filename": update["favicon_filename"], "size": update["favicon_size"]},
+            "at": server.now_iso(),
+        })
+        return await public_platform_branding()
+
+    @app.delete("/api/platform/branding/favicon", tags=["platform"])
+    async def delete_platform_favicon(user=Depends(server.current_user)):
+        _require_platform_admin(user)
+        db = _global_db(server)
+        await db.platform_settings.update_one(
+            {"id": BRANDING_ID},
+            {"$unset": {
+                "favicon_path": "", "favicon_filename": "", "favicon_content_type": "",
+                "favicon_size": "", "favicon_version": "",
+            }, "$set": {"updated_at": server.now_iso()}},
+            upsert=True,
+        )
+        await db.platform_audit_logs.insert_one({
+            "id": str(uuid.uuid4()),
+            "action": "platform.branding.favicon.delete",
+            "tenant_id": None,
+            "user_id": user.get("id"),
+            "user_email": user.get("email"),
+            "after": {},
+            "at": server.now_iso(),
+        })
+        return {"ok": True}
 
     @app.post("/api/platform/branding/logo", tags=["platform"])
     async def upload_platform_logo(

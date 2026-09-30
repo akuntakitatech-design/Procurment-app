@@ -202,6 +202,10 @@ def _install_storage_hardening():
 
     S.put_object = scoped_put_object
     S.get_object = scoped_get_object
+    # Expose the unscoped originals so platform-level (global) branding storage — logo &
+    # favicon that are shared across all tenants — can bypass tenant scoping deterministically.
+    S._tenant_storage_original_put = original_put
+    S._tenant_storage_original_get = original_get
     S._tenant_storage_hardening_installed = True
 
 

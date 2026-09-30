@@ -20,6 +20,7 @@ import tenant_invite_layer
 import tenant_invite_platform_layer
 import subscription_lifecycle_layer
 import subscription_admin_layer
+import platform_admin_cp0_layer
 import subscription_access_gate_layer
 import master_auto
 import contact_master_layer
@@ -194,6 +195,11 @@ tenant_invite_platform_layer.install(server)
 subscription_lifecycle_layer.install(server)
 # Platform Admin can adjust trial, paid subscription dates, and limited-access duration.
 subscription_admin_layer.install(server)
+# CP0 — Platform Admin completion: create tenant + first admin (pending activation), token
+# activation flow, resend, suspend/reactivate with history, renewal, profile/limit edits,
+# storage usage and platform dashboard KPIs. Installed before isolation so its platform routes
+# operate on the global database via saas_platform_layer._global_db.
+platform_admin_cp0_layer.install(server)
 
 # Harden proxy ownership, cross-source references and attachment storage/download rules before
 # isolation middleware/startup activation. Isolation is still installed after all business
