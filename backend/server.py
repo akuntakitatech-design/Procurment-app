@@ -238,6 +238,19 @@ async def create_user(body: dict, user=Depends(current_user)):
     email = body["email"].lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email sudah terdaftar")
+    # CP0: enforce tenant user limit (active users may not exceed the tenant/plan limit).
+    tid = user.get("tenant_id")
+    if tid:
+        tenant = await db.tenants.find_one({"id": tid}, {"_id": 0}) or {}
+        limits = tenant.get("limits") or {}
+        max_users = limits.get("max_users")
+        if max_users is None and tenant.get("plan_id"):
+            plan = await db.plans.find_one({"id": tenant.get("plan_id")}, {"_id": 0}) or {}
+            max_users = (plan.get("limits") or {}).get("max_users")
+        if max_users is not None:
+            current = await db.users.count_documents({"tenant_id": tid, "is_platform_admin": {"$ne": True}, "is_active": {"$ne": False}})
+            if current >= int(max_users):
+                raise HTTPException(status_code=409, detail=f"Batas pengguna tenant sudah tercapai ({current}/{max_users}). Nonaktifkan user atau tingkatkan limit.")
     uid = gid(); role = body.get("role", "warehouse")
     doc = {"id": uid, "email": email, "password_hash": A.hash_password(body.get("password", "changeme123")),
            "name": body.get("name", email), "role": role,

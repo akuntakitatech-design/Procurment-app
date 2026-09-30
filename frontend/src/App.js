@@ -4,9 +4,11 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { Layout } from "@/components/Layout";
+import BrandingHead from "@/components/BrandingHead";
 import Login from "@/pages/Login";
 import RegisterTenant from "@/pages/RegisterTenant";
 import AcceptInvite from "@/pages/AcceptInvite";
+import ActivateTenant from "@/pages/ActivateTenant";
 import PlatformAdmin from "@/pages/PlatformAdmin";
 import SubscriptionLocked from "@/pages/SubscriptionLocked";
 import Dashboard from "@/pages/Dashboard";
@@ -60,11 +62,13 @@ function App() {
       <div className="App">
         <BrowserRouter>
           <AuthProvider>
+            <BrandingHead />
             <Toaster position="top-right" />
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/daftar" element={<RegisterTenant />} />
               <Route path="/invite/:code" element={<AcceptInvite />} />
+              <Route path="/activation/:token" element={<ActivateTenant />} />
               <Route path="/platform" element={<PlatformProtected><PlatformAdmin /></PlatformProtected>} />
               <Route path="/verify/:code" element={<Verify />} />
               <Route path="/" element={<Protected><Dashboard /></Protected>} />
