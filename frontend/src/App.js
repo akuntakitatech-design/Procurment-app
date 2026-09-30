@@ -33,6 +33,7 @@ import Transfer from "@/pages/Transfer";
 import Loan from "@/pages/Loan";
 import Adjustment from "@/pages/Adjustment";
 import Opname from "@/pages/Opname";
+import { SpkList, SpkForm, SpkDetail } from "@/pages/Spk";
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Memuat...</div>;
@@ -104,6 +105,10 @@ function App() {
               <Route path="/traceability" element={<Protected><TraceabilityPage /></Protected>} />
               <Route path="/reports" element={<Protected><Reports /></Protected>} />
               <Route path="/master" element={<Protected><MasterData /></Protected>} />
+              <Route path="/spk" element={<Protected><SpkList /></Protected>} />
+              <Route path="/spk/new" element={<Protected><SpkForm /></Protected>} />
+              <Route path="/spk/:id" element={<Protected><SpkDetail /></Protected>} />
+              <Route path="/spk/:id/edit" element={<Protected><SpkForm /></Protected>} />
               <Route path="/users" element={<Protected><Users /></Protected>} />
               <Route path="/settings" element={<Protected><Settings /></Protected>} />
             </Routes>
