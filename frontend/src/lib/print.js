@@ -2,6 +2,16 @@ import api, { API } from "@/lib/api";
 import { rupiah, num, fmtDate } from "@/lib/format";
 
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const SPK_DOC_TYPES = new Set(["mro", "ro", "po", "do", "mi"]);
+// Horizontal compact allocation text, e.g. "SPK-001: 3 • SPK-002: 4 • Non-SPK: 3"
+const allocText = (summary) => {
+  if (!summary) return "Non-SPK";
+  const parts = (summary.allocations || []).map((a) => `${a.spk_number || a.spk_id}: ${num(a.allocated_qty)}`);
+  const nonSpk = num(summary.non_spk_qty);
+  if (parts.length === 0) return `Non-SPK: ${num(summary.item_qty)}`;
+  if (nonSpk > 1e-9) parts.push(`Non-SPK: ${nonSpk}`);
+  return parts.join(" • ");
+};
 const DEFAULT_SECTIONS = ["header", "meta", "items", "message", "signatures", "footer"];
 const DEFAULT_COLUMNS = ["item", "qty", "unit", "spk", "price", "total"];
 const DEFAULT_META = ["date", "status", "requester", "receiver", "supplier", "buyer", "payment_term", "delivery_term", "division", "warehouse", "project", "unit", "supplier_invoice", "notes"];
@@ -72,7 +82,7 @@ const metaLabel = (key) => ({
   supplier_invoice: "No. Faktur", notes: "Keterangan",
 }[key] || key);
 
-const columnLabel = (key) => ({ item: "Barang", qty: "Qty", unit: "Satuan", spk: "SPK", price: "Harga", discount: "Diskon", tax: "Pajak", total: "Total", notes: "Catatan" }[key] || key);
+const columnLabel = (key) => ({ item: "Barang", qty: "Qty", unit: "Satuan", spk: "SPK", alokasi: "Alokasi SPK", price: "Harga", discount: "Diskon", tax: "Pajak", total: "Total", notes: "Catatan" }[key] || key);
 
 const lineValue = (key, line) => {
   const factor = Number(line.conversion_factor) || 1;
@@ -82,6 +92,7 @@ const lineValue = (key, line) => {
   if (key === "qty") return num(qty);
   if (key === "unit") return esc(line.display_unit || line.unit || "");
   if (key === "spk") return esc(line.spk || "");
+  if (key === "alokasi") return esc(line._spk_alloc || "Non-SPK");
   if (key === "price") return rupiah(price);
   if (key === "discount") return rupiah(line.discount || 0);
   if (key === "tax") return esc(line.tax_name || (line.tax != null ? `${num(line.tax)}%` : ""));
@@ -172,6 +183,7 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
       <td class="desc">${esc(l.item_name || l.item_code || "")}</td>
       <td class="c qty">${num(q)}</td>
       <td class="c unit">${esc(l.display_unit || l.unit || "")}</td>
+      <td class="alok">${esc(l._spk_alloc || "Non-SPK")}</td>
       ${financialCells}
     </tr>`;
   }).join("");
@@ -186,18 +198,18 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
   const qrHtml = layout.show_qr && code ? `<div class="verify">Verification Code: ${esc(code)}</div>` : "";
   const approvedSignature = approved && signatureImg ? `<img class="approved-signature" src="${signatureImg}"/>` : "";
   const colgroup = showPrice
-    ? `<colgroup><col style="width:5%"><col style="width:39%"><col style="width:6%"><col style="width:7%"><col style="width:16%"><col style="width:12%"><col style="width:15%"></colgroup>`
-    : `<colgroup><col style="width:7%"><col style="width:63%"><col style="width:12%"><col style="width:18%"></colgroup>`;
+    ? `<colgroup><col style="width:5%"><col style="width:28%"><col style="width:6%"><col style="width:7%"><col style="width:16%"><col style="width:13%"><col style="width:10%"><col style="width:15%"></colgroup>`
+    : `<colgroup><col style="width:6%"><col style="width:40%"><col style="width:10%"><col style="width:14%"><col style="width:30%"></colgroup>`;
   const tableHead = showPrice
-    ? `<thead><tr><th>No</th><th>Description</th><th colspan="2">Qty</th><th>Price</th><th>Discount</th><th>Amount</th></tr></thead>`
-    : `<thead><tr><th>No</th><th>Description</th><th colspan="2">Qty</th></tr></thead>`;
+    ? `<thead><tr><th>No</th><th>Description</th><th colspan="2">Qty</th><th>Alokasi SPK</th><th>Price</th><th>Discount</th><th>Amount</th></tr></thead>`
+    : `<thead><tr><th>No</th><th>Description</th><th colspan="2">Qty</th><th>Alokasi SPK</th></tr></thead>`;
   const totals = showPrice ? `<tfoot>
-        <tr><td class="sum-spacer" colspan="4"></td><td class="sum-label" colspan="2">Total</td><td class="sum-value">${idrPlain(subtotal)}</td></tr>
-        <tr><td class="sum-spacer" colspan="4"></td><td class="sum-label" colspan="2">DPP</td><td class="sum-value">${idrPlain(dpp)}</td></tr>
-        <tr><td class="sum-spacer" colspan="4"></td><td class="sum-label" colspan="2">${esc(taxLabel)}</td><td class="sum-value">${idrPlain(taxAmount)}</td></tr>
-        <tr class="grand"><td class="sum-spacer" colspan="4"></td><td class="sum-label" colspan="2">Grand Total</td><td class="sum-value">${idrPlain(grand)}</td></tr>
+        <tr><td class="sum-spacer" colspan="5"></td><td class="sum-label" colspan="2">Total</td><td class="sum-value">${idrPlain(subtotal)}</td></tr>
+        <tr><td class="sum-spacer" colspan="5"></td><td class="sum-label" colspan="2">DPP</td><td class="sum-value">${idrPlain(dpp)}</td></tr>
+        <tr><td class="sum-spacer" colspan="5"></td><td class="sum-label" colspan="2">${esc(taxLabel)}</td><td class="sum-value">${idrPlain(taxAmount)}</td></tr>
+        <tr class="grand"><td class="sum-spacer" colspan="5"></td><td class="sum-label" colspan="2">Grand Total</td><td class="sum-value">${idrPlain(grand)}</td></tr>
       </tfoot>` : "";
-  const emptyColspan = showPrice ? 7 : 4;
+  const emptyColspan = showPrice ? 8 : 5;
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.no || "PO")}</title>
   <style>
@@ -207,7 +219,7 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
     .draft-watermark{position:fixed;left:50%;top:48%;transform:translate(-50%,-50%) rotate(-32deg);font-size:74px;font-weight:900;letter-spacing:8px;color:#6b7280;opacity:.14;z-index:9999;pointer-events:none;user-select:none}
     .top{position:relative;min-height:29mm}.brand{width:46mm}.real-logo{width:${logoWidth}mm;max-height:22mm;object-fit:contain;display:block}.brand-name{font-weight:700;font-size:${Math.max(9,fontSize)}px;margin-top:2mm}.po-title{position:absolute;top:2mm;left:50%;transform:translateX(-50%);font-size:${fontSize+7}px;font-weight:800;letter-spacing:.3px;white-space:nowrap}
     .info-grid{display:grid;grid-template-columns:46% 52%;gap:2%;align-items:start}.address-block{line-height:1.25}.address-block .label{font-weight:700;margin-top:0}.address-block .label.bill{margin-top:4mm}.address-block .line{min-height:3.5mm}.meta-box{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1.2mm 1.5mm}.meta-row{display:grid;grid-template-columns:38% 3% 59%;line-height:1.42}.meta-row .lab{white-space:nowrap}
-    .items{width:100%;border-collapse:collapse;border-spacing:0;margin-top:8mm;table-layout:fixed}.items th,.items td{border:.25mm solid ${primary};padding:1.3mm 1.7mm;vertical-align:middle}.items th{text-align:center;font-weight:700}.items .no{width:5%}.items .desc{width:39%}.items .qty{width:6%}.items .unit{width:7%}.items .price{width:16%}.items .discount{width:12%}.items .amount{width:15%}.c{text-align:center}.r{text-align:right}.items .price,.items .amount,.items .discount{white-space:nowrap}.items tfoot td{border:.25mm solid ${primary};padding:1.25mm 1.7mm}.items tfoot .sum-spacer{border:none!important;padding:0;background:transparent}.items tfoot .sum-label{font-weight:700;text-align:left}.items tfoot .sum-value{text-align:right;white-space:nowrap}.items tfoot .grand .sum-label,.items tfoot .grand .sum-value{font-weight:800}
+    .items{width:100%;border-collapse:collapse;border-spacing:0;margin-top:8mm;table-layout:fixed}.items th,.items td{border:.25mm solid ${primary};padding:1.3mm 1.7mm;vertical-align:middle}.items th{text-align:center;font-weight:700}.items .no{width:5%}.items .desc{width:39%}.items .qty{width:6%}.items .unit{width:7%}.items .price{width:16%}.items .discount{width:12%}.items .amount{width:15%}.c{text-align:center}.r{text-align:right}.items .alok{text-align:left;white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.items .price,.items .amount,.items .discount{white-space:nowrap}.items tfoot td{border:.25mm solid ${primary};padding:1.25mm 1.7mm}.items tfoot .sum-spacer{border:none!important;padding:0;background:transparent}.items tfoot .sum-label{font-weight:700;text-align:left}.items tfoot .sum-value{text-align:right;white-space:nowrap}.items tfoot .grand .sum-label,.items tfoot .grand .sum-value{font-weight:800}
     .terms{margin-top:7mm;line-height:1.35}.term-heading{font-weight:800;margin-top:1.5mm}.term-line{white-space:pre-wrap;margin-left:1.8mm}.term-gap{height:1.5mm}
     .bank-wrap{margin-top:4mm}.bank-title{font-weight:800;margin-bottom:1mm}.bank-table{width:100%;border-collapse:collapse;border-spacing:0;text-align:center}.bank-table th,.bank-table td{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1mm 1.5mm}.bank-table th{font-weight:700}
     .signatures{display:grid;grid-template-columns:1fr 1fr;gap:30mm;text-align:center;margin-top:6mm;page-break-inside:avoid}.sign-label{min-height:4mm}.sign-space{height:18mm;position:relative}.approved-signature{display:block;max-width:38mm;max-height:17mm;object-fit:contain;margin:0 auto}.sign-name{font-weight:800;text-decoration:underline}.sign-company{margin-top:.6mm}.verify{font-size:8px;text-align:right;margin-top:3mm;color:#64748b}
@@ -291,6 +303,15 @@ export async function printDoc(type, doc, opts = {}) {
   }
   const showPrice = !!opts.showPrice;
   const lines = doc.lines || [];
+  // Phase C: attach this document's OWN stage SPK allocation to each line (horizontal text)
+  if (SPK_DOC_TYPES.has(key) && doc.id) {
+    try {
+      const ar = await api.get(`/spk-allocations/${key}/doc/${doc.id}`);
+      const amap = {};
+      (ar.data.lines || []).forEach((l) => { amap[l.item_line_id] = allocText(l); });
+      lines.forEach((l) => { l._spk_alloc = amap[l.id] || "Non-SPK"; });
+    } catch { /* backward-compatible: no allocation -> Non-SPK */ }
+  }
   const buyerText = doc.buyer_contact_name ? `${doc.buyer_contact_name}${doc.buyer_contact_position ? ` — ${doc.buyer_contact_position}` : ""}${doc.buyer_contact_phone ? ` · ${doc.buyer_contact_phone}` : ""}` : "";
 
   if (key === "po" && layout.template_style === "real_reference") {
@@ -305,6 +326,11 @@ export async function printDoc(type, doc, opts = {}) {
 
   const financialCols = new Set(["price", "discount", "tax", "total"]);
   const columns = (layout.columns || []).filter(c => showPrice || !financialCols.has(c));
+  // Phase C: ensure an "Alokasi SPK" column exists for SPK document types (after Satuan)
+  if (SPK_DOC_TYPES.has(key) && !columns.includes("alokasi")) {
+    const ui = columns.indexOf("unit");
+    columns.splice(ui >= 0 ? ui + 1 : columns.length, 0, "alokasi");
+  }
 
   const headerHtml = () => {
     const styleClass = `hd ${layout.header_style || "classic"}`;
@@ -352,7 +378,7 @@ export async function printDoc(type, doc, opts = {}) {
     .hd.minimal{border-bottom:1px solid #cbd5e1}.hd.boxed{border:1px solid #cbd5e1;border-left:5px solid ${primary};padding:10px}
     .brand{display:flex;align-items:flex-start;gap:10px}.logo{width:${logoWidth}mm;max-height:22mm;object-fit:contain}.co{font-size:18px;font-weight:800;color:${primary}}.address{font-size:10px;color:#64748b;margin-top:3px;max-width:90mm;white-space:pre-line}.doc-title{text-align:right}.title{font-size:20px;font-weight:800}.doc-no{font-family:monospace;font-weight:700;margin-top:4px}
     .meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px;margin:9px 0 12px}.meta div{font-size:${Math.max(9,fontSize-1)}px}.status{display:inline-block;padding:1px 8px;border:1px solid ${primary};border-radius:999px;color:${primary};font-weight:700}
-    table{width:100%;border-collapse:collapse;margin-top:9px;page-break-inside:auto}thead{display:table-header-group}tr{page-break-inside:avoid}th,td{border:1px solid #cbd5e1;padding:6px 7px;font-size:${Math.max(8,fontSize-1)}px}th{background:#f1f5f9;text-align:left;text-transform:uppercase;font-size:${Math.max(8,fontSize-2)}px}.col-qty,.col-price,.col-discount,.col-total{text-align:right}.col-tax{white-space:nowrap}.money{text-align:right}.grand{font-weight:800}.grand-label{text-align:right;font-weight:800}
+    table{width:100%;border-collapse:collapse;margin-top:9px;page-break-inside:auto}thead{display:table-header-group}tr{page-break-inside:avoid}th,td{border:1px solid #cbd5e1;padding:6px 7px;font-size:${Math.max(8,fontSize-1)}px}th{background:#f1f5f9;text-align:left;text-transform:uppercase;font-size:${Math.max(8,fontSize-2)}px}.col-qty,.col-price,.col-discount,.col-total{text-align:right}.col-tax{white-space:nowrap}.col-alokasi{white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.money{text-align:right}.grand{font-weight:800}.grand-label{text-align:right;font-weight:800}
     .terms{margin-top:15px;border:1px solid #cbd5e1;border-radius:6px;padding:9px 11px;page-break-inside:avoid}.terms-title{font-weight:700;margin-bottom:6px;color:${primary}}.terms-body{white-space:pre-wrap;line-height:1.5;font-size:${Math.max(8,fontSize-1)}px}
     .sign{display:flex;justify-content:space-around;gap:20px;margin-top:40px;text-align:center;page-break-inside:avoid}.sign>div{min-width:120px;flex:1;max-width:180px}.generic-signature{display:block;max-width:36mm;max-height:18mm;object-fit:contain;margin:6px auto -4px}.line{border-top:1px solid #333;margin-top:50px;padding-top:4px}
     .ft{margin-top:20px;display:flex;justify-content:space-between;align-items:flex-end;gap:20px;page-break-inside:avoid}.footer-text{font-size:9px;color:#666;white-space:pre-line}.qr{text-align:center;font-family:monospace;font-size:8px}
