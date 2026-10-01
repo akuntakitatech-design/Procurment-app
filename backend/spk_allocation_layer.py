@@ -34,8 +34,11 @@ PERM_MANAGE = "spk_allocation:manage"
 PERM_VERIFY = "spk_allocation:verify"
 NEW_PERMISSIONS = [PERM_VIEW, PERM_MANAGE, PERM_VERIFY]
 
-LINE_COLL = {"mro": "mro_lines", "ro": "ro_lines", "po": "po_lines"}
-HEAD_COLL = {"mro": "mro", "ro": "ro", "po": "po"}
+LINE_COLL = {"mro": "mro_lines", "ro": "ro_lines", "po": "po_lines", "do": "do_lines", "mi": "mi_lines"}
+HEAD_COLL = {"mro": "mro", "ro": "ro", "po": "po", "do": "do", "mi": "mi"}
+# Inheritance source per target stage: RO<-MRO, PO<-RO, DO<-PO, MI<-DO
+SRC_OF = {"ro": "mro", "po": "ro", "do": "po", "mi": "do"}
+DERIVED_TYPES = ("ro", "po", "do", "mi")  # stages that inherit allocation from upstream
 PO_FINAL_STATUS = "Approved"
 PO_ALLOC_EDITABLE = {"Draft", "Waiting Approval"}
 
@@ -140,6 +143,8 @@ def install(server):
         server.require(user, "edit")
         if not head:
             raise HTTPException(404, "Dokumen tidak ditemukan")
+        if source_type == "mi":
+            raise HTTPException(409, "Alokasi MI bersifat read-only (diwarisi dari DO)")
         if head.get("cancelled") or head.get("status") == "Cancelled":
             raise HTTPException(409, "Dokumen dibatalkan; allocation tidak dapat diubah")
         if source_type == "po" and head.get("status") not in PO_ALLOC_EDITABLE:
@@ -177,6 +182,17 @@ def install(server):
         if total - qty > 1e-6:
             raise HTTPException(400, f"Alokasi SPK melebihi Qty Item sebanyak {round(total - qty, 4)} {line.get('unit') or ''}".strip())
 
+        # remaining-only: alokasi manual pada stage turunan tidak boleh melebihi sisa dari source
+        if not inherited and source_type in DERIVED_TYPES:
+            avail = {a["spk_id"]: a["available"] for a in await _src_available(source_type, line_id, doc_id)}
+            for c in clean:
+                cap = avail.get(c["spk_id"])
+                if cap is None:
+                    raise HTTPException(400, "SPK ini tidak tersedia pada alokasi sumber (upstream) untuk item ini")
+                if c["allocated_qty"] - cap > 1e-6:
+                    sl = await _db().spk.find_one({"id": c["spk_id"]}, {"_id": 0, "spk_number": 1})
+                    raise HTTPException(400, f"Alokasi SPK {sl.get('spk_number') if sl else ''} melebihi sisa yang tersedia dari sumber ({round(cap, 4)})".strip())
+
         before = await _allocs(source_type, line_id)
         before_map = {b["spk_id"]: b for b in before}
         now = _now()
@@ -201,20 +217,46 @@ def install(server):
 
     # ---------------- inheritance (materialize) ----------------
     async def _src_line_ids(target_type, target_line_id):
-        """Source line id untuk target line via koleksi db.allocations (MRO->RO / RO->PO)."""
-        src_type = "mro" if target_type == "ro" else "ro"
+        """Source line id(s) untuk target line via koleksi db.allocations (lintas stage)."""
+        src_type = SRC_OF.get(target_type)
+        if not src_type:
+            return []
         rows = await _db().allocations.find(
             {"target_line_id": target_line_id, "source_type": src_type}, {"_id": 0}).to_list(500)
         return [(r.get("source_line_id"), float(r.get("qty") or 0)) for r in rows if r.get("source_line_id")]
 
+    async def _src_spk_ordered(target_type, target_line_id):
+        """[(spk_id, total_source_alloc)] deterministik (urut created_at source) + daftar source line ids."""
+        src_type = SRC_OF.get(target_type)
+        src_line_ids = [sid for sid, _ in await _src_line_ids(target_type, target_line_id)]
+        ordered, seen = [], {}
+        if src_type:
+            for sl in src_line_ids:
+                for a in await _allocs(src_type, sl):
+                    sp = a["spk_id"]
+                    q = float(a.get("allocated_qty") or 0)
+                    if sp in seen:
+                        ordered[seen[sp]][1] += q
+                    else:
+                        seen[sp] = len(ordered)
+                        ordered.append([sp, q])
+        return [(sp, q) for sp, q in ordered], src_line_ids
+
+    async def _src_available(target_type, target_line_id, exclude_doc_id):
+        """Ketersediaan per SPK = alokasi source - dikonsumsi sibling (non-cancelled) selain doc ini."""
+        ordered, src_line_ids = await _src_spk_ordered(target_type, target_line_id)
+        out = []
+        for sp, src_alloc in ordered:
+            consumed = await _consumed_by_other(target_type, src_line_ids, sp, exclude_doc_id)
+            out.append({"spk_id": sp, "source_allocated": round(src_alloc, 6),
+                        "consumed_by_other": round(consumed, 6),
+                        "available": round(max(0.0, src_alloc - consumed), 6)})
+        return out
+
     async def _source_allocs_for_line(target_type, target_line):
-        """Kumpulkan alokasi SPK dari source line(s) (linkage via db.allocations)."""
-        src_type = "mro" if target_type == "ro" else "ro"
-        agg = {}
-        for src_line_id, _q in await _src_line_ids(target_type, target_line["id"]):
-            for a in await _allocs(src_type, src_line_id):
-                agg[a["spk_id"]] = agg.get(a["spk_id"], 0.0) + float(a.get("allocated_qty") or 0)
-        return agg
+        """Agregat alokasi SPK dari source line(s) (tanpa remaining-control) — util/debug."""
+        ordered, _ = await _src_spk_ordered(target_type, target_line["id"])
+        return {sp: q for sp, q in ordered}
 
     async def _consumed_by_other(target_type, source_line_ids, spk_id, exclude_doc_id):
         """Qty spk_id yang sudah dialokasikan oleh dokumen target lain (non-cancelled) dari source line sama."""
@@ -235,22 +277,25 @@ def install(server):
         return used
 
     async def _inherit_line(target_type, doc_id, target_line, user):
-        """Buat alokasi target dari source, di-cap ke qty line target (proporsional)."""
+        """Materialisasi alokasi target dari source: greedy SPK-first + remaining-only.
+
+        - Konsumsi hanya ketersediaan tersisa per SPK (source - dikonsumsi sibling aktif).
+        - Urutan deterministik (urut source). Non-SPK = sisa qty (derived, tidak disimpan).
+        """
         if await _allocs(target_type, target_line["id"]):
             return  # sudah ada
-        agg = await _source_allocs_for_line(target_type, target_line)
-        if not agg:
+        avail = await _src_available(target_type, target_line["id"], doc_id)
+        if not avail:
             return
-        qty = float(target_line.get("qty") or 0)
-        total_src = sum(agg.values())
-        parts = [(sid, q) for sid, q in agg.items()]
-        if total_src <= qty + 1e-6:
-            final = {sid: q for sid, q in parts}
-        else:
-            # cap proporsional ke qty line (largest remainder pada skala 1 unit)
-            dist = _distribute(int(round(qty * 1000)), parts)  # presisi 3 desimal
-            final = {k: v / 1000.0 for k, v in dist.items()}
-        items = [{"spk_id": sid, "allocated_qty": q} for sid, q in final.items() if q > 0]
+        remaining = float(target_line.get("qty") or 0)
+        items = []
+        for a in avail:
+            if remaining <= 1e-9:
+                break
+            take = min(a["available"], remaining)
+            if take > 1e-9:
+                items.append({"spk_id": a["spk_id"], "allocated_qty": round(take, 6)})
+                remaining -= take
         if items:
             await _set_line_allocations(target_type, doc_id, target_line["id"], items, user,
                                         inherited=True, enforce_active=False, reason="Inherited")
@@ -291,37 +336,29 @@ def install(server):
         head = await _head(source_type, doc_id)
         _require_doc_edit(user, source_type, head)
         reason = (body or {}).get("reason")
-        # perubahan allocation inherited pada RO/PO wajib alasan
-        if source_type in ("ro", "po") and await _allocs(source_type, line_id) and not reason:
-            raise HTTPException(400, "Perubahan alокаsi SPK (inherited) wajib menyertakan alasan")
+        # perubahan allocation inherited pada RO/PO/DO wajib alasan (audit trail)
+        if source_type in ("ro", "po", "do") and await _allocs(source_type, line_id) and not reason:
+            raise HTTPException(400, "Perubahan alokasi SPK (inherited) wajib menyertakan alasan")
         return await _set_line_allocations(source_type, doc_id, line_id, (body or {}).get("allocations", []),
                                            user, reason=reason)
 
-    # ---- PO: available (partial) ----
-    @app.get("/api/spk-allocations/po/line/{line_id}/available", tags=["spk_allocation"])
-    async def po_line_available(line_id: str, user=Depends(server.current_user)):
+    # ---- available (partial, remaining-only) untuk stage turunan PO/DO/MI ----
+    @app.get("/api/spk-allocations/{source_type}/line/{line_id}/available", tags=["spk_allocation"])
+    async def line_available(source_type: str, line_id: str, user=Depends(server.current_user)):
         server.require(user, PERM_VIEW)
-        line = await _line("po", line_id)
+        if source_type not in ("po", "do", "mi"):
+            raise HTTPException(404, "available hanya untuk PO/DO/MI")
+        line = await _line(source_type, line_id)
         if not line:
-            raise HTTPException(404, "PO line tidak ditemukan")
-        src_pairs = await _src_line_ids("po", line_id)
-        src_line_ids = [sid for sid, _ in src_pairs]
-        agg = {}
-        for sid_line in src_line_ids:
-            for a in await _allocs("ro", sid_line):
-                agg[a["spk_id"]] = agg.get(a["spk_id"], 0.0) + float(a.get("allocated_qty") or 0)
+            raise HTTPException(404, "Item line tidak ditemukan")
+        doc_id = line.get(f"{source_type}_id")
         rows = []
-        ro_qty = 0.0
-        for sid_line in src_line_ids:
-            rl = await _line("ro", sid_line)
-            ro_qty += float((rl or {}).get("qty") or 0)
-        for sid, ro_alloc in agg.items():
-            consumed = await _consumed_by_other("po", src_line_ids, sid, line.get("po_id"))
-            lbl = await _spk_label(sid)
-            rows.append({"spk_id": sid, "spk_number": lbl.get("spk_number"), "project_name": lbl.get("project_name"),
-                         "ro_allocated": round(ro_alloc, 6), "consumed_by_other_po": round(consumed, 6),
-                         "available": round(max(0.0, ro_alloc - consumed), 6), "spk_status": lbl.get("status")})
-        return {"po_line_id": line_id, "po_qty": float(line.get("qty") or 0), "ro_source_qty": ro_qty, "spk": rows}
+        for a in await _src_available(source_type, line_id, doc_id):
+            lbl = await _spk_label(a["spk_id"])
+            rows.append({**a, "spk_number": lbl.get("spk_number"),
+                         "project_name": lbl.get("project_name"), "spk_status": lbl.get("status")})
+        return {"source_type": source_type, "line_id": line_id,
+                "qty": float(line.get("qty") or 0), "spk": rows}
 
     # ---- PO: verify allocation ----
     @app.post("/api/spk-allocations/po/{po_id}/verify", tags=["spk_allocation"])
@@ -553,6 +590,83 @@ def install(server):
             return result
         return create_po_inherit
 
+    # POST /api/do : inherit allocation dari PO (berdasarkan qty diterima; remaining-only)
+    def _mk_create_do(original):
+        async def create_do_inherit(body: dict, user=Depends(server.current_user)):
+            result = await original(body, user)
+            try:
+                did = result.get("id") if isinstance(result, dict) else None
+                if did:
+                    for l in await _db().do_lines.find({"do_id": did}, {"_id": 0}).to_list(500):
+                        await _inherit_line("do", did, l, user)
+            except Exception as exc:
+                server.logger.warning(f"CP4 DO inherit: {exc}")
+            return result
+        return create_do_inherit
+
+    async def _consumed_from_do_line(do_line_id):
+        """Qty do_line yang sudah dikonsumsi MI aktif (via lineage do->mi)."""
+        rows = await _db().allocations.find(
+            {"source_type": "do", "source_line_id": do_line_id, "target_type": "mi"}, {"_id": 0}).to_list(2000)
+        s = 0.0
+        for r in rows:
+            mih = await _head("mi", r.get("target_doc_id"))
+            if mih and not mih.get("cancelled") and mih.get("status") != "Cancelled":
+                s += float(r.get("qty") or 0)
+        return s
+
+    async def _build_mi_do_lineage(mi_id):
+        """Hubungkan MI line -> DO line (FIFO per item+gudang) sehingga MI mewarisi alokasi DO aktual.
+
+        Tidak mengubah alur MI inti (stock/outstanding tetap pakai lineage mro->mi yang ada).
+        """
+        mi_lines = await _db().mi_lines.find({"mi_id": mi_id}, {"_id": 0}).to_list(500)
+        for ml in mi_lines:
+            existing = await _db().allocations.find(
+                {"source_type": "do", "target_type": "mi", "target_line_id": ml["id"]}, {"_id": 0}).to_list(10)
+            if existing:
+                continue
+            item_id = ml.get("item_id")
+            wh = ml.get("warehouse_id")
+            need = float(ml.get("qty") or 0)
+            if need <= 0 or not item_id:
+                continue
+            cand = []
+            for dl in await _db().do_lines.find({"item_id": item_id}, {"_id": 0}).to_list(3000):
+                if wh and dl.get("warehouse_id") and dl.get("warehouse_id") != wh:
+                    continue
+                doh = await _head("do", dl.get("do_id"))
+                if not doh or doh.get("cancelled") or doh.get("status") == "Cancelled":
+                    continue
+                cand.append(((doh.get("date") or doh.get("created_at") or ""), dl))
+            cand.sort(key=lambda x: x[0])  # FIFO
+            for _, dl in cand:
+                if need <= 1e-9:
+                    break
+                remain = max(0.0, float(dl.get("qty") or 0) - await _consumed_from_do_line(dl["id"]))
+                take = min(remain, need)
+                if take > 1e-9:
+                    await _db().allocations.insert_one({
+                        "id": str(uuid.uuid4()), "source_type": "do", "source_line_id": dl["id"],
+                        "source_doc_id": dl.get("do_id"), "target_type": "mi", "target_line_id": ml["id"],
+                        "target_doc_id": mi_id, "qty": round(take, 6), "item_id": item_id, "at": _now()})
+                    need -= take
+
+    # POST /api/mi : bangun lineage MI->DO lalu inherit alokasi dari DO aktual (MI read-only)
+    def _mk_create_mi(original):
+        async def create_mi_inherit(body: dict, user=Depends(server.current_user)):
+            result = await original(body, user)
+            try:
+                mid = result.get("id") if isinstance(result, dict) else None
+                if mid:
+                    await _build_mi_do_lineage(mid)
+                    for l in await _db().mi_lines.find({"mi_id": mid}, {"_id": 0}).to_list(500):
+                        await _inherit_line("mi", mid, l, user)
+            except Exception as exc:
+                server.logger.warning(f"CP4 MI inherit: {exc}")
+            return result
+        return create_mi_inherit
+
     # POST /api/po/{did}/submit : HARD_BLOCK guard + commit bila jadi Approved
     def _mk_submit(original):
         async def submit_guard(did: str, user=Depends(server.current_user)):
@@ -593,6 +707,8 @@ def install(server):
 
     _wrap("/api/ro", "POST", _mk_create_ro)
     _wrap("/api/po", "POST", _mk_create_po)
+    _wrap("/api/do", "POST", _mk_create_do)
+    _wrap("/api/mi", "POST", _mk_create_mi)
     _wrap("/api/po/{did}/submit", "POST", _mk_submit)
     _wrap("/api/po/{did}/approve", "POST", _mk_approve)
     _wrap("/api/po/{did}/cancel", "POST", _mk_cancel)

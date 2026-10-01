@@ -14,11 +14,34 @@ import { toast } from "sonner";
 const num = (v) => Number(v || 0);
 const rupiah = (v) => `Rp ${num(v).toLocaleString("id-ID")}`;
 
+// Horizontal compact allocation text, e.g. "SPK-001: 3 • SPK-002: 4 • Non-SPK: 3"
+export function formatAllocText(summary) {
+  if (!summary) return "Non-SPK";
+  const parts = (summary.allocations || []).map((a) => `${a.spk_number || a.spk_id}: ${num(a.allocated_qty)}`);
+  const nonSpk = num(summary.non_spk_qty);
+  if (parts.length === 0) return `Non-SPK: ${num(summary.item_qty)}`;
+  if (nonSpk > 1e-9) parts.push(`Non-SPK: ${nonSpk}`);
+  return parts.join(" • ");
+}
+
+// Doc-level allocation fetch -> map lineId->summary + server-authoritative perms
+export function useDocAllocations(sourceType, docId) {
+  const [data, setData] = useState(null);
+  const reload = useCallback(() => {
+    if (!docId) { setData(null); return; }
+    api.get(`/spk-allocations/${sourceType}/doc/${docId}`).then((r) => setData(r.data)).catch(() => setData(null));
+  }, [sourceType, docId]);
+  useEffect(() => { reload(); }, [reload]);
+  const map = {};
+  (data?.lines || []).forEach((l) => { map[l.item_line_id] = l; });
+  return { map, status: data?.status, canManage: !!data?.can_manage, canVerify: !!data?.can_verify, reload };
+}
+
 // ---------------------------------------------------------------------------
 // Reusable "Alokasi SPK" modal for a single MRO / RO / PO item line.
 // Non-SPK is the automatic remainder (never entered by the user).
 // ---------------------------------------------------------------------------
-export function SpkAllocationModal({ open, onClose, sourceType, lineId, docStatus, canManage, canVerify, poId, onChanged }) {
+export function SpkAllocationModal({ open, onClose, sourceType, lineId, docStatus, canManage, canVerify, poId, onChanged, localMode = false, itemQty: itemQtyProp, unit: unitProp, initialAllocations, onLocalSave }) {
   const [summary, setSummary] = useState(null);
   const [rows, setRows] = useState([]);
   const [spks, setSpks] = useState([]);
@@ -29,14 +52,20 @@ export function SpkAllocationModal({ open, onClose, sourceType, lineId, docStatu
   const editable = canManage && (sourceType !== "po" ? (docStatus !== "Cancelled") : ["Draft", "Waiting Approval"].includes(docStatus));
 
   const load = useCallback(() => {
-    if (!open || !lineId) return;
+    if (!open) return;
+    api.get("/spk?status=active&page_size=200").then((r) => setSpks(r.data.items || r.data || [])).catch(() => {});
+    if (localMode) {
+      setSummary({ item_qty: num(itemQtyProp), unit: unitProp, allocations: initialAllocations || [] });
+      setRows((initialAllocations || []).map((a) => ({ spk_id: a.spk_id, allocated_qty: a.allocated_qty })));
+      return;
+    }
+    if (!lineId) return;
     api.get(`/spk-allocations/${sourceType}/line/${lineId}`).then((r) => {
       setSummary(r.data);
       setRows((r.data.allocations || []).map((a) => ({ spk_id: a.spk_id, allocated_qty: a.allocated_qty })));
     }).catch((e) => toast.error(apiError(e.response?.data?.detail)));
-    api.get("/spk?status=active&page_size=200").then((r) => setSpks(r.data.items || r.data || [])).catch(() => {});
     if (isPo) api.get(`/spk-allocations/po/line/${lineId}/available`).then((r) => setAvailable(r.data)).catch(() => {});
-  }, [open, lineId, sourceType, isPo]);
+  }, [open, lineId, sourceType, isPo, localMode, itemQtyProp, unitProp, initialAllocations]);
   useEffect(() => { load(); }, [load]);
 
   if (!open) return null;
@@ -53,14 +82,21 @@ export function SpkAllocationModal({ open, onClose, sourceType, lineId, docStatu
 
   const save = async () => {
     if (over) { toast.error("Total alokasi SPK melebihi Qty item"); return; }
+    const cleaned = rows.filter((r) => r.spk_id && num(r.allocated_qty) > 0)
+      .map((r) => ({ spk_id: r.spk_id, allocated_qty: num(r.allocated_qty) }));
+    if (localMode) {
+      // detect duplicate SPK locally
+      const seen = new Set();
+      for (const c of cleaned) { if (seen.has(c.spk_id)) { toast.error("SPK duplikat pada satu item"); return; } seen.add(c.spk_id); }
+      onLocalSave?.(cleaned);
+      toast.success("Alokasi SPK disimpan (akan dipersist saat MRO disimpan)");
+      onClose?.();
+      return;
+    }
     if (sourceType !== "mro" && (summary?.allocations || []).length > 0 && !reason.trim()) {
       toast.error("Alasan perubahan wajib diisi untuk alokasi warisan"); return;
     }
-    const payload = {
-      allocations: rows.filter((r) => r.spk_id && num(r.allocated_qty) > 0)
-        .map((r) => ({ spk_id: r.spk_id, allocated_qty: num(r.allocated_qty) })),
-      reason: reason || undefined,
-    };
+    const payload = { allocations: cleaned, reason: reason || undefined };
     setSaving(true);
     try {
       await api.put(`/spk-allocations/${sourceType}/line/${lineId}`, payload);
@@ -135,7 +171,7 @@ export function SpkAllocationModal({ open, onClose, sourceType, lineId, docStatu
 // PO Budget Summary per SPK (doc-level) — shows Current Procurement Budget,
 // existing commitment, projected remaining and policy decision per SPK.
 // ---------------------------------------------------------------------------
-function PoBudgetSummary({ poId, refreshKey }) {
+export function PoBudgetSummary({ poId, refreshKey }) {
   const [data, setData] = useState(null);
   useEffect(() => {
     if (!poId) return;
