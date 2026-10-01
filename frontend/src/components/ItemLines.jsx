@@ -1,10 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Combobox } from "@/components/Combobox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, ChevronRight, ChevronDown } from "lucide-react";
 import { rupiah, num } from "@/lib/format";
 import { computePriceStatus, StatusBadgePrice } from "@/components/PoPriceControl";
+import { NumericInput } from "@/components/NumericInput";
 
 export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null }) {
   const items = masters.map("items");
@@ -15,6 +16,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const onChangeRef = useRef(onChange);
   linesRef.current = lines;
   onChangeRef.current = onChange;
+  const [expandedRows, setExpandedRows] = useState({});
 
   useEffect(() => {
     const lines = linesRef.current;
@@ -93,15 +95,16 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   // Total rendered columns (keeps empty-row / grand-total colSpans correct).
   const colCount = 4 + (allocationColumn ? 1 : 0) + (fields.warehouse ? 1 : 0) + (fields.project ? 1 : 0) + (fields.unit ? 1 : 0) + (showPrice ? 4 : 0) + 1;
 
-  // ---- PO two-row block layout (CP5A PO Item UX). PO-only; other docs keep the table below. ----
+  // ---- PO item block: Primary Row + Secondary Row + Expandable Detail (CP5A PO Item UX). ----
   if (poControl) {
     const fmtPct = (p) => `${p >= 0 ? "+" : ""}${Number(p).toFixed(2).replace(".", ",")}%`;
     const fmtRp = (v) => `${v >= 0 ? "+" : "-"}${rupiah(Math.abs(v))}`;
+    const head = [["w-[36px]", ""], ["w-[200px]", "Barang"], ["w-[190px]", "Keterangan"], ["w-[100px]", "Qty"], ["w-[110px]", "Satuan"], ["w-[260px]", "Alokasi SPK"], ["w-[140px]", "Harga Kontrak"], ["w-[180px]", "Harga Satuan"], ["w-[175px]", "Selisih"], ["w-[150px] text-right", "Total"], ["w-[130px]", "Status"], ["w-[44px]", ""]];
     return <div className="space-y-3">
       <div className="overflow-x-auto rounded-md border bg-card shadow-sm">
-        <div className="min-w-[1540px]">
+        <div className="min-w-[1840px]">
           <div className="flex items-stretch gap-2 border-b bg-muted px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            <div className="w-[240px]">Barang &amp; Keterangan</div><div className="w-[120px]">Qty / Sat</div><div className="w-[140px]">Harga Kontrak</div><div className="w-[185px]">Harga Satuan</div><div className="w-[180px]">Selisih</div><div className="w-[160px] text-right">Total</div><div className="w-[130px]">Status</div><div className="w-[44px]"></div>
+            {head.map(([w, t], k) => <div key={k} className={w}>{t}</div>)}
           </div>
           {lines.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">Belum ada item</div>}
           {lines.map((l, i) => {
@@ -113,26 +116,38 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
             let status = r.status;
             if (hasC && !(priceNum > 0)) status = "Belum dihitung";
             const priceDiff = hasC && priceNum > 0 && Math.abs(priceNum - Number(c.contract_price)) > 0.5;
-            return <div key={i} className="border-b px-3 py-2.5 last:border-b-0" data-testid={`po-item-block-${i}`}>
-              <div className="flex items-start gap-2">
-                <div className="w-[240px]">{l._sourceLabel && <div className="mb-1 text-[10px] font-mono text-muted-foreground">{l._sourceLabel}</div>}<Combobox options={itemOpts} value={l.item_id} onChange={(v) => update(i, { item_id: v })} placeholder="Pilih barang" disabled={l._locked} /><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="mt-1 h-8 text-xs" placeholder="Keterangan" /></div>
-                <div className="w-[120px]"><Input type="number" step="any" value={l.qty} onChange={(e) => update(i, { qty: e.target.value })} className="h-9 text-right" /><div className="mt-1"><Uom l={l} i={i} /></div></div>
-                <div className="w-[140px] pt-2 text-sm">{hasC ? <span className="font-semibold tabular-nums" title={`Kontrak ${c.contract_number || ""}${c.tolerance_pct != null ? ` · toleransi ${c.tolerance_pct}%` : ""}${c.effective_start ? ` · ${c.effective_start}${c.effective_end ? "–" + c.effective_end : ""}` : ""}`}>{rupiah(Number(c.contract_price))}</span> : <span className="text-xs text-muted-foreground">Tidak ada kontrak</span>}</div>
-                <div className="w-[185px]"><Input type="number" value={l.price || 0} onChange={(e) => update(i, { price: e.target.value, _priceTouched: true, _priceAuto: false })} className="h-9 text-right" data-testid={`po-price-input-${i}`} />{poControl.history && <div className="mt-0.5">{poControl.history(l, i)}</div>}</div>
-                <div className="w-[180px] pt-2 text-xs tabular-nums" data-testid={`po-variance-${i}`}>{showVar ? <span className={r.varRp > 0 ? "text-amber-700" : r.varRp < 0 ? "text-emerald-700" : "text-muted-foreground"}>{fmtRp(r.varRp)} / {fmtPct(r.varPct)}</span> : <span className="text-muted-foreground">—</span>}</div>
-                <div className="w-[160px] pt-2 text-right text-sm font-medium tabular-nums">{rupiah(total(l))}</div>
-                <div className="w-[130px] pt-1.5">{status === "Belum dihitung" ? <span data-testid={`po-status-${i}`} className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Belum dihitung</span> : <StatusBadgePrice status={status} testid={`po-status-${i}`} />}</div>
-                <div className="w-[44px] pt-1"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
+            const reasonMissing = priceDiff && !String(l.price_change_reason || "").trim();
+            const expanded = expandedRows[i] !== undefined ? expandedRows[i] : reasonMissing;
+            const toggle = () => setExpandedRows((s) => ({ ...s, [i]: !(s[i] !== undefined ? s[i] : reasonMissing) }));
+            return <div key={i} className="border-b px-3 py-2 last:border-b-0" data-testid={`po-item-block-${i}`}>
+              {/* PRIMARY ROW */}
+              <div className="flex items-center gap-2">
+                <div className="w-[36px]"><button type="button" onClick={toggle} className="flex h-7 w-7 items-center justify-center rounded hover:bg-accent" data-testid={`po-expand-${i}`} title="Detail">{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button></div>
+                <div className="w-[200px]"><Combobox options={itemOpts} value={l.item_id} onChange={(v) => update(i, { item_id: v })} placeholder="Pilih barang" disabled={l._locked} /></div>
+                <div className="w-[190px]"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9 text-sm" placeholder="Keterangan" data-testid={`po-notes-${i}`} /></div>
+                <div className="w-[100px]"><NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`po-qty-${i}`} /></div>
+                <div className="w-[110px]"><Uom l={l} i={i} /></div>
+                <div className="w-[260px]" data-testid={`po-alloc-${i}`}>{allocationColumn ? allocationColumn.render(l, i) : null}</div>
+                <div className="w-[140px] text-sm">{hasC ? <span className="font-semibold tabular-nums">{rupiah(Number(c.contract_price))}</span> : <span className="text-xs text-muted-foreground">Tidak ada kontrak</span>}</div>
+                <div className="w-[180px]"><div className="flex items-center gap-1"><div className="flex-1"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v, _priceTouched: true, _priceAuto: false })} className="h-9 text-right" data-testid={`po-price-input-${i}`} /></div>{poControl.history && <div className="shrink-0">{poControl.history(l, i)}</div>}</div></div>
+                <div className="w-[175px] text-xs tabular-nums" data-testid={`po-variance-${i}`}>{showVar ? <span className={r.varRp > 0 ? "text-amber-700" : r.varRp < 0 ? "text-emerald-700" : "text-muted-foreground"}>{fmtRp(r.varRp)} / {fmtPct(r.varPct)}</span> : <span className="text-muted-foreground">—</span>}</div>
+                <div className="w-[150px] text-right text-sm font-medium tabular-nums">{rupiah(total(l))}</div>
+                <div className="w-[130px]">{status === "Belum dihitung" ? <span data-testid={`po-status-${i}`} className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Belum dihitung</span> : <StatusBadgePrice status={status} testid={`po-status-${i}`} />}{reasonMissing && <div className="mt-0.5 text-[10px] font-semibold text-amber-700" data-testid={`po-reason-required-${i}`}>Alasan diperlukan</div>}</div>
+                <div className="w-[44px]"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
               </div>
-              <div className="mt-2 flex items-start gap-2 text-xs">
-                <div className="w-[200px] pt-1.5 font-mono text-[11px] text-muted-foreground" data-testid={`po-source-${i}`}>{poControl.sourceText && poControl.sourceText(l) ? poControl.sourceText(l) : <span className="italic">—</span>}</div>
-                <div className="w-[300px]">{allocationColumn ? allocationColumn.render(l, i) : null}</div>
-                <div className="w-[150px]"><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></div>
-                <div className="w-[150px]"><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></div>
-                <div className="w-[150px]"><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit/Aset" /></div>
+              {/* SECONDARY ROW */}
+              <div className="mt-1 flex items-center gap-2 pl-[44px] text-xs">
+                <div className="w-[260px] font-mono text-[11px] text-muted-foreground" data-testid={`po-source-${i}`}>{poControl.sourceText && poControl.sourceText(l) ? poControl.sourceText(l) : <span className="italic">—</span>}</div>
+                <div className="w-[160px]"><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></div>
+                <div className="w-[160px]"><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></div>
+                <div className="w-[160px]"><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit/Aset" /></div>
                 <div className="w-[150px]"><Combobox options={taxOpts} value={l.tax_id || ""} onChange={(v) => update(i, { tax_id: v })} /></div>
               </div>
-              {priceDiff && <div className="mt-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/70 px-2 py-1.5"><span className="whitespace-nowrap text-[11px] font-semibold text-amber-800">Alasan Perubahan Harga *</span><Input value={l.price_change_reason || ""} onChange={(e) => update(i, { price_change_reason: e.target.value })} className="h-8 text-xs" placeholder="mis. kenaikan supplier / quotation terbaru / urgent delivery / kondisi pasar" data-testid={`po-price-reason-${i}`} /></div>}
+              {/* EXPANDED DETAIL */}
+              {expanded && <div className="mt-2 rounded-md border bg-muted/30 px-3 py-2 pl-[44px] text-xs" data-testid={`po-detail-${i}`}>
+                {hasC ? <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground"><span>No. Kontrak: <b className="text-foreground">{c.contract_number || "-"}</b></span><span>Periode: <b className="text-foreground">{c.effective_start || "-"}{c.effective_end ? ` – ${c.effective_end}` : ""}</b></span><span>Toleransi: <b className="text-foreground">{c.tolerance_pct != null ? `${c.tolerance_pct}%` : "-"}</b></span>{c.min_qty != null && <span>Min Qty Tier: <b className="text-foreground">{num(c.min_qty)}</b></span>}</div> : <div className="text-muted-foreground">Tidak ada kontrak vendor yang berlaku untuk item ini.</div>}
+                {priceDiff && <div className="mt-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/70 px-2 py-1.5"><span className="whitespace-nowrap text-[11px] font-semibold text-amber-800">Alasan Perubahan Harga *</span><Input value={l.price_change_reason || ""} onChange={(e) => update(i, { price_change_reason: e.target.value })} className="h-8 text-xs" placeholder="mis. kenaikan supplier / quotation terbaru / urgent delivery / kondisi pasar" data-testid={`po-price-reason-${i}`} /></div>}
+              </div>}
             </div>;
           })}
         </div>
@@ -156,13 +171,13 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
           {lines.map((l, i) => <tr key={i} className="border-t align-top">
             <td className="p-1.5">{l._sourceLabel && <div className="mb-1 text-[10px] font-mono text-muted-foreground">{l._sourceLabel}</div>}<Combobox options={itemOpts} value={l.item_id} onChange={(v) => update(i, { item_id: v })} placeholder="Pilih barang" disabled={l._locked} /></td>
             <td className="p-1.5"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9" placeholder="Keterangan item" /></td>
-            <td className="p-1.5"><Input type="number" step="any" value={l.qty} onChange={(e) => update(i, { qty: e.target.value })} className="h-9 text-right" /></td>
+            <td className="p-1.5"><NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" /></td>
             <td className="p-1.5"><Uom l={l} i={i} /></td>
             {allocationColumn && <td className="p-1.5 align-middle">{allocationColumn.render(l, i)}</td>}
             {fields.warehouse && <td className="p-1.5"><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></td>}
             {fields.project && <td className="p-1.5"><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></td>}
             {fields.unit && <td className="p-1.5"><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit" /></td>}
-            {showPrice && <><td className="p-1.5"><Input type="number" value={l.price || 0} onChange={(e) => update(i, { price: e.target.value })} className="h-9 text-right" />{priceAccessory && priceAccessory(l, i)}</td><td className="p-1.5"><Input type="number" value={l.discount || 0} onChange={(e) => update(i, { discount: e.target.value })} className="h-9 text-right" /></td><td className="p-1.5"><Combobox options={taxOpts} value={l.tax_id || ""} onChange={(v) => update(i, { tax_id: v })} /></td><td className="p-2 text-right tabular-nums">{rupiah(total(l))}</td></>}
+            {showPrice && <><td className="p-1.5"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v })} className="h-9 text-right" />{priceAccessory && priceAccessory(l, i)}</td><td className="p-1.5"><NumericInput mode="money" value={l.discount} onChange={(v) => update(i, { discount: v })} className="h-9 text-right" /></td><td className="p-1.5"><Combobox options={taxOpts} value={l.tax_id || ""} onChange={(v) => update(i, { tax_id: v })} /></td><td className="p-2 text-right tabular-nums">{rupiah(total(l))}</td></>}
             <td className="p-1.5"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button></td>
           </tr>)}</tbody>
         {showPrice && lines.length > 0 && <tfoot><tr className="border-t bg-muted/50 font-semibold"><td colSpan={colCount - 2} className="p-2 text-right">Grand Total</td><td className="p-2 text-right tabular-nums">{rupiah(grand)}</td><td></td></tr></tfoot>}

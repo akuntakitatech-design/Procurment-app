@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/NumericInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { num } from "@/lib/format";
 import { Search, X, AlertTriangle } from "lucide-react";
@@ -121,8 +122,8 @@ export function PullDialog({ open, onClose, url, title, columns, idKey = "line_i
                     ))}
                     <div className="flex items-center gap-3 pt-1">
                       <span className="w-24 shrink-0 text-xs font-medium">Qty Ambil</span>
-                      <Input type="number" disabled={!checked} value={checked ? sel[id].qty : r[qtyKey]}
-                        onChange={(e) => setQty(id, e.target.value)} className="h-9 text-right" />
+                      <NumericInput mode="quantity" disabled={!checked} value={checked ? sel[id].qty : r[qtyKey]}
+                        onChange={(v) => setQty(id, v)} className="h-9 text-right" />
                     </div>
                   </div>
                 </div>
