@@ -95,6 +95,41 @@ async def get_mro(did: str, user=Depends(current_user)):
     return d
 
 
+@api.post("/po/price-control")
+async def po_price_control(body: dict, user=Depends(current_user)):
+    """CP5A-2 — batch resolve Vendor Contract Price (CP3 resolver) for PO lines.
+    Returns contract price + effective tolerance per line so the frontend can
+    compute variance & status (Normal / Price Override / No Contract).
+    Read-only; never mutates the contract master."""
+    require(user, "view_purchase_price")
+    import server as _srv
+    resolver = getattr(_srv, "resolve_vendor_contract_price", None)
+    supplier_id = (body or {}).get("supplier_id") or ""
+    date = (body or {}).get("date") or None
+    out = []
+    for ln in (body or {}).get("lines", []) or []:
+        key = ln.get("key")
+        item_id = ln.get("item_id"); uom_id = ln.get("uom_id"); qty = ln.get("qty")
+        res = None
+        if resolver and supplier_id and item_id and uom_id:
+            try:
+                res = await resolver(supplier_id, item_id, uom_id, date, qty)
+            except Exception:
+                res = None
+        if res:
+            out.append({"key": key, "found": True,
+                        "contract_number": res.get("contract_number"),
+                        "contract_price": res.get("net_contract_price"),
+                        "tolerance_pct": res.get("tolerance_pct"),
+                        "effective_start": res.get("effective_start"),
+                        "effective_end": res.get("effective_end"),
+                        "min_qty": res.get("min_qty"),
+                        "currency": res.get("currency")})
+        else:
+            out.append({"key": key, "found": False})
+    return {"lines": out}
+
+
 @api.get("/purchase-price-history")
 async def purchase_price_history(item_id: str, uom_id: str = "", supplier_id: str = "",
                                  scope: str = "all", limit: int = 20, summary: int = 0,
