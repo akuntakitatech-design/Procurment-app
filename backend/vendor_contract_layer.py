@@ -395,8 +395,33 @@ def install(server):
             "resolved_for_date": d,
         }
 
+    async def period_hint(supplier_id: str, item_id: str, uom_id: str, txn_date: str | None = None):
+        """Contract Period Guard: when resolve_price finds NO active price for the date, detect
+        whether an ACTIVE contract for this Vendor+Item+UOM actually EXISTS but the PO date falls
+        OUTSIDE its effective period. Returns a non-blocking hint (never raises); None otherwise."""
+        d = str(txn_date or _today())
+        rows = await _db().vendor_contract_items.find(
+            {"supplier_id": supplier_id, "item_id": item_id, "uom_id": uom_id}, {"_id": 0}).to_list(2000)
+        best = None
+        for it in rows:
+            oc = await _db().vendor_contracts.find_one({"id": it.get("contract_id")}, {"_id": 0})
+            if not oc or oc.get("status") != "active":
+                continue
+            s_ex, e_ex = _period(it.get("effective_start"), it.get("effective_end"), oc.get("start_date"), oc.get("end_date"))
+            if str(s_ex) <= d <= str(e_ex):
+                continue  # masih berlaku -> bukan near-miss (akan di-handle resolve_price)
+            position = "before" if d < str(s_ex) else "after"
+            cand = {"out_of_period": True, "contract_number": oc.get("contract_number"),
+                    "effective_start": s_ex, "effective_end": e_ex, "position": position,
+                    "net_contract_price": int(it.get("net_price") or 0)}
+            # Prefer the contract whose window ends latest (most relevant / most recently expired).
+            if best is None or str(e_ex) > str(best["effective_end"]):
+                best = cand
+        return best
+
     # ekspos untuk CP4
     server.resolve_vendor_contract_price = resolve_price
+    server.resolve_contract_period_hint = period_hint
 
     # ============================ CONTRACT CRUD ============================
     @app.get("/api/vendor-contracts", tags=["vendor_contract"])

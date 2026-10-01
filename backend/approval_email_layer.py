@@ -263,10 +263,11 @@ def install(server):
                     raise HTTPException(404, f"{SUPPORTED_MODULES[kind]['label']} tidak ditemukan")
                 # CP5A-2/3: PO price-change reason hard-block must run on EVERY PO submit path,
                 # including when the approval workflow is disabled (this layer may finalize PO
-                # without routing through doc_procurement.submit_po).
+                # without routing through doc_procurement.submit_po). Also log override reasons.
                 if kind == "po":
                     import doc_procurement as _dp
-                    await _dp.assert_po_price_reason(did)
+                    _overrides = await _dp.assert_po_price_reason(did)
+                    await _dp.log_po_price_overrides(did, user, _overrides)
                 cfg = await _module_config(server, kind)
                 if not cfg.get("enabled"):
                     await _clear_tasks(server, kind, did)
