@@ -137,7 +137,7 @@ function renderTermsMessage(text, spk) {
   return html + (spk && !spkShown ? `<div class="term-line">SPK : ${esc(spk)}</div>` : "");
 }
 
-function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice }) {
+function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal }) {
   const primary = layout.primary_color || "#17396f";
   const font = layout.font_family || "Arial";
   const fontSize = Math.max(8, Number(layout.font_size) || 11);
@@ -196,6 +196,17 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
   const supplierCompany = supplier?.legal_name || supplier?.name || doc.supplier_name || "";
 
   const terms = layout.show_message ? renderTermsMessage(doc.document_message, doc.spk) : "";
+
+  // Reason Audit Trail (INTERNAL ONLY): list price-change-override reasons per line. Never
+  // rendered on the external/supplier copy so internal pricing control stays confidential.
+  const overrideLines = internal ? (lines || []).filter((l) => String(l.price_status || "") === "Price Override" || String(l.price_change_reason || "").trim()) : [];
+  const reasonSection = overrideLines.length ? `<div class="price-reason"><div class="price-reason-title">Catatan Perubahan Harga (Internal)</div><table class="reason-table"><thead><tr><th>Barang</th><th>No. Kontrak</th><th class="r">Harga Kontrak</th><th class="r">Harga PO</th><th class="r">Selisih</th><th>Alasan</th></tr></thead><tbody>${overrideLines.map((l) => {
+    const cp = Number(l.contract_price_snapshot || 0);
+    const pp = Number(l.display_price ?? ((Number(l.price) || 0) * (Number(l.conversion_factor) || 1)));
+    const varRp = pp - cp;
+    const varPct = cp ? ` (${varRp >= 0 ? "+" : ""}${(varRp / cp * 100).toFixed(2)}%)` : "";
+    return `<tr><td>${esc(l.item_name || l.item_code || "")}</td><td>${esc(l.contract_number_snapshot || "-")}</td><td class="r">${cp ? idrPlain(cp) : "-"}</td><td class="r">${idrPlain(pp)}</td><td class="r">${varRp >= 0 ? "+" : "-"}${idrPlain(Math.abs(varRp))}${esc(varPct)}</td><td>${esc(l.price_change_reason || "-")}</td></tr>`;
+  }).join("")}</tbody></table></div>` : "";
   const qrHtml = layout.show_qr && code ? `<div class="verify">Verification Code: ${esc(code)}</div>` : "";
   const approvedSignature = approved && signatureImg ? `<img class="approved-signature" src="${signatureImg}"/>` : "";
   const colgroup = showPrice
@@ -222,6 +233,7 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
     .info-grid{display:grid;grid-template-columns:46% 52%;gap:2%;align-items:start}.address-block{line-height:1.25}.address-block .label{font-weight:700;margin-top:0}.address-block .label.bill{margin-top:4mm}.address-block .line{min-height:3.5mm}.meta-box{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1.2mm 1.5mm}.meta-row{display:grid;grid-template-columns:38% 3% 59%;line-height:1.42}.meta-row .lab{white-space:nowrap}
     .items{width:100%;border-collapse:collapse;border-spacing:0;margin-top:8mm;table-layout:fixed}.items th,.items td{border:.25mm solid ${primary};padding:1.3mm 1.7mm;vertical-align:middle}.items th{text-align:center;font-weight:700}.items .no{width:5%}.items .desc{width:39%}.items .qty{width:6%}.items .unit{width:7%}.items .price{width:16%}.items .discount{width:12%}.items .amount{width:15%}.c{text-align:center}.r{text-align:right}.items .ket{text-align:left;white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.items .alok{text-align:left;white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.items .price,.items .amount,.items .discount{white-space:nowrap}.items tfoot td{border:.25mm solid ${primary};padding:1.25mm 1.7mm}.items tfoot .sum-spacer{border:none!important;padding:0;background:transparent}.items tfoot .sum-label{font-weight:700;text-align:left}.items tfoot .sum-value{text-align:right;white-space:nowrap}.items tfoot .grand .sum-label,.items tfoot .grand .sum-value{font-weight:800}
     .terms{margin-top:7mm;line-height:1.35}.term-heading{font-weight:800;margin-top:1.5mm}.term-line{white-space:pre-wrap;margin-left:1.8mm}.term-gap{height:1.5mm}
+    .price-reason{margin-top:6mm}.price-reason-title{font-weight:800;margin-bottom:1.5mm}.reason-table{width:100%;border-collapse:collapse}.reason-table th,.reason-table td{border:.25mm solid ${primary};padding:1mm 1.5mm;font-size:${Math.max(8,fontSize-1)}px;vertical-align:top}.reason-table th{text-align:left;font-weight:700}.reason-table .r{text-align:right;white-space:nowrap}
     .bank-wrap{margin-top:4mm}.bank-title{font-weight:800;margin-bottom:1mm}.bank-table{width:100%;border-collapse:collapse;border-spacing:0;text-align:center}.bank-table th,.bank-table td{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1mm 1.5mm}.bank-table th{font-weight:700}
     .signatures{display:grid;grid-template-columns:1fr 1fr;gap:30mm;text-align:center;margin-top:6mm;page-break-inside:avoid}.sign-label{min-height:4mm}.sign-space{height:18mm;position:relative}.approved-signature{display:block;max-width:38mm;max-height:17mm;object-fit:contain;margin:0 auto}.sign-name{font-weight:800;text-decoration:underline}.sign-company{margin-top:.6mm}.verify{font-size:8px;text-align:right;margin-top:3mm;color:#64748b}
     @media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}.items{break-inside:auto}.items tr{break-inside:avoid}}
@@ -262,6 +274,7 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
       <tbody>${itemRows || `<tr><td colspan="${emptyColspan}" class="c">Tidak ada item</td></tr>`}</tbody>
       ${totals}
     </table>
+    ${reasonSection}
     ${terms ? `<div class="terms">${terms}</div>` : ""}
     ${bankName || bankNo || bankAccountName ? `<div class="bank-wrap"><div class="bank-title">Pembayaran dilakukan ke Rekening :</div><table class="bank-table"><thead><tr><th>Nama Bank</th><th>No. Rekening</th><th>Atas Nama</th></tr></thead><tbody><tr><td>${esc(bankName)}</td><td>${esc(bankNo)}</td><td>${esc(bankAccountName)}</td></tr></tbody></table></div>` : ""}
     ${layout.show_signatures ? `<div class="signatures"><div><div class="sign-label">${esc(layout.signature_labels?.[0] || "Approved by,")}</div><div class="sign-space">${approvedSignature}</div><div class="sign-name">${esc(approvedName)}</div><div class="sign-company">${esc(approvedCompany)}</div></div><div><div class="sign-label">${esc(layout.signature_labels?.[1] || "Signed by,")}</div><div class="sign-space"></div><div class="sign-name">${esc(signedName)}</div><div class="sign-company">${esc(supplierCompany)}</div></div></div>` : ""}
@@ -303,6 +316,7 @@ export async function printDoc(type, doc, opts = {}) {
     } catch {}
   }
   const showPrice = !!opts.showPrice;
+  const internal = !!opts.internal;
   const lines = doc.lines || [];
   // Phase C: attach this document's OWN stage SPK allocation to each line (horizontal text)
   if (SPK_DOC_TYPES.has(key) && doc.id) {
@@ -319,7 +333,7 @@ export async function printDoc(type, doc, opts = {}) {
     const [suppliers, projects] = await Promise.all([getMaster("suppliers"), getMaster("projects")]);
     const supplier = suppliers.find(x => x.id === doc.supplier_id) || {};
     const project = projects.find(x => x.id === doc.default_project_id) || {};
-    const html = realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice });
+    const html = realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal });
     const w = window.open("", "_blank");
     w.document.write(html); w.document.close();
     return;

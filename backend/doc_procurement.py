@@ -104,6 +104,7 @@ async def po_price_control(body: dict, user=Depends(current_user)):
     require(user, "view_purchase_price")
     import server as _srv
     resolver = getattr(_srv, "resolve_vendor_contract_price", None)
+    period_hint = getattr(_srv, "resolve_contract_period_hint", None)
     supplier_id = (body or {}).get("supplier_id") or ""
     date = (body or {}).get("date") or None
     out = []
@@ -126,7 +127,22 @@ async def po_price_control(body: dict, user=Depends(current_user)):
                         "min_qty": res.get("min_qty"),
                         "currency": res.get("currency")})
         else:
-            out.append({"key": key, "found": False})
+            # Contract Period Guard (CP5A follow-up): surface a non-blocking hint when an active
+            # contract exists for this item but the PO date is outside its effective period.
+            hint = None
+            if period_hint and supplier_id and item_id and uom_id:
+                try:
+                    hint = await period_hint(supplier_id, item_id, uom_id, date)
+                except Exception:
+                    hint = None
+            row = {"key": key, "found": False}
+            if hint:
+                row.update({"out_of_period": True,
+                            "contract_number": hint.get("contract_number"),
+                            "effective_start": hint.get("effective_start"),
+                            "effective_end": hint.get("effective_end"),
+                            "position": hint.get("position")})
+            out.append(row)
     return {"lines": out}
 
 
@@ -519,15 +535,19 @@ async def assert_po_price_reason(did: str):
     """CP5A-2/3 hard-block (reusable): if an applicable vendor contract exists, Harga Satuan
     differs from the contract price, and the price-change reason is empty -> block.
     Safe to call from any PO submit path (approval workflow enabled OR disabled), since the
-    approval layer may finalize PO without routing through submit_po()."""
+    approval layer may finalize PO without routing through submit_po().
+
+    Returns the list of price-override lines (contract found + price differs, reason PRESENT)
+    so callers can write an audit/approval-log trail. Raises HTTP 400 if any reason is missing."""
     d = await db.po.find_one({"id": did})
     if not d:
-        return
+        return []
     import server as _srv
     _resolver = getattr(_srv, "resolve_vendor_contract_price", None)
     if not (_resolver and d.get("supplier_id")):
-        return
+        return []
     _plines = await db.po_lines.find({"po_id": did}, {"_id": 0}).to_list(500)
+    overrides = []
     for _l in _plines:
         _item = _l.get("item_id"); _uom = _l.get("uom_id")
         if not _item or not _uom:
@@ -544,8 +564,34 @@ async def assert_po_price_reason(did: str):
         _cp = float(_res.get("net_contract_price") or 0)
         _dp = _l.get("display_price")
         _dp = float(_dp) if _dp is not None else (float(_l.get("price") or 0) * _f)
-        if abs(_dp - _cp) > 0.5 and not str(_l.get("price_change_reason") or "").strip():
-            raise HTTPException(400, "Alasan perubahan harga wajib diisi karena Harga Satuan berbeda dari Harga Kontrak.")
+        if abs(_dp - _cp) > 0.5:
+            _reason = str(_l.get("price_change_reason") or "").strip()
+            if not _reason:
+                raise HTTPException(400, "Alasan perubahan harga wajib diisi karena Harga Satuan berbeda dari Harga Kontrak.")
+            overrides.append({
+                "item_name": _res.get("item_name") or _l.get("item_name") or _l.get("item_code") or _item,
+                "contract_number": _res.get("contract_number"),
+                "contract_price": _cp, "po_price": _dp,
+                "variance": round(_dp - _cp, 2),
+                "variance_pct": round((_dp - _cp) / _cp * 100, 2) if _cp else None,
+                "reason": _reason,
+            })
+    return overrides
+
+
+async def log_po_price_overrides(did: str, user, overrides):
+    """Write a per-line audit/approval-log entry for each price-override reason so the trail
+    shows up in the PO activity/audit timeline (AuditPanel reads /audit?entity=po&entity_id=)."""
+    if not overrides:
+        return
+    d = await db.po.find_one({"id": did}) or {}
+    no = d.get("no")
+    for o in overrides:
+        await audit(user, "price_override", "po", did, no,
+                    after={"item": o.get("item_name"), "contract_number": o.get("contract_number"),
+                           "contract_price": o.get("contract_price"), "po_price": o.get("po_price"),
+                           "variance": o.get("variance"), "variance_pct": o.get("variance_pct")},
+                    reason=f"Perubahan harga {o.get('item_name')}: {o.get('reason')}")
 
 
 @api.post("/po/{did}/submit")
@@ -555,7 +601,8 @@ async def submit_po(did: str, user=Depends(current_user)):
     if not d: raise HTTPException(404, "PO tidak ditemukan")
     # CP5A-2/3: hard-block submit if an applicable vendor contract exists, Harga Satuan differs,
     # and the price-change reason is empty. Secondary guard to the frontend validation.
-    await assert_po_price_reason(did)
+    _overrides = await assert_po_price_reason(did)
+    await log_po_price_overrides(did, user, _overrides)
     approvers = await _po_required_approvers(d.get("grand_total", 0))
     await db.po_approvals.delete_many({"po_id": did})
     for i, role in enumerate(approvers):
