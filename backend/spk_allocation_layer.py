@@ -472,35 +472,84 @@ def install(server):
                   for r in rows if r.get("event") in ("COMMIT", "RELEASE"))
         return bal > 0, rows
 
-    async def _evaluate_po_budget(po_id):
-        """Evaluasi budget per SPK untuk PO (dipakai saat finalisasi & untuk summary)."""
+    async def _budget_eval_for_amounts(per_spk, exclude_po_id=None):
+        """Evaluasi budget per SPK dari peta {spk_id: amount} (source-of-truth tunggal).
+
+        Dipakai oleh _evaluate_po_budget (PO tersimpan) dan preview-budget (PO belum
+        tersimpan) agar perhitungan preview == commitment Approved. Budget & existing
+        commitment SELALU diambil dari DB (tenant-scoped); frontend tidak dipercaya.
+        """
         td = await _db().settings.find_one({"id": "procurement_budget_policy"}, {"_id": 0}) or {}
         tenant_def = {
             "default_global_budget_policy": td.get("default_global_budget_policy") or "HARD_BLOCK",
             "default_category_budget_policy": td.get("default_category_budget_policy") or "WARNING_ONLY",
         }
         import spk_layer
-        per_spk, _ = await _po_spk_amounts(po_id)
         result = []
         decisions = []
         for spk_id, amount in per_spk.items():
             spk = await _db().spk.find_one({"id": spk_id}, {"_id": 0})
             if not spk:
-                continue
+                continue  # SPK tidak ada / tenant berbeda -> diabaikan
             budget = int(spk.get("procurement_budget") or 0)
-            existing = await _spk_committed(spk_id, exclude_po_id=po_id)
+            existing = await _spk_committed(spk_id, exclude_po_id=exclude_po_id)
             policy = spk_layer.effective_policy(spk, tenant_def)["global"]
-            ev = spk_layer.evaluate_budget(existing, amount, budget, policy)
+            ev = spk_layer.evaluate_budget(existing, int(amount or 0), budget, policy)
             decisions.append(ev["decision"])
             result.append({
                 "spk_id": spk_id, "spk_number": spk.get("spk_number"), "project_name": spk.get("project_name"),
-                "current_procurement_budget": budget, "existing_commitment": existing, "po_amount": amount,
+                "current_procurement_budget": budget, "existing_commitment": existing, "po_amount": int(amount or 0),
                 "projected_commitment": ev["projected_commitment"], "projected_remaining": ev["projected_remaining"],
                 "over_by": ev["over_by"], "policy": policy, "status": ev["decision"],
             })
         blocked = any(d == "block" for d in decisions)
         warning = any(d == "warning" for d in decisions)
         return {"per_spk": result, "blocked": blocked, "warning": warning}
+
+    async def _evaluate_po_budget(po_id):
+        """Evaluasi budget per SPK untuk PO tersimpan (finalisasi & summary)."""
+        per_spk, _ = await _po_spk_amounts(po_id)
+        return await _budget_eval_for_amounts(per_spk, exclude_po_id=po_id)
+
+    def _line_total_int_raw(line):
+        """Nilai line (tax-inclusive) dari input mentah PO belum tersimpan.
+
+        Mengikuti formula create_po EXACT: base = qty*price - discount; total = base + base*tax%.
+        Dibulatkan ke rupiah integer sama seperti _line_total_int() agar preview == commitment.
+        """
+        qty = float(line.get("qty") or 0)
+        price = float(line.get("price") or 0)
+        disc = float(line.get("discount") or 0)
+        tax = float(line.get("tax") or 0)
+        base = qty * price - disc
+        return int(round(base + base * tax / 100.0))
+
+    def _amounts_from_lines(raw_lines):
+        """Agregasi nilai commitment per SPK dari line mentah (reuse _distribute).
+
+        - Non-SPK = qty - total_spk (derived) dan TIDAK ikut agregasi SPK.
+        - Distribusi proporsional qty largest-remainder -> sum rekonsiliasi eksak = nilai line.
+        """
+        per_spk = {}
+        for l in raw_lines or []:
+            total_int = _line_total_int_raw(l)
+            qty = float(l.get("qty") or 0)
+            allocs = []
+            seen = set()
+            for a in (l.get("allocations") or []):
+                sid = (a.get("spk_id") or "").strip()
+                aq = float(a.get("allocated_qty") or 0)
+                if not sid or aq <= 0 or sid in seen:
+                    continue
+                seen.add(sid)
+                allocs.append((sid, aq))
+            spk_qty = sum(q for _, q in allocs)
+            non_spk = max(0.0, qty - spk_qty)
+            parts = list(allocs) + [("__nonspk__", non_spk)]
+            dist = _distribute(total_int, parts)
+            for sid, _q in allocs:
+                per_spk[sid] = per_spk.get(sid, 0) + int(dist.get(sid, 0))
+        return per_spk
 
     async def _commit_po(po_id, user):
         committed, _ = await _is_committed(po_id)
@@ -566,6 +615,19 @@ def install(server):
                 "message": "HARD_BLOCK: PO melebihi Current Procurement Budget SPK. Finalisasi ditolak.",
                 "over_budget": over})
         return ev
+
+    # ---- pre-save budget preview (PO belum tersimpan / sedang diedit) READ-ONLY ----
+    # Zero-write: hanya validate -> calculate -> evaluate -> return. Reuse _distribute +
+    # evaluate_budget persis seperti commitment Approved; budget & existing commitment
+    # diambil dari DB (tenant-scoped). exclude_po_id dipakai saat edit Draft tersimpan.
+    @app.post("/api/spk-allocations/po/preview-budget", tags=["spk_allocation"])
+    async def preview_po_budget(body: dict, user=Depends(server.current_user)):
+        server.require(user, PERM_VIEW)
+        raw_lines = (body or {}).get("lines") or []
+        exclude_po_id = (body or {}).get("exclude_po_id") or None
+        per_spk = _amounts_from_lines(raw_lines)
+        ev = await _budget_eval_for_amounts(per_spk, exclude_po_id=exclude_po_id)
+        return {"status": "preview", "committed": False, **ev}
 
     # ---- budget summary endpoint (per SPK) untuk PO ----
     @app.get("/api/spk-allocations/po/{po_id}/budget-summary", tags=["spk_allocation"])

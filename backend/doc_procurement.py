@@ -95,6 +95,86 @@ async def get_mro(did: str, user=Depends(current_user)):
     return d
 
 
+@api.post("/po/price-control")
+async def po_price_control(body: dict, user=Depends(current_user)):
+    """CP5A-2 — batch resolve Vendor Contract Price (CP3 resolver) for PO lines.
+    Returns contract price + effective tolerance per line so the frontend can
+    compute variance & status (Normal / Price Override / No Contract).
+    Read-only; never mutates the contract master."""
+    require(user, "view_purchase_price")
+    import server as _srv
+    resolver = getattr(_srv, "resolve_vendor_contract_price", None)
+    supplier_id = (body or {}).get("supplier_id") or ""
+    date = (body or {}).get("date") or None
+    out = []
+    for ln in (body or {}).get("lines", []) or []:
+        key = ln.get("key")
+        item_id = ln.get("item_id"); uom_id = ln.get("uom_id"); qty = ln.get("qty")
+        res = None
+        if resolver and supplier_id and item_id and uom_id:
+            try:
+                res = await resolver(supplier_id, item_id, uom_id, date, qty)
+            except Exception:
+                res = None
+        if res:
+            out.append({"key": key, "found": True,
+                        "contract_number": res.get("contract_number"),
+                        "contract_price": res.get("net_contract_price"),
+                        "tolerance_pct": res.get("tolerance_pct"),
+                        "effective_start": res.get("effective_start"),
+                        "effective_end": res.get("effective_end"),
+                        "min_qty": res.get("min_qty"),
+                        "currency": res.get("currency")})
+        else:
+            out.append({"key": key, "found": False})
+    return {"lines": out}
+
+
+@api.get("/purchase-price-history")
+async def purchase_price_history(item_id: str, uom_id: str = "", supplier_id: str = "",
+                                 scope: str = "all", limit: int = 20, summary: int = 0,
+                                 user=Depends(current_user)):
+    """CP5A-1 — read-only purchase price history (decision support only).
+    Only valid purchasing records count (Approved / received). Draft/Rejected/
+    Cancelled are excluded. This is NOT the Price Override rule (that uses the
+    vendor contract price, added in CP5A-2)."""
+    require(user, "view_purchase_price")
+    VALID = ["Approved", "Partially Received", "Fully Received"]
+    pos = await db.po.find({"status": {"$in": VALID}, "cancelled": {"$ne": True}}).to_list(1000)
+    po_by_id = {p["id"]: p for p in pos}
+    sup_docs = await db.suppliers.find({}).to_list(2000)
+    sup_name = {s["id"]: s.get("name") for s in sup_docs}
+    lq = {"item_id": item_id}
+    if uom_id:
+        lq["uom_id"] = uom_id
+    lines = await db.po_lines.find(lq).to_list(3000)
+    rows = []
+    for l in lines:
+        p = po_by_id.get(l.get("po_id"))
+        if not p:
+            continue
+        sid = p.get("supplier_id")
+        if scope == "vendor" and supplier_id and sid != supplier_id:
+            continue
+        factor = float(l.get("conversion_factor") or 1) or 1
+        unit_price = l.get("display_price")
+        if unit_price is None:
+            unit_price = (float(l.get("price") or 0) * factor)
+        rows.append({
+            "date": p.get("date"), "po_id": p.get("id"), "po_no": p.get("no"),
+            "supplier_id": sid, "supplier_name": sup_name.get(sid) or "-",
+            "qty": l.get("display_qty", (float(l.get("qty") or 0) / factor)),
+            "uom": l.get("display_unit") or l.get("unit") or "",
+            "uom_id": l.get("uom_id"),
+            "unit_price": float(unit_price or 0),
+        })
+    rows.sort(key=lambda r: (r.get("date") or ""), reverse=True)
+    last = rows[0] if rows else None
+    if summary:
+        return {"last": last, "count": len(rows)}
+    return {"rows": rows[:max(1, min(limit, 100))], "last": last, "count": len(rows)}
+
+
 @api.post("/mro")
 async def create_mro(body: dict, user=Depends(current_user)):
     require(user, "create")
