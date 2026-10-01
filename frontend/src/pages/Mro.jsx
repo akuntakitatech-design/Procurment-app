@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useMasters } from "@/hooks/useMasters";
@@ -51,10 +51,11 @@ export function MroList() {
 
 export function MroForm() {
   const { id } = useParams(); const nav = useNavigate(); const { can, user } = useAuth(); const masters = useMasters();
-  const [h, setH] = useState({ date: todayISO(), requester: "", department: "", division_id: "", default_warehouse_id: "", default_project_id: "", default_unit_id: "", spk: "", need_date: todayISO(), notes: "", document_message: null });
+  const [h, setH] = useState({ no: "", date: todayISO(), requester: "", department: "", division_id: "", default_warehouse_id: "", default_project_id: "", default_unit_id: "", spk: "", need_date: todayISO(), notes: "", document_message: null });
   const [lines, setLines] = useState([]); const [doc, setDoc] = useState(null); const [editing,setEditing]=useState(false); const isNew = !id;
   const [allocs, setAllocs] = useState({}); const [allocLine, setAllocLine] = useState(null); const [spkMap, setSpkMap] = useState({});
   const [pending, setPending] = useState([]); // in-memory attachments chosen before first save
+  const [noError, setNoError] = useState(false); const noRef = useRef(null);
   const { confirm, dialog } = useCompletenessWarning();
   const lineKey = (l) => l.id || l._key;
   useEffect(() => { api.get("/spk?status=active&page_size=500").then((r)=>{ const m={}; (r.data.items||r.data||[]).forEach((s)=>{m[s.id]=s.spk_number;}); setSpkMap(m); }).catch(()=>{}); }, []);
@@ -82,7 +83,8 @@ export function MroForm() {
   };
   const doSave = async (submit) => {
     try {
-      const payload={...h,submitted:false,lines}; let mroId;
+      const no=(h.no||"").trim();
+      const payload={...h,no,submitted:false,lines}; let mroId;
       if(isNew){ const res=await api.post("/mro",payload); mroId=res.data.id; } else { await api.put(`/transactions/mro/${id}`,payload); mroId=id; }
       await saveDocumentMessage("mro",mroId,h.document_message);
       await persistAllocations(mroId);
@@ -100,18 +102,24 @@ export function MroForm() {
       if (failed.length) toast.error(`MRO tersimpan, tetapi lampiran "${failed.map((f)=>f.name).join(", ")}" gagal diunggah. Silakan unggah ulang.`);
       if(submit) await api.post(`/mro/${mroId}/submit`);
       toast.success(submit?"MRO disubmit":"MRO tersimpan"); nav(`/mro/${mroId}`); if(!isNew) load();
-    } catch(e){toast.error(apiError(e.response?.data?.detail));}
+    } catch(e){ const msg=apiError(e.response?.data?.detail); if(/nomor mro/i.test(String(msg))){ setNoError(true); noRef.current?.focus?.(); noRef.current?.scrollIntoView?.({behavior:"smooth",block:"center"}); } toast.error(msg); }
   };
   const save = (submit=false) => {
-    if (spkOverQty()) return; // blocking
+    // 1) HARD: Nomor MRO wajib (bukan bagian warning non-blocking)
+    const no=(h.no||"").trim();
+    if (isNew && !no) { setNoError(true); toast.error("Nomor MRO wajib diisi sebelum transaksi disimpan."); noRef.current?.focus?.(); noRef.current?.scrollIntoView?.({behavior:"smooth",block:"center"}); return; }
+    setNoError(false);
+    // 2) HARD: SPK allocation tidak boleh melebihi Qty item
+    if (spkOverQty()) return;
+    // 3) Non-blocking completeness warning, lalu lanjut simpan
     const warnings = buildTxnWarnings({ h, lines, headerFields: HEADER_FIELDS.mro, itemFields: ITEM_FIELDS.mro });
-    confirm(warnings, () => doSave(submit)); // non-blocking warning, then proceed
+    confirm(warnings, () => doSave(submit));
   };
   const doSubmit=async()=>{try{await api.post(`/mro/${id}/submit`);toast.success("MRO disubmit");load();}catch(e){toast.error(apiError(e.response?.data?.detail));}}; const doCancel=async()=>{await api.post(`/mro/${id}/cancel`,{reason:"Dibatalkan user"});toast.success("MRO dibatalkan");load();};
   const factor=(l)=>Number(l.conversion_factor)||1, q=(l,v)=>num((Number(v)||0)/factor(l)), unitText=(l)=>l.display_unit||l.unit||"";
   const defaults={warehouse_id:h.default_warehouse_id,project_id:h.default_project_id,unit_id:h.default_unit_id};
   const projectOpts = masters.opts("projects", (d)=>d.name); const unitOpts = masters.opts("units", (d)=>d.plate_no||d.name);
-  return <div><PageHeader title={isNew?"MRO Baru":doc?.no} subtitle={doc&&<StatusBadge status={doc.status}/>}><Button variant="outline" onClick={()=>nav("/mro")}><ArrowLeft className="h-4 w-4 mr-2"/>Kembali</Button>{!isNew&&!editing&&<TransactionMutationActions module="mro" id={id} onEdit={()=>setEditing(true)} onDeleted={()=>nav("/mro")}/>} {editing&&<Button variant="outline" onClick={load}><X className="h-4 w-4 mr-2"/>Batal Edit</Button>}{(!readOnly||editing)&&can("edit")&&!isNew&&<Button variant="outline" onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Perubahan</Button>}{isNew&&can("create")&&<Button variant="outline" onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Draft</Button>}{isNew&&can("submit")&&<Button onClick={()=>save(true)}><Send className="h-4 w-4 mr-2"/>Simpan & Submit</Button>}{!isNew&&!submitted&&!waitingApproval&&!editing&&can("submit")&&<Button onClick={doSubmit}><Send className="h-4 w-4 mr-2"/>Submit</Button>}{!isNew&&doc&&!doc.cancelled&&!editing&&can("cancel")&&<Button variant="outline" onClick={doCancel}><Ban className="h-4 w-4 mr-2"/>Batalkan</Button>}{!isNew&&!editing&&<Button variant="outline" onClick={()=>printDoc("MRO",doc)}><Printer className="h-4 w-4 mr-2"/>Print</Button>}</PageHeader>
+  return <div><PageHeader title={isNew?"MRO Baru":doc?.no} subtitle={doc&&<StatusBadge status={doc.status}/>} numberInput={isNew?<Input ref={noRef} value={h.no||""} onChange={(e)=>{setH({...h,no:e.target.value});if(noError)setNoError(false);}} placeholder="mis. MRO-OMSS-001" data-testid="mro-no-input" className={`h-8 w-56 font-mono ${noError?"border-destructive ring-1 ring-destructive":""}`}/>:undefined}><Button variant="outline" onClick={()=>nav("/mro")}><ArrowLeft className="h-4 w-4 mr-2"/>Kembali</Button>{!isNew&&!editing&&<TransactionMutationActions module="mro" id={id} onEdit={()=>setEditing(true)} onDeleted={()=>nav("/mro")}/>} {editing&&<Button variant="outline" onClick={load}><X className="h-4 w-4 mr-2"/>Batal Edit</Button>}{(!readOnly||editing)&&can("edit")&&!isNew&&<Button variant="outline" onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Perubahan</Button>}{isNew&&can("create")&&<Button variant="outline" onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Draft</Button>}{isNew&&can("submit")&&<Button onClick={()=>save(true)}><Send className="h-4 w-4 mr-2"/>Simpan & Submit</Button>}{!isNew&&!submitted&&!waitingApproval&&!editing&&can("submit")&&<Button onClick={doSubmit}><Send className="h-4 w-4 mr-2"/>Submit</Button>}{!isNew&&doc&&!doc.cancelled&&!editing&&can("cancel")&&<Button variant="outline" onClick={doCancel}><Ban className="h-4 w-4 mr-2"/>Batalkan</Button>}{!isNew&&!editing&&<Button variant="outline" onClick={()=>printDoc("MRO",doc)}><Printer className="h-4 w-4 mr-2"/>Print</Button>}</PageHeader>
     <TransactionProgress className="mb-4" stages={["Draft","Waiting Approval","Open","Partial","Completed"]} status={isNew?"Draft":editing?"Edit":doc?.status}/><DocMetaTabs entity="mro" entityId={id} attachmentPending={pending} onAttachmentPendingChange={setPending}><div className="space-y-4"><Card><CardContent className="pt-6 space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Pemohon"><Input value={h.requester||""} onChange={(e)=>setH({...h,requester:e.target.value})} disabled={readOnly}/></Field><Field label="Divisi"><Combobox options={masters.opts("divisions",d=>d.name)} value={h.division_id} onChange={(v)=>setH({...h,division_id:v})} disabled={readOnly}/></Field><Field label="Tanggal MRO"><DatePicker value={h.date} onChange={(v)=>setH({...h,date:v})} disabled={readOnly}/></Field><Field label="Tanggal Kebutuhan"><DatePicker value={h.need_date} onChange={(v)=>setH({...h,need_date:v})} disabled={readOnly}/></Field></div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Proyek Default"><Combobox options={projectOpts} value={h.default_project_id||""} onChange={(v)=>setH({...h,default_project_id:v})} disabled={readOnly}/></Field><Field label="Gudang Default"><Combobox options={masters.opts("warehouses",d=>d.name)} value={h.default_warehouse_id} onChange={(v)=>setH({...h,default_warehouse_id:v})} disabled={readOnly}/></Field><Field label="Unit/Aset Default"><Combobox options={unitOpts} value={h.default_unit_id||""} onChange={(v)=>setH({...h,default_unit_id:v})} disabled={readOnly}/></Field><Field label="Keterangan"><Input value={h.notes||""} onChange={(e)=>setH({...h,notes:e.target.value})} disabled={readOnly}/></Field></div>

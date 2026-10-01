@@ -99,7 +99,13 @@ async def get_mro(did: str, user=Depends(current_user)):
 async def create_mro(body: dict, user=Depends(current_user)):
     require(user, "create")
     did = gid()
-    no = await next_number("MRO")
+    # Manual MRO number (hard validation) — replaces legacy auto-numbering.
+    no = (body.get("no") or "").strip()
+    if not no:
+        raise HTTPException(400, "Nomor MRO wajib diisi sebelum transaksi disimpan.")
+    # Tenant-scoped uniqueness (db proxy auto-scopes by tenant_id).
+    if await db.mro.find_one({"no": no}):
+        raise HTTPException(400, f'Nomor MRO "{no}" sudah digunakan. Silakan gunakan nomor lain.')
     header = {"id": did, "no": no, "date": body.get("date", now_iso()),
               "need_date": body.get("need_date"), "division_id": body.get("division_id"),
               "requester": body.get("requester", user.get("name")), "department": body.get("department"),
