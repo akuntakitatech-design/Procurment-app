@@ -451,7 +451,7 @@ async def get_po(did: str, user=Depends(current_user)):
                 refs.append({"ro_no": rh["no"], "ro_id": rh["id"], "mro_no": mro_no, "qty": s["qty"]})
         l["ro_refs"] = refs
         if not show_price:
-            for k in ("price","discount","tax","total"): l[k] = None
+            for k in ("price","discount","tax","total","contract_price_snapshot","price_variance","price_variance_pct"): l[k] = None
     d["lines"] = lines
     d["supplier_name"] = m["suppliers"].get(d.get("supplier_id"), {}).get("name")
     d["division_name"] = m["divisions"].get(d.get("division_id"), {}).get("name")
@@ -488,7 +488,13 @@ async def create_po(body: dict, user=Depends(current_user)):
             "warehouse_id": l.get("warehouse_id") or body.get("default_warehouse_id"),
             "project_id": l.get("project_id"), "unit_id": l.get("unit_id"), "spk": l.get("spk"),
             "price": float(l.get("price", 0)), "discount": float(l.get("discount", 0)),
-            "tax": float(l.get("tax", 0)), "total": l.get("total", 0), "notes": l.get("notes")})
+            "tax": float(l.get("tax", 0)), "total": l.get("total", 0), "notes": l.get("notes"),
+            "price_change_reason": (l.get("price_change_reason") or None),
+            "contract_price_snapshot": l.get("contract_price_snapshot"),
+            "contract_number_snapshot": l.get("contract_number_snapshot"),
+            "price_variance": l.get("price_variance"),
+            "price_variance_pct": l.get("price_variance_pct"),
+            "price_status": l.get("price_status")})
         for src in l.get("sources", []):
             if not has_perm(user, "override_qty"):
                 rline = await db.ro_lines.find_one({"id": src["line_id"]})
@@ -514,6 +520,30 @@ async def submit_po(did: str, user=Depends(current_user)):
     require(user, "submit")
     d = await db.po.find_one({"id": did})
     if not d: raise HTTPException(404, "PO tidak ditemukan")
+    # CP5A-2/3: hard-block submit if an applicable vendor contract exists, Harga Satuan differs,
+    # and the price-change reason is empty. Secondary guard to the frontend validation.
+    import server as _srv
+    _resolver = getattr(_srv, "resolve_vendor_contract_price", None)
+    if _resolver and d.get("supplier_id"):
+        _plines = await db.po_lines.find({"po_id": did}, {"_id": 0}).to_list(500)
+        for _l in _plines:
+            _item = _l.get("item_id"); _uom = _l.get("uom_id")
+            if not _item or not _uom:
+                continue
+            _f = float(_l.get("conversion_factor") or 1) or 1
+            _dqty = _l.get("display_qty")
+            _dqty = float(_dqty) if _dqty is not None else (float(_l.get("qty") or 0) / _f)
+            try:
+                _res = await _resolver(d.get("supplier_id"), _item, _uom, d.get("date"), _dqty)
+            except Exception:
+                _res = None
+            if not _res:
+                continue
+            _cp = float(_res.get("net_contract_price") or 0)
+            _dp = _l.get("display_price")
+            _dp = float(_dp) if _dp is not None else (float(_l.get("price") or 0) * _f)
+            if abs(_dp - _cp) > 0.5 and not str(_l.get("price_change_reason") or "").strip():
+                raise HTTPException(400, "Alasan perubahan harga wajib diisi karena Harga Satuan berbeda dari Harga Kontrak.")
     approvers = await _po_required_approvers(d.get("grand_total", 0))
     await db.po_approvals.delete_many({"po_id": did})
     for i, role in enumerate(approvers):
