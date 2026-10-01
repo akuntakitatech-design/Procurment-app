@@ -76,7 +76,10 @@ function CreateTenantDialog({ open, onOpenChange, plans, onCreated }) {
   const [result, setResult] = useState(null);
   const set = (k, v) => setForm((x) => ({ ...x, [k]: v }));
 
-  useEffect(() => { if (open) { setForm(empty); setResult(null); } /* eslint-disable-next-line */ }, [open]);
+  useEffect(() => {
+    if (open) { setForm(empty); setResult(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const onLogo = (e) => {
     const file = e.target.files?.[0];
@@ -376,7 +379,10 @@ export default function PlatformAdmin() {
     } catch (e) { setErr(apiError(e.response?.data?.detail) || e.message); }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openTenant = async (t) => {
     setErr(""); setDetailTab("overview");
