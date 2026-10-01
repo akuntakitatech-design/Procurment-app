@@ -8,4 +8,10 @@ __pycache__/
 !.env.example
 *.log
 .DS_Store
+data/
+memory/
+.emergent/
+test_reports/
+cp4_test.py
 data/mariadb/ib_logfile0
+data/mariadb_damaged_1790827177/ib_logfile0

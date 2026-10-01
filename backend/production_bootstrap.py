@@ -62,6 +62,7 @@ import excel_import_layer
 import opening_inventory_layer
 import spk_layer
 import vendor_contract_layer
+import spk_allocation_layer
 
 
 async def production_seed_defaults():
@@ -195,6 +196,12 @@ spk_layer.install(server)
 # vendor_contract_price_history) are automatically tenant-scoped by the isolation proxy.
 # NOTE: CP3 does NOT wire the resolver to PO (that is CP4).
 vendor_contract_layer.install(server)
+
+# CP4 — SPK Allocation Flow (MRO->RO->PO) + Budget Commitment. Installed AFTER the
+# procurement guard/mutation layers (so it wraps their final PO route behavior) and BEFORE
+# the tenant/subscription/isolation layers (so those wrap CP4's routes too). Collections
+# (procurement_item_spk_allocations, spk_commitment_ledger) are tenant-scoped by the proxy.
+spk_allocation_layer.install(server)
 
 # SaaS registration/platform routes are registered before isolation activation. Their startup
 # bootstrap runs after the default PT REAL tenant backfill and creates only platform metadata.
