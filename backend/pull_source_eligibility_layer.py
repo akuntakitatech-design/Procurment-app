@@ -106,6 +106,7 @@ async def _ro_rows(server, user):
                 "item_code": line.get("item_code"), "item_name": line.get("item_name"),
                 "unit": line.get("unit"), "qty_ro": line.get("qty", 0),
                 "ordered": ordered, "outstanding": outstanding,
+                "notes": line.get("notes"),
                 "warehouse_id": line.get("warehouse_id"), "project_id": line.get("project_id"),
                 "unit_id": line.get("unit_id"), "warehouse_name": line.get("warehouse_name"),
                 "project_name": line.get("project_name"), "unit_name": line.get("unit_name"),
