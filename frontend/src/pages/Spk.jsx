@@ -38,6 +38,18 @@ function MoneyInput({ value, onChange, ...props }) {
     onChange={(e) => onChange(parseMoney(e.target.value))} {...props} />;
 }
 
+// Stable module-scope component so SpkForm re-renders (on every keystroke) never
+// recreate/remount this subtree — preventing input focus loss while typing.
+function FormSection({ title, icon: Icon, children, desc }) {
+  return (
+    <div className="rounded-xl border bg-card p-5 shadow-sm space-y-4">
+      <div className="flex items-center gap-2"><Icon className="h-4 w-4 text-primary" /><h3 className="font-head font-semibold">{title}</h3></div>
+      {desc && <p className="text-xs text-muted-foreground -mt-2">{desc}</p>}
+      {children}
+    </div>
+  );
+}
+
 /* ============================== LIST ============================== */
 export function SpkList() {
   const nav = useNavigate();
@@ -186,13 +198,7 @@ export function SpkForm() {
     finally { setSaving(false); }
   };
 
-  const Section = ({ title, icon: Icon, children, desc }) => (
-    <div className="rounded-xl border bg-card p-5 shadow-sm space-y-4">
-      <div className="flex items-center gap-2"><Icon className="h-4 w-4 text-primary" /><h3 className="font-head font-semibold">{title}</h3></div>
-      {desc && <p className="text-xs text-muted-foreground -mt-2">{desc}</p>}
-      {children}
-    </div>
-  );
+  const Section = FormSection;
 
   return (
     <div>
