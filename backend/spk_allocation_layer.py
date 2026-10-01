@@ -360,6 +360,50 @@ def install(server):
         return {"source_type": source_type, "line_id": line_id,
                 "qty": float(line.get("qty") or 0), "spk": rows}
 
+    # ---- preview inherited allocation for an UNSAVED target line ----
+    # Reuses the authoritative greedy SPK-first + remaining-only logic so the
+    # frontend preview matches exactly what the backend will persist on save.
+    @app.post("/api/spk-allocations/preview-inherit", tags=["spk_allocation"])
+    async def preview_inherit(body: dict, user=Depends(server.current_user)):
+        server.require(user, PERM_VIEW)
+        target_type = (body or {}).get("target_type")
+        src_type = SRC_OF.get(target_type)
+        if not src_type:
+            raise HTTPException(400, "target_type tidak valid untuk inheritance")
+        sources = (body or {}).get("sources") or []
+        # Aggregate SPK across source line(s), deterministic order (source created_at).
+        ordered, seen, src_line_ids = [], {}, []
+        for s in sources:
+            sl = s.get("source_line_id") or s.get("line_id")
+            if not sl:
+                continue
+            src_line_ids.append(sl)
+            for a in await _allocs(src_type, sl):
+                sp = a["spk_id"]; q = float(a.get("allocated_qty") or 0)
+                if sp in seen:
+                    ordered[seen[sp]][1] += q
+                else:
+                    seen[sp] = len(ordered); ordered.append([sp, q])
+        total_qty = round(sum(float(s.get("qty") or 0) for s in sources), 6)
+        remaining = total_qty
+        allocations = []
+        for sp, src_alloc in ordered:
+            if remaining <= 1e-9:
+                break
+            consumed = await _consumed_by_other(target_type, src_line_ids, sp, None)
+            avail = max(0.0, src_alloc - consumed)
+            take = min(avail, remaining)
+            if take > 1e-9:
+                lbl = await _spk_label(sp)
+                allocations.append({"spk_id": sp, "spk_number": lbl.get("spk_number"),
+                                    "project_name": lbl.get("project_name"),
+                                    "allocated_qty": round(take, 6)})
+                remaining -= take
+        non_spk = max(0.0, round(total_qty - sum(a["allocated_qty"] for a in allocations), 6))
+        return {"target_type": target_type, "item_qty": total_qty,
+                "allocations": allocations, "non_spk_qty": non_spk}
+
+
     # ---- PO: verify allocation ----
     @app.post("/api/spk-allocations/po/{po_id}/verify", tags=["spk_allocation"])
     async def verify_po_allocation(po_id: str, user=Depends(server.current_user)):
