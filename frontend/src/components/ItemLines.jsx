@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 import { rupiah, num } from "@/lib/format";
 
-export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false }) {
+export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null }) {
   const items = masters.map("items");
   const uoms = masters.map("uoms");
   const taxes = masters.map("taxes");
@@ -83,7 +83,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
     }
     onChange(next);
   };
-  const addRow = () => onChange([...lines, { item_id: "", qty: 1, uom_id: "", conversion_factor: 1, unit: "", warehouse_id: defaults.warehouse_id || "", project_id: defaults.project_id || "", unit_id: defaults.unit_id || "", _warehouseOverride: false, _projectOverride: false, _unitOverride: false, notes: "", price: 0, discount: 0, tax_id: "", tax: 0 }]);
+  const addRow = () => onChange([...lines, { _key: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`), item_id: "", qty: 1, uom_id: "", conversion_factor: 1, unit: "", warehouse_id: defaults.warehouse_id || "", project_id: defaults.project_id || "", unit_id: defaults.unit_id || "", _warehouseOverride: false, _projectOverride: false, _unitOverride: false, notes: "", price: 0, discount: 0, tax_id: "", tax: 0 }]);
   const total = (l) => { const base = (Number(l.qty) || 0) * (Number(l.price) || 0) - (Number(l.discount) || 0); return taxInclusive ? Math.max(0, base) : base + base * (Number(l.tax) || 0) / 100; };
   const grand = lines.reduce((s, l) => s + total(l), 0);
   const stockInfo = (l) => { const it = items[l.item_id]; if (!it) return ""; const base = it.base_uom_id ? uomLabel(it.base_uom_id) : it.unit; return base ? `${num((Number(l.qty) || 0) * (Number(l.conversion_factor) || 1))} ${base}` : ""; };
@@ -94,6 +94,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
       <table className="w-full text-sm min-w-[980px]">
         <thead className="bg-muted"><tr className="text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <th className="p-2 min-w-[210px]">Barang</th><th className="p-2 w-24">Qty</th><th className="p-2 min-w-[145px]">Satuan</th>
+          {allocationColumn && <th className="p-2 min-w-[160px]">{allocationColumn.header || "Alokasi SPK"}</th>}
           {fields.warehouse && <th className="p-2 min-w-[140px]">Gudang</th>}{fields.project && <th className="p-2 min-w-[140px]">Proyek</th>}{fields.unit && <th className="p-2 min-w-[140px]">Unit/Aset</th>}
           {showPrice && <><th className="p-2 w-32">Harga / Satuan</th><th className="p-2 w-24">Diskon</th><th className="p-2 min-w-[150px]">Pajak</th><th className="p-2 w-32 text-right">Total</th></>}
           <th className="p-2 min-w-[120px]">Ket.</th><th className="p-2 w-10"></th>
@@ -103,6 +104,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
             <td className="p-1.5">{l._sourceLabel && <div className="mb-1 text-[10px] font-mono text-muted-foreground">{l._sourceLabel}</div>}<Combobox options={itemOpts} value={l.item_id} onChange={(v) => update(i, { item_id: v })} placeholder="Pilih barang" disabled={l._locked} /></td>
             <td className="p-1.5"><Input type="number" step="any" value={l.qty} onChange={(e) => update(i, { qty: e.target.value })} className="h-9 text-right" /></td>
             <td className="p-1.5"><Uom l={l} i={i} /></td>
+            {allocationColumn && <td className="p-1.5 align-middle">{allocationColumn.render(l, i)}</td>}
             {fields.warehouse && <td className="p-1.5"><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></td>}
             {fields.project && <td className="p-1.5"><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></td>}
             {fields.unit && <td className="p-1.5"><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit" /></td>}
