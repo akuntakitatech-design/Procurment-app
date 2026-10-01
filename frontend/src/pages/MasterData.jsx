@@ -14,7 +14,7 @@ import { Field } from "@/components/DatePicker";
 import {
   Plus, Pencil, Search, Package, Warehouse, FolderKanban, Truck,
   Building2, Layers3, Boxes, ChevronRight, ArrowLeft, Ruler, Tags,
-  Trash2, Percent, UsersRound, ContactRound, ClipboardList,
+  Trash2, Percent, UsersRound, ContactRound, ClipboardList, Handshake,
 } from "lucide-react";
 import { num } from "@/lib/format";
 import { toast } from "sonner";
@@ -377,11 +377,14 @@ export default function MasterData() {
   }
 
   return <div><PageHeader title="Master Data" subtitle="Pilih master yang ingin dikelola. Form dibuka setelah kartu dipilih." /><div className="space-y-7">
-    {can("spk:view") && <section><div className="mb-3"><h2 className="font-head text-sm font-semibold">Procurement</h2><p className="mt-1 text-xs text-muted-foreground">Kontrak kerja & kontrol budget procurement.</p></div>
+    {(can("spk:view") || can("vendor_contract:view")) && <section><div className="mb-3"><h2 className="font-head text-sm font-semibold">Procurement</h2><p className="mt-1 text-xs text-muted-foreground">Kontrak kerja, harga vendor & kontrol budget procurement.</p></div>
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-        <button type="button" onClick={() => navigate("/spk")} data-testid="master-spk-card" className="group w-full rounded-2xl border bg-card p-4 sm:p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
+        {can("spk:view") && <button type="button" onClick={() => navigate("/spk")} data-testid="master-spk-card" className="group w-full rounded-2xl border bg-card p-4 sm:p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
           <div className="flex items-center gap-4"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><ClipboardList className="h-6 w-6" /></div><div className="min-w-0 flex-1"><h3 className="font-head text-base font-semibold">SPK</h3><p className="mt-1 text-xs sm:text-sm text-muted-foreground line-clamp-2">Master Surat Perintah Kerja: nilai SPK, budget procurement, budget control policy, dan dokumen.</p></div><ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
-        </button>
+        </button>}
+        {can("vendor_contract:view") && <button type="button" onClick={() => navigate("/vendor-contracts")} data-testid="master-vendor-contract-card" className="group w-full rounded-2xl border bg-card p-4 sm:p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
+          <div className="flex items-center gap-4"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Handshake className="h-6 w-6" /></div><div className="min-w-0 flex-1"><h3 className="font-head text-base font-semibold">Kontrak Harga Vendor</h3><p className="mt-1 text-xs sm:text-sm text-muted-foreground line-clamp-2">Master kontrak harga vendor: item harga, diskon, net price, periode berlaku, tolerance, histori harga, dan dokumen.</p></div><ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
+        </button>}
       </div></section>}
     {MASTER_GROUPS.map((group) => <section key={group.title}><div className="mb-3"><h2 className="font-head text-sm font-semibold">{group.title}</h2><p className="mt-1 text-xs text-muted-foreground">{group.subtitle}</p></div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">{group.cards.map((card) => <MasterCard key={card.key} card={card} count={counts[card.key]} onClick={() => setActive(card.key)} />)}</div></section>)}</div></div>;
 }
