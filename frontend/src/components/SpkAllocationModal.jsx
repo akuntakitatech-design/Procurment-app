@@ -14,6 +14,29 @@ import { toast } from "sonner";
 const num = (v) => Number(v || 0);
 const rupiah = (v) => `Rp ${num(v).toLocaleString("id-ID")}`;
 
+// Horizontal compact allocation text, e.g. "SPK-001: 3 • SPK-002: 4 • Non-SPK: 3"
+export function formatAllocText(summary) {
+  if (!summary) return "Non-SPK";
+  const parts = (summary.allocations || []).map((a) => `${a.spk_number || a.spk_id}: ${num(a.allocated_qty)}`);
+  const nonSpk = num(summary.non_spk_qty);
+  if (parts.length === 0) return `Non-SPK: ${num(summary.item_qty)}`;
+  if (nonSpk > 1e-9) parts.push(`Non-SPK: ${nonSpk}`);
+  return parts.join(" • ");
+}
+
+// Doc-level allocation fetch -> map lineId->summary + server-authoritative perms
+export function useDocAllocations(sourceType, docId) {
+  const [data, setData] = useState(null);
+  const reload = useCallback(() => {
+    if (!docId) { setData(null); return; }
+    api.get(`/spk-allocations/${sourceType}/doc/${docId}`).then((r) => setData(r.data)).catch(() => setData(null));
+  }, [sourceType, docId]);
+  useEffect(() => { reload(); }, [reload]);
+  const map = {};
+  (data?.lines || []).forEach((l) => { map[l.item_line_id] = l; });
+  return { map, status: data?.status, canManage: !!data?.can_manage, canVerify: !!data?.can_verify, reload };
+}
+
 // ---------------------------------------------------------------------------
 // Reusable "Alokasi SPK" modal for a single MRO / RO / PO item line.
 // Non-SPK is the automatic remainder (never entered by the user).
@@ -148,7 +171,7 @@ export function SpkAllocationModal({ open, onClose, sourceType, lineId, docStatu
 // PO Budget Summary per SPK (doc-level) — shows Current Procurement Budget,
 // existing commitment, projected remaining and policy decision per SPK.
 // ---------------------------------------------------------------------------
-function PoBudgetSummary({ poId, refreshKey }) {
+export function PoBudgetSummary({ poId, refreshKey }) {
   const [data, setData] = useState(null);
   useEffect(() => {
     if (!poId) return;
