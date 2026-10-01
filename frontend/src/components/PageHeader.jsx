@@ -9,7 +9,7 @@ const NEW_TRANSACTION_LABELS = [
   [/^Stock Adjustment Baru$/i, "No. Adjustment"],
 ];
 
-export function PageHeader({ title, subtitle, children, transactionLabel, transactionNo }) {
+export function PageHeader({ title, subtitle, children, transactionLabel, transactionNo, numberInput }) {
   const titleText = typeof title === "string" ? title : "";
   const autoLabel = NEW_TRANSACTION_LABELS.find(([pattern]) => pattern.test(titleText))?.[1];
   const numberLabel = transactionLabel || autoLabel;
@@ -20,10 +20,12 @@ export function PageHeader({ title, subtitle, children, transactionLabel, transa
       <div className="min-h-[54px] flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-xl sm:text-2xl font-bold tracking-tight font-head">{title}</h1>
-          {numberLabel && (
+          {(numberLabel || numberInput) && (
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-              <span className="font-semibold text-muted-foreground">{numberLabel}</span>
-              <span className="rounded-md border bg-muted/50 px-2 py-0.5 font-mono font-semibold text-foreground">{numberValue}</span>
+              <span className="font-semibold text-muted-foreground">{numberLabel || "No. MRO"}</span>
+              {numberInput
+                ? numberInput
+                : <span className="rounded-md border bg-muted/50 px-2 py-0.5 font-mono font-semibold text-foreground">{numberValue}</span>}
             </div>
           )}
           {subtitle && <div className="mt-1 text-sm text-muted-foreground line-clamp-2">{subtitle}</div>}
