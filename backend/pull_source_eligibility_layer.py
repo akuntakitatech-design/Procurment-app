@@ -65,6 +65,7 @@ async def _mro_rows(server, target_type, user):
                 "item_id": line.get("item_id"), "item_code": line.get("item_code"),
                 "item_name": line.get("item_name"), "unit": line.get("unit"),
                 "requested": line.get("qty", 0), "outstanding": outstanding,
+                "notes": line.get("notes"),
                 "warehouse_id": line.get("warehouse_id"), "project_id": line.get("project_id"),
                 "unit_id": line.get("unit_id"), "warehouse_name": line.get("warehouse_name"),
                 "project_name": line.get("project_name"), "unit_name": line.get("unit_name"),
