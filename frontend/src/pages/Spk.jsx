@@ -9,6 +9,7 @@ import { Field } from "@/components/DatePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   Plus, Search, Pencil, ArrowLeft, FileText, Upload, Trash2, Download, ShieldCheck,
   Wallet, TrendingUp, Layers3, Info, ChevronLeft, ChevronRight, ClipboardList,
@@ -36,6 +37,18 @@ const policyLabel = (p) => (p === "HARD_BLOCK" ? "Hard Block" : p === "WARNING_O
 function MoneyInput({ value, onChange, ...props }) {
   return <Input inputMode="numeric" value={value === "" || value == null ? "" : Number(value).toLocaleString("id-ID")}
     onChange={(e) => onChange(parseMoney(e.target.value))} {...props} />;
+}
+
+// Stable module-scope component so SpkForm re-renders (on every keystroke) never
+// recreate/remount this subtree — preventing input focus loss while typing.
+function FormSection({ title, icon: Icon, children, desc }) {
+  return (
+    <div className="rounded-xl border bg-card p-5 shadow-sm space-y-4">
+      <div className="flex items-center gap-2"><Icon className="h-4 w-4 text-primary" /><h3 className="font-head font-semibold">{title}</h3></div>
+      {desc && <p className="text-xs text-muted-foreground -mt-2">{desc}</p>}
+      {children}
+    </div>
+  );
 }
 
 /* ============================== LIST ============================== */
@@ -186,13 +199,7 @@ export function SpkForm() {
     finally { setSaving(false); }
   };
 
-  const Section = ({ title, icon: Icon, children, desc }) => (
-    <div className="rounded-xl border bg-card p-5 shadow-sm space-y-4">
-      <div className="flex items-center gap-2"><Icon className="h-4 w-4 text-primary" /><h3 className="font-head font-semibold">{title}</h3></div>
-      {desc && <p className="text-xs text-muted-foreground -mt-2">{desc}</p>}
-      {children}
-    </div>
-  );
+  const Section = FormSection;
 
   return (
     <div>
@@ -315,6 +322,126 @@ function SpkDocuments({ spkId, canManage }) {
   );
 }
 
+const ADD_TYPE_OPTS = [
+  { value: "PROCUREMENT_BUDGET", label: "Budget Procurement" },
+  { value: "SPK_VALUE", label: "Nilai SPK" },
+  { value: "BOTH", label: "Keduanya" },
+];
+const addStatusMap = { draft: "Draft", effective: "Normal", cancelled: "cancelled" };
+
+function AddendumPanel({ spk, onChanged }) {
+  const canManage = spk.can_manage_addendum;
+  const canFinalize = spk.can_finalize_addendum;
+  const list = spk.addendums || [];
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const blank = { addendum_number: "", addendum_date: "", addendum_type: "PROCUREMENT_BUDGET", effective_date: "", reason: "", pic_name: "", division_name: "", sv_dir: "+", sv_mag: "", bud_dir: "+", bud_mag: "" };
+  const [f, setF] = useState(blank);
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+
+  const curSv = spk.budget_summary?.spk_value || 0;
+  const curBud = spk.budget_summary?.procurement_budget || 0;
+  const svDelta = (f.addendum_type === "PROCUREMENT_BUDGET") ? 0 : (f.sv_dir === "-" ? -1 : 1) * Number(f.sv_mag || 0);
+  const budDelta = (f.addendum_type === "SPK_VALUE") ? 0 : (f.bud_dir === "-" ? -1 : 1) * Number(f.bud_mag || 0);
+  const newSv = curSv + svDelta;
+  const newBud = curBud + budDelta;
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      await api.post(`/spk/${spk.id}/addendums`, {
+        addendum_number: f.addendum_number, addendum_date: f.addendum_date, addendum_type: f.addendum_type,
+        effective_date: f.effective_date || null, reason: f.reason, pic_name: f.pic_name || null, division_name: f.division_name || null,
+        spk_value_change: svDelta, budget_change: budDelta,
+      });
+      toast.success("Addendum draft dibuat"); setOpen(false); setF(blank); onChanged?.();
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
+    finally { setSaving(false); }
+  };
+  const finalize = async (a) => {
+    try {
+      const r = await api.post(`/spk/${spk.id}/addendums/${a.id}/finalize`, { expected_spk_value: curSv, expected_procurement_budget: curBud });
+      if (r.data?.warning) toast.warning(r.data.warning); else toast.success("Addendum effective — nilai SPK diperbarui");
+      onChanged?.();
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
+  };
+  const cancel = async (a) => { if (!window.confirm("Batalkan addendum ini?")) return; try { await api.post(`/spk/${spk.id}/addendums/${a.id}/cancel`); toast.success("Addendum dibatalkan"); onChanged?.(); } catch (e) { toast.error(apiError(e.response?.data?.detail)); } };
+
+  return (
+    <div className="space-y-4">
+      {canManage && <Button onClick={() => setOpen(true)} data-testid="addendum-add-btn"><Plus className="h-4 w-4 mr-2" />Tambah Addendum</Button>}
+      {list.length === 0 ? <div className="rounded-xl border bg-card p-10 text-center text-sm text-muted-foreground">Belum ada Addendum pada SPK ini.</div> : (
+        <div className="border rounded-xl overflow-x-auto bg-card shadow-sm">
+          <table className="w-full text-sm"><thead className="bg-muted"><tr className="text-left text-xs uppercase text-muted-foreground">
+            <th className="p-3">No</th><th className="p-3">Tanggal</th><th className="p-3">Tipe</th>
+            <th className="p-3 text-right">Perubahan Nilai SPK</th><th className="p-3 text-right">Perubahan Budget</th>
+            <th className="p-3 text-right">Budget Sebelum/Sesudah</th><th className="p-3">Status</th><th className="p-3">Aksi</th></tr></thead>
+            <tbody>
+            {list.map((a) => (
+              <tr key={a.id} className="border-t" data-testid={`addendum-row-${a.addendum_number}`}>
+                <td className="p-3 font-mono text-xs">{a.addendum_number}</td>
+                <td className="p-3 text-xs">{a.addendum_date || "-"}</td>
+                <td className="p-3 text-xs">{a.addendum_type}</td>
+                <td className="p-3 text-right text-xs">{a.spk_value_change ? rupiah(a.spk_value_change) : "-"}</td>
+                <td className="p-3 text-right text-xs">{a.budget_change ? rupiah(a.budget_change) : "-"}</td>
+                <td className="p-3 text-right text-xs">{a.status === "effective" ? `${rupiah(a.before_procurement_budget)} -> ${rupiah(a.after_procurement_budget)}` : "-"}</td>
+                <td className="p-3"><StatusBadge status={addStatusMap[a.status] || a.status} /></td>
+                <td className="p-3">
+                  {a.status === "draft" && canFinalize && <Button size="sm" variant="outline" className="h-7 text-xs mr-1" onClick={() => finalize(a)} data-testid={`addendum-finalize-${a.addendum_number}`}>Finalisasi</Button>}
+                  {a.status === "draft" && canManage && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => cancel(a)}>Batal</Button>}
+                </td>
+              </tr>
+            ))}
+            </tbody></table>
+        </div>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
+          <DialogHeader><DialogTitle>Tambah Addendum</DialogTitle>
+            <DialogDescription>SPK {spk.spk_number} - {spk.project_name} - Status {spk.status}</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-3">
+              <Field label="Nomor Addendum *"><Input value={f.addendum_number} onChange={(e) => set("addendum_number", e.target.value)} data-testid="addendum-number" /></Field>
+              <Field label="Tanggal Addendum *"><Input type="date" value={f.addendum_date} onChange={(e) => set("addendum_date", e.target.value)} data-testid="addendum-date" /></Field>
+              <Field label="Tipe Addendum *"><Combobox options={ADD_TYPE_OPTS} value={f.addendum_type} onChange={(v) => set("addendum_type", v)} /></Field>
+              <Field label="Tanggal Efektif"><Input type="date" value={f.effective_date} onChange={(e) => set("effective_date", e.target.value)} /></Field>
+              <Field label="PIC Pengaju"><Input value={f.pic_name} onChange={(e) => set("pic_name", e.target.value)} /></Field>
+              <Field label="Divisi"><Input value={f.division_name} onChange={(e) => set("division_name", e.target.value)} /></Field>
+            </div>
+            {f.addendum_type !== "PROCUREMENT_BUDGET" && (
+              <div className="rounded-xl border p-3 space-y-2">
+                <div className="text-xs font-semibold">Perubahan Nilai SPK</div>
+                <div className="grid grid-cols-3 gap-2 items-end">
+                  <Field label="Arah"><Combobox options={[{ value: "+", label: "Tambah (+)" }, { value: "-", label: "Kurang (-)" }]} value={f.sv_dir} onChange={(v) => set("sv_dir", v)} /></Field>
+                  <Field label="Nilai"><MoneyInput value={f.sv_mag} onChange={(v) => set("sv_mag", v)} data-testid="addendum-sv-mag" /></Field>
+                  <div className="text-xs">Current {rupiah(curSv)}<br />Baru <b data-testid="addendum-new-sv">{rupiah(newSv)}</b></div>
+                </div>
+              </div>
+            )}
+            {f.addendum_type !== "SPK_VALUE" && (
+              <div className="rounded-xl border p-3 space-y-2">
+                <div className="text-xs font-semibold">Perubahan Budget Procurement</div>
+                <div className="grid grid-cols-3 gap-2 items-end">
+                  <Field label="Arah"><Combobox options={[{ value: "+", label: "Tambah (+)" }, { value: "-", label: "Kurang (-)" }]} value={f.bud_dir} onChange={(v) => set("bud_dir", v)} /></Field>
+                  <Field label="Nilai"><MoneyInput value={f.bud_mag} onChange={(v) => set("bud_mag", v)} data-testid="addendum-bud-mag" /></Field>
+                  <div className="text-xs">Current {rupiah(curBud)}<br />Baru <b data-testid="addendum-new-bud">{rupiah(newBud)}</b></div>
+                </div>
+              </div>
+            )}
+            {(newBud > newSv) && <p className="text-xs text-destructive">Budget hasil melebihi Nilai SPK hasil - tidak dapat difinalisasi.</p>}
+            <Field label="Alasan / Deskripsi *"><textarea value={f.reason} onChange={(e) => set("reason", e.target.value)} className="w-full min-h-20 rounded-md border bg-background px-3 py-2 text-sm" data-testid="addendum-reason" /></Field>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Batal</Button>
+            <Button onClick={submit} disabled={saving} data-testid="addendum-save">{saving ? "Menyimpan..." : "Simpan Draft"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export function SpkDetail() {
   const nav = useNavigate();
   const { id } = useParams();
@@ -334,11 +461,11 @@ export function SpkDetail() {
   };
 
   const cards = [
-    ["Nilai SPK", bs.spk_value, "text-slate-700"],
-    ["Budget Procurement", bs.procurement_budget, "text-sky-700"],
-    ["Commitment", bs.commitment, "text-amber-700"],
-    ["Realisasi", bs.realisasi, "text-violet-700"],
-    ["Sisa Budget", bs.available_budget, "text-emerald-700"],
+    ["Nilai SPK", bs.spk_value, "text-slate-700", bs.original_spk_value !== bs.spk_value ? bs.original_spk_value : null],
+    ["Budget Procurement", bs.procurement_budget, "text-sky-700", bs.original_procurement_budget !== bs.procurement_budget ? bs.original_procurement_budget : null],
+    ["Commitment", bs.commitment, "text-amber-700", null],
+    ["Realisasi", bs.realisasi, "text-violet-700", null],
+    ["Sisa Budget", bs.available_budget, "text-emerald-700", null],
   ];
 
   return (
@@ -368,13 +495,15 @@ export function SpkDetail() {
 
       {/* summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
-        {cards.map(([label, val, color]) => (
+        {cards.map(([label, val, color, orig]) => (
           <div key={label} className="rounded-xl border bg-card p-4 shadow-sm">
             <div className="text-xs text-muted-foreground">{label}</div>
             <div className={`text-lg font-bold font-head mt-1.5 ${color}`}>{rupiah(val)}</div>
+            {orig != null && <div className="text-[11px] text-muted-foreground mt-0.5">Original {rupiah(orig)}</div>}
           </div>
         ))}
       </div>
+      {bs.over_budget && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700 mb-4" data-testid="over-budget-indicator">Status: OVER_BUDGET — budget saat ini lebih kecil dari commitment berjalan.</div>}
 
       {/* budget policy */}
       <div className="rounded-xl border bg-card p-5 shadow-sm mb-4">
@@ -392,7 +521,7 @@ export function SpkDetail() {
 
       {/* tabs */}
       <div className="border-b flex gap-1 mb-4">
-        {[["summary", "Ringkasan"], ["commitment", "Commitment & Realisasi"], ["documents", "Dokumen"], ["notes", "Catatan"]].map(([k, l]) => (
+        {[["summary", "Ringkasan"], ["commitment", "Commitment & Realisasi"], ["addendum", "Addendum"], ["documents", "Dokumen"], ["notes", "Catatan"]].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} className={`h-10 px-4 text-sm font-medium border-b-2 -mb-px ${tab === k ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`} data-testid={`spk-tab-${k}`}>{l}</button>
         ))}
       </div>
@@ -411,8 +540,8 @@ export function SpkDetail() {
           <p className="mt-3 text-sm text-muted-foreground">Belum ada transaksi Procurement yang menggunakan SPK ini.</p>
         </div>
       )}
-      {tab === "documents" && <SpkDocuments spkId={id} canManage={canManage} />}
-      {tab === "notes" && (
+      {tab === "addendum" && <AddendumPanel spk={spk} onChanged={load} />}
+      {tab === "documents" && <SpkDocuments spkId={id} canManage={canManage} />}      {tab === "notes" && (
         <div className="rounded-xl border bg-card p-5">
           {spk.notes ? <p className="text-sm whitespace-pre-wrap">{spk.notes}</p> : <p className="text-sm text-muted-foreground">Belum ada catatan.</p>}
           {canManage && <Button variant="outline" size="sm" className="mt-4" onClick={() => nav(`/spk/${id}/edit`)}><Pencil className="h-4 w-4 mr-2" />Edit Catatan</Button>}

@@ -50,7 +50,14 @@ PERM_SPK_VIEW = "spk:view"
 PERM_SPK_MANAGE = "spk:manage"
 PERM_POLICY_VIEW = "procurement_budget_policy:view"
 PERM_POLICY_MANAGE = "procurement_budget_policy:manage"
-NEW_PERMISSIONS = [PERM_SPK_VIEW, PERM_SPK_MANAGE, PERM_POLICY_VIEW, PERM_POLICY_MANAGE]
+PERM_ADD_VIEW = "spk_addendum:view"
+PERM_ADD_MANAGE = "spk_addendum:manage"
+PERM_ADD_FINALIZE = "spk_addendum:finalize"
+NEW_PERMISSIONS = [PERM_SPK_VIEW, PERM_SPK_MANAGE, PERM_POLICY_VIEW, PERM_POLICY_MANAGE,
+                   PERM_ADD_VIEW, PERM_ADD_MANAGE, PERM_ADD_FINALIZE]
+ADDENDUM_TYPES = {"SPK_VALUE", "PROCUREMENT_BUDGET", "BOTH"}
+ADDENDUM_STATUSES = {"draft", "effective", "cancelled"}
+ADD_DOC_SEGMENT = "spk-addendums" if os.environ.get("APP_ENV", os.environ.get("ENVIRONMENT", "")).strip().lower() in ("production", "prod") else "preview/spk-addendums"
 
 
 def _now():
@@ -142,6 +149,34 @@ class StatusIn(BaseModel):
     status: str
 
 
+class AddendumIn(BaseModel):
+    addendum_number: str = Field(min_length=1, max_length=120)
+    addendum_date: str
+    addendum_type: str
+    effective_date: str | None = None
+    pic_id: str | None = None
+    pic_name: str | None = None
+    division_id: str | None = None
+    division_name: str | None = None
+    reason: str = Field(min_length=1, max_length=4000)
+    spk_value_change: float | int | str | None = 0   # signed delta
+    budget_change: float | int | str | None = 0       # signed delta
+
+
+class FinalizeIn(BaseModel):
+    expected_spk_value: int | None = None
+    expected_procurement_budget: int | None = None
+
+
+def _signed(value, field: str) -> int:
+    if value is None or value == "":
+        return 0
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{field} harus berupa angka")
+
+
 def install(server):
     app = server.app
     db_ref = server  # akses server.db saat runtime (proxy tenant-scoped)
@@ -162,7 +197,7 @@ def install(server):
             if p not in rd.get("manager", []):
                 rd.setdefault("manager", []).append(p)
         # Buyer / Purchasing: hanya view (tidak boleh manage budget policy).
-        for p in (PERM_SPK_VIEW, PERM_POLICY_VIEW):
+        for p in (PERM_SPK_VIEW, PERM_POLICY_VIEW, PERM_ADD_VIEW):
             if p not in rd.get("purchasing", []):
                 rd.setdefault("purchasing", []).append(p)
     except Exception as exc:  # pragma: no cover
@@ -197,17 +232,20 @@ def install(server):
 
     def _budget_summary(spk: dict) -> dict:
         budget = int(spk.get("procurement_budget") or 0)
-        commitment = 0  # CP1: belum ada transaksi
+        commitment = 0  # CP2: belum ada transaksi PO
         realisasi = 0
         available = budget - commitment
         pct = round((commitment / budget) * 100, 2) if budget else 0
         return {
             "spk_value": int(spk.get("spk_value") or 0),
             "procurement_budget": budget,
+            "original_spk_value": int(spk.get("original_spk_value", spk.get("spk_value") or 0) or 0),
+            "original_procurement_budget": int(spk.get("original_procurement_budget", spk.get("procurement_budget") or 0) or 0),
             "commitment": commitment,
             "realisasi": realisasi,
             "available_budget": available,
             "commitment_pct": pct,
+            "over_budget": bool(spk.get("over_budget")),
         }
 
     async def _enrich(spk: dict) -> dict:
@@ -222,6 +260,7 @@ def install(server):
             "documents": docs,
             "document_count": len(docs),
             "category_allocations": allocations,
+            "addendums": await _db().spk_addendums.find({"spk_id": spk["id"]}, {"_id": 0}).sort("created_at", 1).to_list(1000),
         }
 
     def _validate_spk(body: SpkIn, *, can_manage_policy: bool, existing: dict | None = None):
@@ -350,6 +389,9 @@ def install(server):
         now = _now()
         doc = {
             "id": spk_id, **data,
+            "original_spk_value": data["spk_value"],
+            "original_procurement_budget": data["procurement_budget"],
+            "over_budget": False,
             "created_by": user.get("email"), "created_at": now,
             "updated_by": user.get("email"), "updated_at": now,
         }
@@ -385,6 +427,8 @@ def install(server):
         result = await _enrich(spk)
         result["can_manage"] = server.has_perm(user, PERM_SPK_MANAGE)
         result["can_manage_policy"] = server.has_perm(user, PERM_POLICY_MANAGE)
+        result["can_manage_addendum"] = server.has_perm(user, PERM_ADD_MANAGE)
+        result["can_finalize_addendum"] = server.has_perm(user, PERM_ADD_FINALIZE)
         return result
 
     @app.put("/api/spk/{spk_id}", tags=["spk"])
@@ -501,6 +545,224 @@ def install(server):
             raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
         await _db().spk_documents.delete_one({"id": doc_id, "spk_id": spk_id})
         await server.audit(user, "delete", "spk", spk_id, doc.get("file_name"))
+        return {"ok": True}
+
+    # ============================ SPK ADDENDUM (CP2) ============================
+    def _add_enrich(a: dict) -> dict:
+        return {**a}
+
+    async def _list_addendums(spk_id: str):
+        return await _db().spk_addendums.find({"spk_id": spk_id}, {"_id": 0}).sort("created_at", 1).to_list(1000)
+
+    @app.get("/api/spk/{spk_id}/addendums", tags=["spk"])
+    async def list_addendums(spk_id: str, user=Depends(server.current_user)):
+        _require(user, PERM_ADD_VIEW)
+        spk = await _db().spk.find_one({"id": spk_id}, {"_id": 0, "id": 1})
+        if not spk:
+            raise HTTPException(status_code=404, detail="SPK tidak ditemukan")
+        return await _list_addendums(spk_id)
+
+    def _validate_addendum(body: AddendumIn):
+        atype = (body.addendum_type or "").upper()
+        if atype not in ADDENDUM_TYPES:
+            raise HTTPException(status_code=400, detail="Tipe Addendum tidak valid")
+        sv = _signed(body.spk_value_change, "Perubahan Nilai SPK")
+        bv = _signed(body.budget_change, "Perubahan Budget")
+        if atype == "SPK_VALUE":
+            bv = 0
+        elif atype == "PROCUREMENT_BUDGET":
+            sv = 0
+        return atype, sv, bv
+
+    def _check_resulting(new_sv: int, new_budget: int):
+        if new_sv < 0:
+            raise HTTPException(status_code=400, detail="Nilai SPK hasil Addendum tidak boleh negatif")
+        if new_budget < 0:
+            raise HTTPException(status_code=400, detail="Budget Procurement hasil Addendum tidak boleh negatif")
+        if new_budget > new_sv:
+            raise HTTPException(status_code=400, detail=f"Budget Procurement hasil ({new_budget}) melebihi Nilai SPK hasil ({new_sv}). Addendum tidak dapat difinalisasi.")
+
+    @app.post("/api/spk/{spk_id}/addendums", tags=["spk"])
+    async def create_addendum(spk_id: str, body: AddendumIn, user=Depends(server.current_user)):
+        _require(user, PERM_ADD_MANAGE)
+        spk = await _db().spk.find_one({"id": spk_id}, {"_id": 0})
+        if not spk:
+            raise HTTPException(status_code=404, detail="SPK tidak ditemukan")
+        num = body.addendum_number.strip()
+        if await _db().spk_addendums.find_one({"spk_id": spk_id, "addendum_number": num}, {"_id": 0, "id": 1}):
+            raise HTTPException(status_code=409, detail=f"Nomor Addendum '{num}' sudah digunakan pada SPK ini")
+        atype, sv, bv = _validate_addendum(body)
+        now = _now()
+        aid = str(uuid.uuid4())
+        doc = {
+            "id": aid, "spk_id": spk_id, "addendum_number": num,
+            "addendum_date": body.addendum_date or None, "addendum_type": atype,
+            "effective_date": body.effective_date or None,
+            "pic_id": body.pic_id or None, "pic_name": (body.pic_name or "").strip() or None,
+            "division_id": body.division_id or None, "division_name": (body.division_name or "").strip() or None,
+            "reason": body.reason.strip(),
+            "spk_value_change": sv, "budget_change": bv,
+            "status": "draft",
+            "before_spk_value": None, "after_spk_value": None,
+            "before_procurement_budget": None, "after_procurement_budget": None,
+            "created_by": user.get("email"), "created_at": now,
+            "updated_by": user.get("email"), "updated_at": now,
+            "finalized_by": None, "finalized_at": None, "cancelled_by": None, "cancelled_at": None,
+        }
+        await _db().spk_addendums.insert_one(doc)
+        await server.audit(user, "create", "spk_addendum", aid, num,
+                           after={"spk_id": spk_id, "type": atype, "spk_value_change": sv, "budget_change": bv})
+        clean = await _db().spk_addendums.find_one({"id": aid}, {"_id": 0})
+        return clean
+
+    @app.get("/api/spk/{spk_id}/addendums/{aid}", tags=["spk"])
+    async def get_addendum(spk_id: str, aid: str, user=Depends(server.current_user)):
+        _require(user, PERM_ADD_VIEW)
+        a = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=404, detail="Addendum tidak ditemukan")
+        docs = await _db().spk_addendum_documents.find({"addendum_id": aid}, {"_id": 0}).sort("uploaded_at", -1).to_list(500)
+        a["documents"] = docs
+        a["can_manage"] = server.has_perm(user, PERM_ADD_MANAGE)
+        a["can_finalize"] = server.has_perm(user, PERM_ADD_FINALIZE)
+        return a
+
+    @app.put("/api/spk/{spk_id}/addendums/{aid}", tags=["spk"])
+    async def update_addendum(spk_id: str, aid: str, body: AddendumIn, user=Depends(server.current_user)):
+        _require(user, PERM_ADD_MANAGE)
+        a = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=404, detail="Addendum tidak ditemukan")
+        if a.get("status") != "draft":
+            raise HTTPException(status_code=409, detail="Hanya Addendum berstatus Draft yang dapat diedit. Buat Addendum baru untuk koreksi.")
+        atype, sv, bv = _validate_addendum(body)
+        num = body.addendum_number.strip()
+        dup = await _db().spk_addendums.find_one({"spk_id": spk_id, "addendum_number": num, "id": {"$ne": aid}}, {"_id": 0, "id": 1})
+        if dup:
+            raise HTTPException(status_code=409, detail=f"Nomor Addendum '{num}' sudah digunakan pada SPK ini")
+        upd = {
+            "addendum_number": num, "addendum_date": body.addendum_date or None, "addendum_type": atype,
+            "effective_date": body.effective_date or None, "pic_id": body.pic_id or None,
+            "pic_name": (body.pic_name or "").strip() or None, "division_id": body.division_id or None,
+            "division_name": (body.division_name or "").strip() or None, "reason": body.reason.strip(),
+            "spk_value_change": sv, "budget_change": bv,
+            "updated_by": user.get("email"), "updated_at": _now(),
+        }
+        await _db().spk_addendums.update_one({"id": aid}, {"$set": upd})
+        await server.audit(user, "edit", "spk_addendum", aid, num, before={"spk_value_change": a.get("spk_value_change"), "budget_change": a.get("budget_change")}, after={"spk_value_change": sv, "budget_change": bv})
+        return await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
+
+    @app.post("/api/spk/{spk_id}/addendums/{aid}/finalize", tags=["spk"])
+    async def finalize_addendum(spk_id: str, aid: str, body: FinalizeIn, user=Depends(server.current_user)):
+        _require(user, PERM_ADD_FINALIZE)
+        a = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=404, detail="Addendum tidak ditemukan")
+        if a.get("status") != "draft":
+            raise HTTPException(status_code=409, detail="Hanya Addendum Draft yang dapat difinalisasi")
+        # concurrency: re-read current SPK values
+        spk = await _db().spk.find_one({"id": spk_id}, {"_id": 0})
+        cur_sv = int(spk.get("spk_value") or 0)
+        cur_budget = int(spk.get("procurement_budget") or 0)
+        if body.expected_spk_value is not None and int(body.expected_spk_value) != cur_sv:
+            raise HTTPException(status_code=409, detail="Nilai SPK dasar sudah berubah sejak form dibuka. Muat ulang (refresh) sebelum finalisasi.")
+        if body.expected_procurement_budget is not None and int(body.expected_procurement_budget) != cur_budget:
+            raise HTTPException(status_code=409, detail="Budget dasar sudah berubah sejak form dibuka. Muat ulang (refresh) sebelum finalisasi.")
+        new_sv = cur_sv + int(a.get("spk_value_change") or 0)
+        new_budget = cur_budget + int(a.get("budget_change") or 0)
+        _check_resulting(new_sv, new_budget)
+        # future-ready over-budget vs existing commitment (0 in CP2) — warning only, not blocking
+        existing_commitment = 0
+        over_budget = new_budget < existing_commitment
+        warning = None
+        if over_budget:
+            warning = f"Budget setelah Addendum lebih kecil dari commitment yang sudah berjalan sebesar Rp{existing_commitment - new_budget}."
+        now = _now()
+        await _db().spk_addendums.update_one({"id": aid}, {"$set": {
+            "status": "effective",
+            "before_spk_value": cur_sv, "after_spk_value": new_sv,
+            "before_procurement_budget": cur_budget, "after_procurement_budget": new_budget,
+            "finalized_by": user.get("email"), "finalized_at": now, "updated_at": now,
+        }})
+        await _db().spk.update_one({"id": spk_id}, {"$set": {
+            "spk_value": new_sv, "procurement_budget": new_budget,
+            "over_budget": bool(over_budget), "updated_by": user.get("email"), "updated_at": now,
+        }})
+        await server.audit(user, "edit", "spk_addendum", aid, a.get("addendum_number"),
+                           before={"spk_value": cur_sv, "procurement_budget": cur_budget},
+                           after={"spk_value": new_sv, "procurement_budget": new_budget, "status": "effective"})
+        result = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
+        if warning:
+            result["warning"] = warning
+        return result
+
+    @app.post("/api/spk/{spk_id}/addendums/{aid}/cancel", tags=["spk"])
+    async def cancel_addendum(spk_id: str, aid: str, user=Depends(server.current_user)):
+        _require(user, PERM_ADD_MANAGE)
+        a = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=404, detail="Addendum tidak ditemukan")
+        if a.get("status") == "effective":
+            raise HTTPException(status_code=409, detail="Addendum Effective tidak dapat dibatalkan (buat Addendum koreksi).")
+        await _db().spk_addendums.update_one({"id": aid}, {"$set": {"status": "cancelled", "cancelled_by": user.get("email"), "cancelled_at": _now(), "updated_at": _now()}})
+        await server.audit(user, "edit", "spk_addendum", aid, a.get("addendum_number"), after={"status": "cancelled"})
+        return await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
+
+    @app.post("/api/spk/{spk_id}/addendums/{aid}/documents", tags=["spk"])
+    async def upload_addendum_doc(spk_id: str, aid: str, file: UploadFile = File(...), user=Depends(server.current_user)):
+        _require(user, PERM_ADD_MANAGE)
+        a = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0, "id": 1, "addendum_number": 1})
+        if not a:
+            raise HTTPException(status_code=404, detail="Addendum tidak ditemukan")
+        ctype = (file.content_type or "").lower()
+        ext = DOC_TYPES.get(ctype)
+        if not ext:
+            fname = (file.filename or "").lower()
+            for e in ("pdf", "png", "webp", "jpg", "jpeg"):
+                if fname.endswith("." + e):
+                    ext = "jpg" if e == "jpeg" else e
+                    ctype = {"pdf": "application/pdf", "png": "image/png", "webp": "image/webp", "jpg": "image/jpeg"}[ext]
+                    break
+        if not ext:
+            raise HTTPException(status_code=400, detail="Tipe file tidak didukung. Gunakan PDF, JPG, PNG, atau WEBP")
+        data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="File kosong")
+        if len(data) > MAX_DOC_SIZE:
+            raise HTTPException(status_code=400, detail="Ukuran file maksimal 10 MB")
+        object_key = f"{S.APP_NAME}/{ADD_DOC_SEGMENT}/{aid}/{uuid.uuid4().hex}.{ext}"
+        result = S.put_object(object_key, data, ctype)
+        doc = {
+            "id": str(uuid.uuid4()), "addendum_id": aid, "spk_id": spk_id,
+            "object_key": result.get("path", object_key), "file_name": (file.filename or f"dokumen.{ext}"),
+            "mime_type": ctype, "file_size": result.get("size", len(data)),
+            "uploaded_by": user.get("email"), "uploaded_at": _now(),
+        }
+        await _db().spk_addendum_documents.insert_one(doc)
+        await server.audit(user, "upload_attachment", "spk_addendum", aid, a.get("addendum_number"), after={"file_name": doc["file_name"]})
+        return {k: v for k, v in doc.items() if k != "_id"}
+
+    @app.get("/api/spk/{spk_id}/addendums/{aid}/documents/{doc_id}/download", tags=["spk"])
+    async def download_addendum_doc(spk_id: str, aid: str, doc_id: str, user=Depends(server.current_user)):
+        _require(user, PERM_ADD_VIEW)
+        doc = await _db().spk_addendum_documents.find_one({"id": doc_id, "addendum_id": aid, "spk_id": spk_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+        try:
+            data, ctype = S.get_object(doc["object_key"])
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="File tidak ditemukan")
+        return Response(content=data, media_type=doc.get("mime_type") or ctype or "application/octet-stream",
+                        headers={"Content-Disposition": f'inline; filename="{doc.get("file_name","dokumen")}"'})
+
+    @app.delete("/api/spk/{spk_id}/addendums/{aid}/documents/{doc_id}", tags=["spk"])
+    async def delete_addendum_doc(spk_id: str, aid: str, doc_id: str, user=Depends(server.current_user)):
+        _require(user, PERM_ADD_MANAGE)
+        doc = await _db().spk_addendum_documents.find_one({"id": doc_id, "addendum_id": aid, "spk_id": spk_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+        await _db().spk_addendum_documents.delete_one({"id": doc_id, "addendum_id": aid, "spk_id": spk_id})
+        await server.audit(user, "delete", "spk_addendum", aid, doc.get("file_name"))
         return {"ok": True}
 
     server.logger.info("CP1 SPK Foundation layer installed")
