@@ -3,6 +3,7 @@ import api, { apiError } from "@/lib/api";
 import { Combobox } from "@/components/Combobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumericInput } from "@/components/NumericInput";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -137,7 +138,7 @@ export function SpkAllocationModal({ open, onClose, sourceType, lineId, docStatu
           {rows.map((r, i) => (
             <div key={i} className="flex items-center gap-2" data-testid={`spk-alloc-row-${i}`}>
               <div className="flex-1"><Combobox options={spkOpts} value={r.spk_id} onChange={(v) => setRow(i, "spk_id", v)} placeholder="Pilih SPK (Active)" disabled={!editable} /></div>
-              <Input type="number" min="0" step="any" className="w-28" value={r.allocated_qty} onChange={(e) => setRow(i, "allocated_qty", e.target.value)} placeholder="Qty" disabled={!editable} data-testid={`spk-alloc-qty-${i}`} />
+              <NumericInput mode="quantity" className="w-28" value={r.allocated_qty} onChange={(v) => setRow(i, "allocated_qty", v)} placeholder="Qty" disabled={!editable} data-testid={`spk-alloc-qty-${i}`} />
               {editable && <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => delRow(i)} data-testid={`spk-alloc-del-${i}`}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
             </div>
           ))}
