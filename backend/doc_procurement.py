@@ -515,6 +515,39 @@ async def _po_required_approvers(amount):
     return []
 
 
+async def assert_po_price_reason(did: str):
+    """CP5A-2/3 hard-block (reusable): if an applicable vendor contract exists, Harga Satuan
+    differs from the contract price, and the price-change reason is empty -> block.
+    Safe to call from any PO submit path (approval workflow enabled OR disabled), since the
+    approval layer may finalize PO without routing through submit_po()."""
+    d = await db.po.find_one({"id": did})
+    if not d:
+        return
+    import server as _srv
+    _resolver = getattr(_srv, "resolve_vendor_contract_price", None)
+    if not (_resolver and d.get("supplier_id")):
+        return
+    _plines = await db.po_lines.find({"po_id": did}, {"_id": 0}).to_list(500)
+    for _l in _plines:
+        _item = _l.get("item_id"); _uom = _l.get("uom_id")
+        if not _item or not _uom:
+            continue
+        _f = float(_l.get("conversion_factor") or 1) or 1
+        _dqty = _l.get("display_qty")
+        _dqty = float(_dqty) if _dqty is not None else (float(_l.get("qty") or 0) / _f)
+        try:
+            _res = await _resolver(d.get("supplier_id"), _item, _uom, d.get("date"), _dqty)
+        except Exception:
+            _res = None
+        if not _res:
+            continue
+        _cp = float(_res.get("net_contract_price") or 0)
+        _dp = _l.get("display_price")
+        _dp = float(_dp) if _dp is not None else (float(_l.get("price") or 0) * _f)
+        if abs(_dp - _cp) > 0.5 and not str(_l.get("price_change_reason") or "").strip():
+            raise HTTPException(400, "Alasan perubahan harga wajib diisi karena Harga Satuan berbeda dari Harga Kontrak.")
+
+
 @api.post("/po/{did}/submit")
 async def submit_po(did: str, user=Depends(current_user)):
     require(user, "submit")
@@ -522,28 +555,7 @@ async def submit_po(did: str, user=Depends(current_user)):
     if not d: raise HTTPException(404, "PO tidak ditemukan")
     # CP5A-2/3: hard-block submit if an applicable vendor contract exists, Harga Satuan differs,
     # and the price-change reason is empty. Secondary guard to the frontend validation.
-    import server as _srv
-    _resolver = getattr(_srv, "resolve_vendor_contract_price", None)
-    if _resolver and d.get("supplier_id"):
-        _plines = await db.po_lines.find({"po_id": did}, {"_id": 0}).to_list(500)
-        for _l in _plines:
-            _item = _l.get("item_id"); _uom = _l.get("uom_id")
-            if not _item or not _uom:
-                continue
-            _f = float(_l.get("conversion_factor") or 1) or 1
-            _dqty = _l.get("display_qty")
-            _dqty = float(_dqty) if _dqty is not None else (float(_l.get("qty") or 0) / _f)
-            try:
-                _res = await _resolver(d.get("supplier_id"), _item, _uom, d.get("date"), _dqty)
-            except Exception:
-                _res = None
-            if not _res:
-                continue
-            _cp = float(_res.get("net_contract_price") or 0)
-            _dp = _l.get("display_price")
-            _dp = float(_dp) if _dp is not None else (float(_l.get("price") or 0) * _f)
-            if abs(_dp - _cp) > 0.5 and not str(_l.get("price_change_reason") or "").strip():
-                raise HTTPException(400, "Alasan perubahan harga wajib diisi karena Harga Satuan berbeda dari Harga Kontrak.")
+    await assert_po_price_reason(did)
     approvers = await _po_required_approvers(d.get("grand_total", 0))
     await db.po_approvals.delete_many({"po_id": did})
     for i, role in enumerate(approvers):
