@@ -61,6 +61,7 @@ import do_receipt_condition_layer
 import excel_import_layer
 import opening_inventory_layer
 import spk_layer
+import vendor_contract_layer
 
 
 async def production_seed_defaults():
@@ -187,6 +188,13 @@ excel_import_layer.install(server)
 # so its non-global collections (spk, spk_documents, spk_budget_allocations,
 # budget_policy_audit_logs) are automatically tenant-scoped by the isolation proxy.
 spk_layer.install(server)
+
+# CP3 — Vendor Contract Price: Master Kontrak Harga Vendor (header + item prices + documents +
+# price history + effective price resolver). Registered right after SPK so its non-global
+# collections (vendor_contracts, vendor_contract_items, vendor_contract_documents,
+# vendor_contract_price_history) are automatically tenant-scoped by the isolation proxy.
+# NOTE: CP3 does NOT wire the resolver to PO (that is CP4).
+vendor_contract_layer.install(server)
 
 # SaaS registration/platform routes are registered before isolation activation. Their startup
 # bootstrap runs after the default PT REAL tenant backfill and creates only platform metadata.
