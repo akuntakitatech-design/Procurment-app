@@ -5,6 +5,15 @@ export const rupiah = (n) => {
 
 export const num = (n) => (n == null ? "0" : Number(n).toLocaleString("id-ID", { maximumFractionDigits: 2 }));
 
+// Numeric coercion helper for ARITHMETIC. `num()` is a DISPLAY formatter and
+// returns a localized string — never use it inside math (e.g. reduce/+/-),
+// otherwise `0 + num(2) + num(3)` becomes the string "023". Use toNum() instead.
+export const toNum = (n) => {
+  if (n == null || n === "") return 0;
+  const v = Number(n);
+  return Number.isFinite(v) ? v : 0;
+};
+
 export const fmtDate = (d) => {
   if (!d) return "-";
   try {

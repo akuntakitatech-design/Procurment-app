@@ -89,19 +89,23 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const stockInfo = (l) => { const it = items[l.item_id]; if (!it) return ""; const base = it.base_uom_id ? uomLabel(it.base_uom_id) : it.unit; return base ? `${num((Number(l.qty) || 0) * (Number(l.conversion_factor) || 1))} ${base}` : ""; };
   const Uom = ({ l, i }) => <div><Combobox options={itemUoms(l.item_id)} value={l.uom_id || items[l.item_id]?.base_uom_id || ""} onChange={(v) => update(i, { uom_id: v })} placeholder="Satuan" disabled={!l.item_id || itemUoms(l.item_id).length <= 1} />{l.item_id && <div className="mt-1 text-[10px] text-muted-foreground">Terhitung stok: {stockInfo(l)}</div>}</div>;
 
+  // Total rendered columns (keeps empty-row / grand-total colSpans correct).
+  const colCount = 4 + (allocationColumn ? 1 : 0) + (fields.warehouse ? 1 : 0) + (fields.project ? 1 : 0) + (fields.unit ? 1 : 0) + (showPrice ? 4 : 0) + 1;
+
   return <div className="space-y-3">
     <div className="border rounded-md overflow-x-auto bg-card shadow-sm">
       <table className="w-full text-sm min-w-[980px]">
         <thead className="bg-muted"><tr className="text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          <th className="p-2 min-w-[210px]">Barang</th><th className="p-2 w-24">Qty</th><th className="p-2 min-w-[145px]">Satuan</th>
+          <th className="p-2 min-w-[210px]">Barang</th><th className="p-2 min-w-[150px]">Keterangan</th><th className="p-2 w-24">Qty</th><th className="p-2 min-w-[145px]">Satuan</th>
           {allocationColumn && <th className="p-2 min-w-[160px]">{allocationColumn.header || "Alokasi SPK"}</th>}
           {fields.warehouse && <th className="p-2 min-w-[140px]">Gudang</th>}{fields.project && <th className="p-2 min-w-[140px]">Proyek</th>}{fields.unit && <th className="p-2 min-w-[140px]">Unit/Aset</th>}
           {showPrice && <><th className="p-2 w-32">Harga / Satuan</th><th className="p-2 w-24">Diskon</th><th className="p-2 min-w-[150px]">Pajak</th><th className="p-2 w-32 text-right">Total</th></>}
-          <th className="p-2 min-w-[120px]">Ket.</th><th className="p-2 w-10"></th>
+          <th className="p-2 w-10"></th>
         </tr></thead>
-        <tbody>{lines.length === 0 && <tr><td colSpan={12} className="p-6 text-center text-muted-foreground">Belum ada item</td></tr>}
+        <tbody>{lines.length === 0 && <tr><td colSpan={colCount} className="p-6 text-center text-muted-foreground">Belum ada item</td></tr>}
           {lines.map((l, i) => <tr key={i} className="border-t align-top">
             <td className="p-1.5">{l._sourceLabel && <div className="mb-1 text-[10px] font-mono text-muted-foreground">{l._sourceLabel}</div>}<Combobox options={itemOpts} value={l.item_id} onChange={(v) => update(i, { item_id: v })} placeholder="Pilih barang" disabled={l._locked} /></td>
+            <td className="p-1.5"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9" placeholder="Keterangan item" /></td>
             <td className="p-1.5"><Input type="number" step="any" value={l.qty} onChange={(e) => update(i, { qty: e.target.value })} className="h-9 text-right" /></td>
             <td className="p-1.5"><Uom l={l} i={i} /></td>
             {allocationColumn && <td className="p-1.5 align-middle">{allocationColumn.render(l, i)}</td>}
@@ -109,10 +113,9 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
             {fields.project && <td className="p-1.5"><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></td>}
             {fields.unit && <td className="p-1.5"><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit" /></td>}
             {showPrice && <><td className="p-1.5"><Input type="number" value={l.price || 0} onChange={(e) => update(i, { price: e.target.value })} className="h-9 text-right" /></td><td className="p-1.5"><Input type="number" value={l.discount || 0} onChange={(e) => update(i, { discount: e.target.value })} className="h-9 text-right" /></td><td className="p-1.5"><Combobox options={taxOpts} value={l.tax_id || ""} onChange={(v) => update(i, { tax_id: v })} /></td><td className="p-2 text-right tabular-nums">{rupiah(total(l))}</td></>}
-            <td className="p-1.5"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9" /></td>
             <td className="p-1.5"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button></td>
           </tr>)}</tbody>
-        {showPrice && lines.length > 0 && <tfoot><tr className="border-t bg-muted/50 font-semibold"><td colSpan={9} className="p-2 text-right">Grand Total</td><td className="p-2 text-right tabular-nums">{rupiah(grand)}</td><td colSpan={2}></td></tr></tfoot>}
+        {showPrice && lines.length > 0 && <tfoot><tr className="border-t bg-muted/50 font-semibold"><td colSpan={colCount - 2} className="p-2 text-right">Grand Total</td><td className="p-2 text-right tabular-nums">{rupiah(grand)}</td><td></td></tr></tfoot>}
       </table>
     </div>
     <Button variant="outline" size="sm" onClick={addRow}><Plus className="h-4 w-4 mr-2" />Tambah Baris</Button>
