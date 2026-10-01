@@ -1,27 +1,59 @@
 import { useCallback, useEffect, useState } from "react";
 import api, { API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Paperclip, Upload, Trash2, FileText, History } from "lucide-react";
+import { Upload, Trash2, FileText, History, Clock } from "lucide-react";
 import { fmtDateTime } from "@/lib/format";
 import { toast } from "sonner";
 
-export function AttachmentPanel({ entity, entityId }) {
+/**
+ * Upload a batch of pending (in-memory) File objects to an entity once its ID
+ * exists. Returns which files succeeded/failed so the caller can decide whether
+ * to submit. Never throws for individual failures.
+ */
+export async function uploadPendingAttachments(entity, entityId, files, category = "Lainnya") {
+  const uploaded = [];
+  const failed = [];
+  for (const file of files || []) {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("entity", entity);
+    fd.append("entity_id", entityId);
+    fd.append("category", category);
+    try {
+      await api.post("/attachments", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      uploaded.push(file);
+    } catch {
+      failed.push(file);
+    }
+  }
+  return { uploaded, failed };
+}
+
+export function AttachmentPanel({ entity, entityId, pending, onPendingChange }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
+  // Pending mode is active when the document has no ID yet AND the parent form
+  // opted in by providing onPendingChange (e.g. a brand-new MRO being created).
+  const pendingMode = !entityId && typeof onPendingChange === "function";
+  const pendingList = pending || [];
+
   const load = useCallback(() => {
     if (!entityId) { setFiles([]); return; }
     api.get(`/attachments?entity=${entity}&entity_id=${entityId}`).then((r) => setFiles(r.data));
   }, [entity, entityId]);
   useEffect(() => { load(); }, [load]);
 
+  // Select files BEFORE first save — keep them in memory (never localStorage).
+  const pickPending = (e) => {
+    const picked = Array.from(e.target.files || []);
+    if (picked.length) onPendingChange([...(pending || []), ...picked]);
+    e.target.value = "";
+  };
+  const removePending = (idx) => onPendingChange((pending || []).filter((_, i) => i !== idx));
+
   const upload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!entityId) {
-      toast.info("Simpan transaksi terlebih dahulu. Setelah nomor transaksi terbentuk, lampiran dapat langsung diunggah di halaman yang sama.");
-      e.target.value = "";
-      return;
-    }
     setUploading(true);
     const fd = new FormData();
     fd.append("file", file); fd.append("entity", entity); fd.append("entity_id", entityId); fd.append("category", "Lainnya");
@@ -33,6 +65,35 @@ export function AttachmentPanel({ entity, entityId }) {
   };
   const del = async (id) => { await api.delete(`/attachments/${id}`); load(); };
 
+  // ---------- Pending mode (new, unsaved document) ----------
+  if (pendingMode) {
+    return (
+      <div className="space-y-3">
+        <div className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          Pilih lampiran sekarang. File ditahan sementara dan otomatis terunggah saat transaksi pertama kali disimpan.
+        </div>
+        <label className="inline-flex">
+          <input type="file" multiple className="hidden" onChange={pickPending} data-testid="attachment-pending-input" />
+          <Button asChild variant="outline" size="sm">
+            <span className="cursor-pointer"><Upload className="h-4 w-4 mr-2" />Pilih File</span>
+          </Button>
+        </label>
+        <div className="space-y-2">
+          {pendingList.length === 0 && <p className="text-sm text-muted-foreground">Belum ada lampiran dipilih</p>}
+          {pendingList.map((f, i) => (
+            <div key={`${f.name}-${i}`} className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-sm" data-testid={`attachment-pending-${i}`}>
+              <FileText className="h-4 w-4 text-amber-600" />
+              <span className="flex-1 truncate">{f.name}</span>
+              <span className="inline-flex items-center gap-1 text-xs text-amber-700"><Clock className="h-3 w-3" />Menunggu disimpan</span>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removePending(i)} data-testid={`attachment-pending-remove-${i}`}><Trash2 className="h-3.5 w-3.5" /></Button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- Normal mode (document already saved) ----------
   return (
     <div className="space-y-3">
       {!entityId && (

@@ -21,7 +21,7 @@ function InlineSection({ icon: Icon, title, children, open = false }) {
  * Historical name kept for compatibility. Transaction detail, references,
  * attachments, and audit stay on the same page so users do not lose context.
  */
-export function DocMetaTabs({ entity, entityId, references, children }) {
+export function DocMetaTabs({ entity, entityId, references, children, attachmentPending, onAttachmentPendingChange }) {
   const showLifecycle = !!entityId && LIFECYCLE_ENTITIES.has(entity);
   return (
     <div className="space-y-4 mt-2">
@@ -36,7 +36,7 @@ export function DocMetaTabs({ entity, entityId, references, children }) {
       )}
 
       <InlineSection icon={Paperclip} title="Lampiran" open>
-        <AttachmentPanel entity={entity} entityId={entityId} />
+        <AttachmentPanel entity={entity} entityId={entityId} pending={attachmentPending} onPendingChange={onAttachmentPendingChange} />
       </InlineSection>
 
       <InlineSection icon={History} title="Riwayat Aktivitas">

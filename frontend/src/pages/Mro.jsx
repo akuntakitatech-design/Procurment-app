@@ -5,7 +5,6 @@ import { useMasters } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { ItemLines } from "@/components/ItemLines";
 import { DocMetaTabs } from "@/components/DocMetaTabs";
-import { DocumentHeaderDefaults } from "@/components/DocumentHeaderDefaults";
 import { DocumentMessageEditor, saveDocumentMessage } from "@/components/DocumentMessageEditor";
 import { TransactionMutationActions } from "@/components/TransactionMutationActions";
 import { PageHeader } from "@/components/PageHeader";
@@ -16,11 +15,14 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { num, fmtDate, todayISO } from "@/lib/format";
+import { num, toNum, fmtDate, todayISO } from "@/lib/format";
 import { Save, Send, Printer, Ban, ArrowLeft, Search, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { printDoc } from "@/lib/print";
 import { SpkAllocationModal, formatAllocText } from "@/components/SpkAllocationModal";
+import { uploadPendingAttachments } from "@/components/DocMeta";
+import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
+import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
 const FLOW = ["MRO", "RO", "PO", "DO", "MI"];
 function lifecycleStage(t) {
@@ -48,36 +50,73 @@ export function MroList() {
 }
 
 export function MroForm() {
-  const { id } = useParams(); const nav = useNavigate(); const { can } = useAuth(); const masters = useMasters();
-  const [h, setH] = useState({ date: todayISO(), requester: "", department: "", division_id: "", default_warehouse_id: "", default_project_id: "", default_unit_id: "", spk: "", need_date: null, notes: "", document_message: null });
+  const { id } = useParams(); const nav = useNavigate(); const { can, user } = useAuth(); const masters = useMasters();
+  const [h, setH] = useState({ date: todayISO(), requester: "", department: "", division_id: "", default_warehouse_id: "", default_project_id: "", default_unit_id: "", spk: "", need_date: todayISO(), notes: "", document_message: null });
   const [lines, setLines] = useState([]); const [doc, setDoc] = useState(null); const [editing,setEditing]=useState(false); const isNew = !id;
   const [allocs, setAllocs] = useState({}); const [allocLine, setAllocLine] = useState(null); const [spkMap, setSpkMap] = useState({});
+  const [pending, setPending] = useState([]); // in-memory attachments chosen before first save
+  const { confirm, dialog } = useCompletenessWarning();
   const lineKey = (l) => l.id || l._key;
   useEffect(() => { api.get("/spk?status=active&page_size=500").then((r)=>{ const m={}; (r.data.items||r.data||[]).forEach((s)=>{m[s.id]=s.spk_number;}); setSpkMap(m); }).catch(()=>{}); }, []);
+  // Default Pemohon to the logged-in user on a brand-new MRO (still editable).
+  useEffect(() => { if (isNew && user?.name) setH((prev) => (prev.requester ? prev : { ...prev, requester: user.name })); }, [isNew, user]);
   const load = useCallback(() => api.get(`/mro/${id}`).then(async (r) => {
     setDoc(r.data); setH(r.data); setLines(r.data.lines.map((l) => ({ ...l }))); setEditing(false);
     try { const ar = await api.get(`/spk-allocations/mro/doc/${id}`); const m={}; (ar.data.lines||[]).forEach((ln)=>{ if((ln.allocations||[]).length) m[ln.item_line_id]=ln.allocations.map((a)=>({spk_id:a.spk_id,allocated_qty:a.allocated_qty})); }); setAllocs(m); } catch { /* ignore */ }
   }), [id]);
   useEffect(() => { if (id) load(); }, [id, load]); const submitted = doc?.submitted; const waitingApproval = doc?.approval_status === "Waiting Approval"; const readOnly = !isNew && !editing && (submitted || waitingApproval);
-  const allocSummary = (l) => { const list=(allocs[lineKey(l)]||[]); const qty=num(l.qty); const total=list.reduce((s,a)=>s+num(a.allocated_qty),0); return { item_qty: qty, non_spk_qty: Math.max(0,qty-total), allocations: list.map((a)=>({spk_number:spkMap[a.spk_id]||a.spk_id, allocated_qty:num(a.allocated_qty)})), over: total-qty>1e-6 }; };
+  const allocSummary = (l) => { const list=(allocs[lineKey(l)]||[]); const qty=toNum(l.qty); const total=list.reduce((s,a)=>s+toNum(a.allocated_qty),0); return { item_qty: qty, non_spk_qty: Math.max(0,qty-total), allocations: list.map((a)=>({spk_number:spkMap[a.spk_id]||a.spk_id, allocated_qty:toNum(a.allocated_qty)})), over: total-qty>1e-6 }; };
   const persistAllocations = async (mroId) => {
     if (!Object.keys(allocs).length) return;
     let serverLines=[]; try { const r=await api.get(`/mro/${mroId}`); serverLines=r.data.lines||[]; } catch { return; }
-    const persistLines = isNew ? lines : lines.filter((l)=>num(l.qty)>0);
+    const persistLines = isNew ? lines : lines.filter((l)=>toNum(l.qty)>0);
     const pairs = serverLines.length===persistLines.length
       ? persistLines.map((l,j)=>[lineKey(l), serverLines[j]?.id])
       : (()=>{ const pool=[...serverLines]; return persistLines.map((l)=>{ const idx=pool.findIndex((s)=>s.item_id===l.item_id); const s=idx>=0?pool.splice(idx,1)[0]:null; return [lineKey(l), s?.id]; }); })();
-    for (const [key, sid] of pairs) { if (!sid || !(key in allocs)) continue; const list=(allocs[key]||[]).filter((a)=>a.spk_id&&num(a.allocated_qty)>0).map((a)=>({spk_id:a.spk_id,allocated_qty:num(a.allocated_qty)})); try { await api.put(`/spk-allocations/mro/line/${sid}`,{allocations:list}); } catch(e){ toast.error(apiError(e.response?.data?.detail)); } }
+    for (const [key, sid] of pairs) { if (!sid || !(key in allocs)) continue; const list=(allocs[key]||[]).filter((a)=>a.spk_id&&toNum(a.allocated_qty)>0).map((a)=>({spk_id:a.spk_id,allocated_qty:toNum(a.allocated_qty)})); try { await api.put(`/spk-allocations/mro/line/${sid}`,{allocations:list}); } catch(e){ toast.error(apiError(e.response?.data?.detail)); } }
   };
-  const save = async (submit=false) => {
-    for (const l of lines) { const tot=(allocs[lineKey(l)]||[]).reduce((s,a)=>s+num(a.allocated_qty),0); if (tot-num(l.qty)>1e-6) { toast.error(`Alokasi SPK (${tot}) melebihi Qty item ${l.item_code||""} (${num(l.qty)}). Sesuaikan sebelum menyimpan.`); return; } }
-    try { const payload={...h,submitted:false,lines}; let mroId; if(isNew){ const res=await api.post("/mro",payload); mroId=res.data.id; } else { await api.put(`/transactions/mro/${id}`,payload); mroId=id; } await saveDocumentMessage("mro",mroId,h.document_message); await persistAllocations(mroId); if(submit) await api.post(`/mro/${mroId}/submit`); toast.success(submit?"MRO disubmit":"MRO tersimpan"); nav(`/mro/${mroId}`); if(!isNew) load(); } catch(e){toast.error(apiError(e.response?.data?.detail));} };
+  // HARD validation (blocking): SPK allocation may never exceed item Qty.
+  const spkOverQty = () => {
+    for (const l of lines) { const tot=(allocs[lineKey(l)]||[]).reduce((s,a)=>s+toNum(a.allocated_qty),0); if (tot-toNum(l.qty)>1e-6) { toast.error(`Alokasi SPK (${num(tot)}) melebihi Qty item ${l.item_code||""} (${num(l.qty)}). Sesuaikan sebelum menyimpan.`); return true; } }
+    return false;
+  };
+  const doSave = async (submit) => {
+    try {
+      const payload={...h,submitted:false,lines}; let mroId;
+      if(isNew){ const res=await api.post("/mro",payload); mroId=res.data.id; } else { await api.put(`/transactions/mro/${id}`,payload); mroId=id; }
+      await saveDocumentMessage("mro",mroId,h.document_message);
+      await persistAllocations(mroId);
+      // Upload pending attachments against the freshly-created MRO ID.
+      let failed=[];
+      if (pending.length) {
+        const res = await uploadPendingAttachments("mro", mroId, pending);
+        failed = res.failed;
+        setPending(failed); // keep only the failed ones for retry
+      }
+      if (submit && failed.length) {
+        toast.error(`MRO berhasil disimpan sebagai Draft, tetapi lampiran "${failed.map((f)=>f.name).join(", ")}" gagal diunggah. Silakan coba kembali sebelum Submit.`);
+        nav(`/mro/${mroId}`); if(!isNew) load(); return;
+      }
+      if (failed.length) toast.error(`MRO tersimpan, tetapi lampiran "${failed.map((f)=>f.name).join(", ")}" gagal diunggah. Silakan unggah ulang.`);
+      if(submit) await api.post(`/mro/${mroId}/submit`);
+      toast.success(submit?"MRO disubmit":"MRO tersimpan"); nav(`/mro/${mroId}`); if(!isNew) load();
+    } catch(e){toast.error(apiError(e.response?.data?.detail));}
+  };
+  const save = (submit=false) => {
+    if (spkOverQty()) return; // blocking
+    const warnings = buildTxnWarnings({ h, lines, headerFields: HEADER_FIELDS.mro, itemFields: ITEM_FIELDS.mro });
+    confirm(warnings, () => doSave(submit)); // non-blocking warning, then proceed
+  };
   const doSubmit=async()=>{try{await api.post(`/mro/${id}/submit`);toast.success("MRO disubmit");load();}catch(e){toast.error(apiError(e.response?.data?.detail));}}; const doCancel=async()=>{await api.post(`/mro/${id}/cancel`,{reason:"Dibatalkan user"});toast.success("MRO dibatalkan");load();};
   const factor=(l)=>Number(l.conversion_factor)||1, q=(l,v)=>num((Number(v)||0)/factor(l)), unitText=(l)=>l.display_unit||l.unit||"";
   const defaults={warehouse_id:h.default_warehouse_id,project_id:h.default_project_id,unit_id:h.default_unit_id};
+  const projectOpts = masters.opts("projects", (d)=>d.name); const unitOpts = masters.opts("units", (d)=>d.plate_no||d.name);
   return <div><PageHeader title={isNew?"MRO Baru":doc?.no} subtitle={doc&&<StatusBadge status={doc.status}/>}><Button variant="outline" onClick={()=>nav("/mro")}><ArrowLeft className="h-4 w-4 mr-2"/>Kembali</Button>{!isNew&&!editing&&<TransactionMutationActions module="mro" id={id} onEdit={()=>setEditing(true)} onDeleted={()=>nav("/mro")}/>} {editing&&<Button variant="outline" onClick={load}><X className="h-4 w-4 mr-2"/>Batal Edit</Button>}{(!readOnly||editing)&&can("edit")&&!isNew&&<Button variant="outline" onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Perubahan</Button>}{isNew&&can("create")&&<Button variant="outline" onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Draft</Button>}{isNew&&can("submit")&&<Button onClick={()=>save(true)}><Send className="h-4 w-4 mr-2"/>Simpan & Submit</Button>}{!isNew&&!submitted&&!waitingApproval&&!editing&&can("submit")&&<Button onClick={doSubmit}><Send className="h-4 w-4 mr-2"/>Submit</Button>}{!isNew&&doc&&!doc.cancelled&&!editing&&can("cancel")&&<Button variant="outline" onClick={doCancel}><Ban className="h-4 w-4 mr-2"/>Batalkan</Button>}{!isNew&&!editing&&<Button variant="outline" onClick={()=>printDoc("MRO",doc)}><Printer className="h-4 w-4 mr-2"/>Print</Button>}</PageHeader>
-    <TransactionProgress className="mb-4" stages={["Draft","Waiting Approval","Open","Partial","Completed"]} status={isNew?"Draft":editing?"Edit":doc?.status}/><DocMetaTabs entity="mro" entityId={id}><div className="space-y-4"><Card><CardContent className="pt-6 space-y-6"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Tanggal MRO"><DatePicker value={h.date} onChange={(v)=>setH({...h,date:v})}/></Field><Field label="Tanggal Kebutuhan"><DatePicker value={h.need_date} onChange={(v)=>setH({...h,need_date:v})}/></Field><Field label="Divisi"><Combobox options={masters.opts("divisions",d=>d.name)} value={h.division_id} onChange={(v)=>setH({...h,division_id:v})}/></Field><Field label="Pemohon"><Input value={h.requester||""} onChange={(e)=>setH({...h,requester:e.target.value})} disabled={readOnly}/></Field><Field label="Departemen"><Input value={h.department||""} onChange={(e)=>setH({...h,department:e.target.value})} disabled={readOnly}/></Field><Field label="Gudang Default"><Combobox options={masters.opts("warehouses",d=>d.name)} value={h.default_warehouse_id} onChange={(v)=>setH({...h,default_warehouse_id:v})} disabled={readOnly}/></Field><DocumentHeaderDefaults h={h} setH={setH} masters={masters} readOnly={readOnly}/><Field label="Keterangan"><Input value={h.notes||""} onChange={(e)=>setH({...h,notes:e.target.value})} disabled={readOnly}/></Field></div>
-      {readOnly?<div className="border rounded-md overflow-x-auto"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase text-muted-foreground"><th className="p-2">Barang</th><th className="p-2">Satuan</th><th className="p-2 text-right">Request</th><th className="p-2 text-right">RO</th><th className="p-2 text-right">PO</th><th className="p-2 text-right">Diterima</th><th className="p-2 text-right">MI</th><th className="p-2 text-right">Outstanding</th><th className="p-2">Alokasi SPK</th></tr></thead><tbody>{lines.map((l,i)=><tr key={i} className="border-t"><td className="p-2">{l.item_code} — {l.item_name}</td><td className="p-2">{unitText(l)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_request)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_ro)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_po)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_received)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_mi)}</td><td className="p-2 text-right font-semibold">{q(l,l.monitor?.outstanding)}</td><td className="p-2 text-xs" data-testid={`mro-alloc-view-${i}`}>{formatAllocText(allocSummary(l))}</td></tr>)}</tbody></table></div>:<ItemLines lines={lines} onChange={setLines} masters={masters} fields={{warehouse:true,project:true,unit:true,notes:true}} defaults={defaults} allocationColumn={{header:"Alokasi SPK", render:(l,i)=>{ const s=allocSummary(l); return <button type="button" disabled={!l.item_id} onClick={()=>setAllocLine(lineKey(l))} data-testid={`mro-alloc-cell-${i}`} className={`w-full text-left text-xs rounded-md border px-2 py-1.5 transition-colors hover:bg-accent/50 disabled:opacity-40 disabled:cursor-not-allowed ${s.over?"border-destructive text-destructive":"border-border"}`}>{formatAllocText(s)}{s.over&&" ⚠"}</button>; }}}/>}</CardContent></Card><DocumentMessageEditor module="mro" value={h.document_message} onChange={(v)=>setH({...h,document_message:v})} useDefault={isNew} readOnly={!isNew&&!editing}/></div></DocMetaTabs>
-    {allocLine&&(()=>{ const l=lines.find((x)=>lineKey(x)===allocLine); if(!l) return null; return <SpkAllocationModal open onClose={()=>setAllocLine(null)} sourceType="mro" localMode itemQty={num(l.qty)} unit={l.unit||l.display_unit} initialAllocations={allocs[allocLine]||[]} canManage={can("spk_allocation:manage")} docStatus="Draft" onLocalSave={(list)=>setAllocs((prev)=>({...prev,[allocLine]:list}))}/>; })()}
+    <TransactionProgress className="mb-4" stages={["Draft","Waiting Approval","Open","Partial","Completed"]} status={isNew?"Draft":editing?"Edit":doc?.status}/><DocMetaTabs entity="mro" entityId={id} attachmentPending={pending} onAttachmentPendingChange={setPending}><div className="space-y-4"><Card><CardContent className="pt-6 space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Pemohon"><Input value={h.requester||""} onChange={(e)=>setH({...h,requester:e.target.value})} disabled={readOnly}/></Field><Field label="Divisi"><Combobox options={masters.opts("divisions",d=>d.name)} value={h.division_id} onChange={(v)=>setH({...h,division_id:v})} disabled={readOnly}/></Field><Field label="Tanggal MRO"><DatePicker value={h.date} onChange={(v)=>setH({...h,date:v})} disabled={readOnly}/></Field><Field label="Tanggal Kebutuhan"><DatePicker value={h.need_date} onChange={(v)=>setH({...h,need_date:v})} disabled={readOnly}/></Field></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Proyek Default"><Combobox options={projectOpts} value={h.default_project_id||""} onChange={(v)=>setH({...h,default_project_id:v})} disabled={readOnly}/></Field><Field label="Gudang Default"><Combobox options={masters.opts("warehouses",d=>d.name)} value={h.default_warehouse_id} onChange={(v)=>setH({...h,default_warehouse_id:v})} disabled={readOnly}/></Field><Field label="Unit/Aset Default"><Combobox options={unitOpts} value={h.default_unit_id||""} onChange={(v)=>setH({...h,default_unit_id:v})} disabled={readOnly}/></Field><Field label="Keterangan"><Input value={h.notes||""} onChange={(e)=>setH({...h,notes:e.target.value})} disabled={readOnly}/></Field></div>
+      {readOnly?<div className="border rounded-md overflow-x-auto"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase text-muted-foreground"><th className="p-2">Barang</th><th className="p-2">Keterangan</th><th className="p-2">Satuan</th><th className="p-2 text-right">Request</th><th className="p-2 text-right">RO</th><th className="p-2 text-right">PO</th><th className="p-2 text-right">Diterima</th><th className="p-2 text-right">MI</th><th className="p-2 text-right">Outstanding</th><th className="p-2">Alokasi SPK</th></tr></thead><tbody>{lines.map((l,i)=><tr key={i} className="border-t"><td className="p-2">{l.item_code} — {l.item_name}</td><td className="p-2">{l.notes||"-"}</td><td className="p-2">{unitText(l)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_request)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_ro)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_po)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_received)}</td><td className="p-2 text-right">{q(l,l.monitor?.qty_mi)}</td><td className="p-2 text-right font-semibold">{q(l,l.monitor?.outstanding)}</td><td className="p-2 text-xs" data-testid={`mro-alloc-view-${i}`}>{formatAllocText(allocSummary(l))}</td></tr>)}</tbody></table></div>:<ItemLines lines={lines} onChange={setLines} masters={masters} fields={{warehouse:true,project:true,unit:true,notes:true}} defaults={defaults} allocationColumn={{header:"Alokasi SPK", render:(l,i)=>{ const s=allocSummary(l); return <button type="button" disabled={!l.item_id} onClick={()=>setAllocLine(lineKey(l))} data-testid={`mro-alloc-cell-${i}`} className={`w-full text-left text-xs rounded-md border px-2 py-1.5 transition-colors hover:bg-accent/50 disabled:opacity-40 disabled:cursor-not-allowed ${s.over?"border-destructive text-destructive":"border-border"}`}>{formatAllocText(s)}{s.over&&" ⚠"}</button>; }}}/>}</CardContent></Card><DocumentMessageEditor module="mro" value={h.document_message} onChange={(v)=>setH({...h,document_message:v})} useDefault={isNew} readOnly={!isNew&&!editing}/></div></DocMetaTabs>
+    {allocLine&&(()=>{ const l=lines.find((x)=>lineKey(x)===allocLine); if(!l) return null; return <SpkAllocationModal open onClose={()=>setAllocLine(null)} sourceType="mro" localMode itemQty={toNum(l.qty)} unit={l.unit||l.display_unit} initialAllocations={allocs[allocLine]||[]} canManage={can("spk_allocation:manage")} docStatus="Draft" onLocalSave={(list)=>setAllocs((prev)=>({...prev,[allocLine]:list}))}/>; })()}
+    {dialog}
   </div>;
 }
