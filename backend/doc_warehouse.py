@@ -359,11 +359,8 @@ async def opname_submit(did: str, user=Depends(current_user)):
 
 
 @api.post("/opname/{did}/post")
-async def opname_post(did: str, body: dict = None, user=Depends(current_user)):
+async def opname_post(did: str, user=Depends(current_user)):
     require(user, "post_stock_opname")
-    body = body or {}
-    costs = body.get("costs") or {}       # optional {line_id: approved_unit_cost} for surplus
-    reasons = body.get("reasons") or {}   # optional {line_id: reason} for overrides
     d = await db.opname.find_one({"id": did})
     if not d: raise HTTPException(404, "Opname tidak ditemukan")
     if d.get("status") == "Posted": raise HTTPException(400, "Sudah diposting")
@@ -375,14 +372,14 @@ async def opname_post(did: str, body: dict = None, user=Depends(current_user)):
         if abs(variance) < 1e-9: continue
         lid = l.get("id")
         if variance > 0:
-            # surplus = inventory IN; needs a valid valuation basis (default avg or approved cost)
-            approved = costs.get(lid, l.get("approved_unit_cost"))
-            unit_cost, overridden = await _resolve_in_cost(l["item_id"], wh, approved, reasons.get(lid, l.get("reason")))
+            # surplus = inventory IN; needs a valid valuation basis. Approved cost + reason are
+            # captured earlier on the line via PUT /opname/{id}/count (stored on opname_lines).
+            unit_cost, overridden = await _resolve_in_cost(l["item_id"], wh, l.get("approved_unit_cost"), l.get("reason"))
             await post_movement("Stock Opname Adjustment", d["no"], did, l["item_id"], wh, variance, 0,
                                 user=user, line_id=lid, unit_cost_in=unit_cost, require_cost=True,
                                 source_key=f"OPN::{did}::{lid}", txn_at=d.get("date"))
             if overridden:
-                await audit(user, "override_cost", "opname", did, d.get("no"), reason=reasons.get(lid),
+                await audit(user, "override_cost", "opname", did, d.get("no"), reason=l.get("reason"),
                             after={"item_id": l["item_id"], "approved_unit_cost": unit_cost})
         else:
             # shortage = inventory OUT at current average snapshot
