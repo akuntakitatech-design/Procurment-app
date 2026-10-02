@@ -369,8 +369,14 @@ async def _replace(server, module, did, body, user):
         if frm == to:
             raise HTTPException(400, "Gudang pemberi dan peminjam sama")
         for rec in new_lines:
-            await server.post_ledger("Loan Out", no, did, rec["item_id"], frm, 0, rec["qty"], user=user)
-            await server.post_ledger("Loan In", no, did, rec["item_id"], to, rec["qty"], 0, user=user)
+            out = await server.post_movement("Loan Out", no, did, rec["item_id"], frm, 0, rec["qty"], user=user,
+                                             line_id=rec.get("id"), source_key=f"LOAN-O::{rec.get('id')}",
+                                             txn_at=normalized.get("date"))
+            lv = float(out.get("value_out") or 0)
+            await line_col.update_one({"id": rec.get("id")}, {"$set": {"cost_snapshot": out.get("unit_cost"), "loan_value": lv}})
+            await server.post_movement("Loan In", no, did, rec["item_id"], to, rec["qty"], 0, user=user,
+                                       value_in=lv, line_id=rec.get("id"), source_key=f"LOAN-I::{rec.get('id')}",
+                                       txn_at=normalized.get("date"), require_cost=True)
     elif module == "adjustment":
         wh = normalized.get("warehouse_id")
         import doc_warehouse as _dw

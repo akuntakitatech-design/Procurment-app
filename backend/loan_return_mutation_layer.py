@@ -144,8 +144,9 @@ def install(server):
             if qty>rem+1e-6 and not server.has_perm(user,"override_qty"): raise HTTPException(400,"Qty return melebihi outstanding pinjaman")
             if qty<=0: continue
             await server.db.loan_lines.update_one({"id":ll["id"]},{"$inc":{"returned":qty}})
-            await server.post_ledger("Loan Return Out",ret.get("no"),rid,ll.get("item_id"),loan.get("to_warehouse_id"),0,qty,user=user)
-            await server.post_ledger("Loan Return In",ret.get("no"),rid,ll.get("item_id"),loan.get("from_warehouse_id"),qty,0,user=user)
+            uc=float(ll.get("cost_snapshot") or 0); rv=qty*uc
+            await server.post_movement("Loan Return Out",ret.get("no"),rid,ll.get("item_id"),loan.get("to_warehouse_id"),0,qty,user=user,reversal_value=rv,line_id=ll["id"],source_key=f"LOANRET-O::{rid}::{ll['id']}",txn_at=(body or {}).get("date"))
+            await server.post_movement("Loan Return In",ret.get("no"),rid,ll.get("item_id"),loan.get("from_warehouse_id"),qty,0,user=user,value_in=rv,line_id=ll["id"],source_key=f"LOANRET-I::{rid}::{ll['id']}",txn_at=(body or {}).get("date"),require_cost=True)
             new.append({"id":server.gid(),"return_id":rid,"loan_id":ret.get("loan_id"),"loan_line_id":ll["id"],"item_id":ll.get("item_id"),"qty":qty})
         await server.db.loan_return_lines.delete_many({"return_id":rid})
         if new: await server.db.loan_return_lines.insert_many(new)

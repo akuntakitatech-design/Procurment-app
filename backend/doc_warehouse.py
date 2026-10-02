@@ -140,11 +140,18 @@ async def create_loan(body: dict, user=Depends(current_user)):
         avail = await stock_balance(l["item_id"], frm)
         if qty > avail + 1e-6 and not has_perm(user, "override_qty"):
             raise HTTPException(400, f"Stok pemberi tidak cukup (tersedia {avail})")
-        await db.loan_lines.insert_one({"id": gid(), "loan_id": did, "item_id": l["item_id"],
+        lid = gid()
+        await db.loan_lines.insert_one({"id": lid, "loan_id": did, "item_id": l["item_id"],
             "qty": qty, "returned": 0, "unit": l.get("unit"), "project_id": l.get("project_id"),
             "unit_id": l.get("unit_id"), "notes": l.get("notes")})
-        await post_ledger("Loan Out", no, did, l["item_id"], frm, 0, qty, user=user)
-        await post_ledger("Loan In", no, did, l["item_id"], to, qty, 0, user=user)
+        # OUT at source moving-average snapshot; store the loan cost so returns reuse it (no P/L).
+        out = await post_movement("Loan Out", no, did, l["item_id"], frm, 0, qty, user=user,
+                                  line_id=lid, source_key=f"LOAN-O::{lid}", txn_at=body.get("date"))
+        lv = float(out.get("value_out") or 0); uc = out.get("unit_cost")
+        await db.loan_lines.update_one({"id": lid}, {"$set": {"cost_snapshot": uc, "loan_value": lv}})
+        # Borrowing warehouse physically receives the stock carrying the ORIGINAL loan value.
+        await post_movement("Loan In", no, did, l["item_id"], to, qty, 0, user=user, value_in=lv,
+                            line_id=lid, source_key=f"LOAN-I::{lid}", txn_at=body.get("date"), require_cost=True)
     await audit(user, "create", "loan", did, no)
     await notify("Pinjaman baru", f"{no} dibuat", "loan", None)
     return await get_loan(did, user)
@@ -182,8 +189,14 @@ async def return_loan(did: str, body: dict, user=Depends(current_user)):
         if qty > rem + 1e-6 and not has_perm(user, "override_qty"):
             raise HTTPException(400, "Qty return melebihi outstanding")
         await db.loan_lines.update_one({"id": ll["id"]}, {"$inc": {"returned": qty}})
-        await post_ledger("Loan Return Out", no, rid, ll["item_id"], loan["to_warehouse_id"], 0, qty, user=user)
-        await post_ledger("Loan Return In", no, rid, ll["item_id"], loan["from_warehouse_id"], qty, 0, user=user)
+        # Return reuses the ORIGINAL loan cost snapshot deterministically (no gain/loss from avg drift).
+        uc = float(ll.get("cost_snapshot") or 0); rv = qty * uc
+        await post_movement("Loan Return Out", no, rid, ll["item_id"], loan["to_warehouse_id"], 0, qty,
+                            user=user, reversal_value=rv, line_id=ll["id"],
+                            source_key=f"LOANRET-O::{rid}::{ll['id']}", txn_at=body.get("date"))
+        await post_movement("Loan Return In", no, rid, ll["item_id"], loan["from_warehouse_id"], qty, 0,
+                            user=user, value_in=rv, line_id=ll["id"],
+                            source_key=f"LOANRET-I::{rid}::{ll['id']}", txn_at=body.get("date"), require_cost=True)
     await audit(user, "create", "loan_return", rid, no)
     return await get_loan(did, user)
 
