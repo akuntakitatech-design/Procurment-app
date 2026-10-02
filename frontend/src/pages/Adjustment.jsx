@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
-import { useMasters } from "@/hooks/useMasters";
+import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { AttachmentPanel } from "@/components/DocMeta";
@@ -23,7 +23,7 @@ const TYPES = ["Rusak", "Hilang", "Expired", "Koreksi", "Selisih", "Ditemukan", 
 const EMPTY = () => ({ date: todayISO(), warehouse_id: "", division_id: "", adj_type: "Koreksi", reason: "", notes: "", document_message: null });
 
 export default function Adjustment() {
-  const masters = useMasters(); const { can } = useAuth();
+  const masters = useMasters(STOCK_REFS); const { can } = useAuth();
   const canPrice = can("view_purchase_price");
   const [rows, setRows] = useState([]); const [mode, setMode] = useState("list");
   const [h, setH] = useState(EMPTY());

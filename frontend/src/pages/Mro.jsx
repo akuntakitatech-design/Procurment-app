@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
-import { useMasters } from "@/hooks/useMasters";
+import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { ItemLines } from "@/components/ItemLines";
 import { DocMetaTabs } from "@/components/DocMetaTabs";
@@ -63,7 +63,7 @@ export function MroList() {
 }
 
 export function MroForm() {
-  const { id } = useParams(); const nav = useNavigate(); const { can, user } = useAuth(); const masters = useMasters();
+  const { id } = useParams(); const nav = useNavigate(); const { can, user } = useAuth(); const masters = useMasters(STOCK_REFS);
   const [h, setH] = useState({ no: "", date: todayISO(), requester: "", department: "", division_id: "", default_warehouse_id: "", default_project_id: "", default_unit_id: "", spk: "", need_date: todayISO(), notes: "", document_message: null });
   const [lines, setLines] = useState([]); const [doc, setDoc] = useState(null); const [editing,setEditing]=useState(false); const isNew = !id;
   const [allocs, setAllocs] = useState({}); const [allocLine, setAllocLine] = useState(null); const [spkMap, setSpkMap] = useState({});

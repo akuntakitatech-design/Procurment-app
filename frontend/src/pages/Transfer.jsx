@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
-import { useMasters } from "@/hooks/useMasters";
+import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { ItemLines } from "@/components/ItemLines";
@@ -23,7 +23,7 @@ import { traceCol, noCol, dateCol } from "@/lib/txnList";
 const EMPTY = () => ({ date: todayISO(), from_warehouse_id: "", to_warehouse_id: "", project_id: "", notes: "", document_message: null });
 
 export default function Transfer() {
-  const masters = useMasters();
+  const masters = useMasters(STOCK_REFS);
   const { can } = useAuth();
   const [rows, setRows] = useState([]);
   const [mode, setMode] = useState("list");

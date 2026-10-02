@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
-import { useMasters } from "@/hooks/useMasters";
+import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { AttachmentPanel } from "@/components/DocMeta";
@@ -23,7 +23,7 @@ import { traceCol, noCol, dateCol } from "@/lib/txnList";
 const EMPTY = () => ({ date: todayISO(), warehouse_id: "", division_id: "", mode: "live", scope: "all", notes: "", document_message: null });
 
 export default function Opname() {
-  const masters = useMasters(); const { can } = useAuth();
+  const masters = useMasters(STOCK_REFS); const { can } = useAuth();
   const canPrice = can("view_purchase_price");
   const [rows, setRows] = useState([]); const [createOpen, setCreateOpen] = useState(false);
   const [h, setH] = useState(EMPTY());

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
-import { useMasters } from "@/hooks/useMasters";
+import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
@@ -35,7 +35,7 @@ export function MiList(){const[rows,setRows]=useState([]);const load=()=>api.get
 const LBL = "mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground";
 
 export function MiForm(){
-  const{id}=useParams();const nav=useNavigate();const{can}=useAuth();const masters=useMasters();
+  const{id}=useParams();const nav=useNavigate();const{can}=useAuth();const masters=useMasters(STOCK_REFS);
   const[h,setH]=useState({date:todayISO(),division_id:"",default_warehouse_id:"",default_project_id:"",default_unit_id:"",spk:"",receiver:"",requester:"",department:"",source_type:"MRO",source_mode:"mro",notes:"",document_message:null});
   const[lines,setLines]=useState([]);const[doc,setDoc]=useState(null);const[pull,setPull]=useState(false);const[editing,setEditing]=useState(false);const isNew=!id;const editable=isNew||editing;
   const[pending,setPending]=useState([]);
