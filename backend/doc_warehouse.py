@@ -57,11 +57,30 @@ async def create_transfer(body: dict, user=Depends(current_user)):
         avail = await stock_balance(l["item_id"], frm)
         if qty > avail + 1e-6 and not has_perm(user, "override_qty"):
             raise HTTPException(400, f"Stok gudang asal tidak cukup (tersedia {avail})")
-        await db.transfer_lines.insert_one({"id": gid(), "transfer_id": did, "item_id": l["item_id"],
+        lid = gid()
+        await db.transfer_lines.insert_one({"id": lid, "transfer_id": did, "item_id": l["item_id"],
             "qty": qty, "unit": l.get("unit"), "project_id": l.get("project_id"),
             "unit_id": l.get("unit_id"), "notes": l.get("notes")})
-        await post_ledger("Transfer Out", no, did, l["item_id"], frm, 0, qty, project_id=l.get("project_id"), user=user)
-        await post_ledger("Transfer In", no, did, l["item_id"], to, qty, 0, project_id=l.get("project_id"), user=user)
+        # OUT at source moving-average snapshot; carry the EXACT value to destination (no P/L).
+        from server import post_movement, reverse_document_valuation
+        out = await post_movement("Transfer Out", no, did, l["item_id"], frm, 0, qty,
+                                  project_id=l.get("project_id"), user=user, line_id=lid,
+                                  source_key=f"TRF-O::{lid}", txn_at=body.get("date"))
+        transfer_value = float(out.get("value_out") or 0)
+        await db.transfer_lines.update_one({"id": lid}, {"$set": {
+            "cost_snapshot": out.get("unit_cost"), "transfer_value": transfer_value}})
+        try:
+            await post_movement("Transfer In", no, did, l["item_id"], to, qty, 0,
+                                project_id=l.get("project_id"), user=user, value_in=transfer_value,
+                                line_id=lid, source_key=f"TRF-I::{lid}", txn_at=body.get("date"),
+                                require_cost=True)
+        except Exception:
+            # Atomicity: destination leg failed -> restore the source OUT so no stock/value is lost.
+            await post_movement("Reversal Transfer Out", no, did, l["item_id"], frm, qty, 0,
+                                project_id=l.get("project_id"), user=user, reversal_value=transfer_value,
+                                is_reversal=True, reversal_of=out.get("valuation_ledger_id"),
+                                source_key=f"TRF-O-REV::{lid}", backdate_guard=False)
+            raise
     await audit(user, "create", "transfer", did, no)
     return await get_transfer(did, user)
 

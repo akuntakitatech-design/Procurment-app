@@ -355,8 +355,15 @@ async def _replace(server, module, did, body, user):
             raise HTTPException(400, "Gudang asal dan tujuan sama")
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
         for rec in new_lines:
-            await server.post_ledger("Transfer Out", no, did, rec["item_id"], frm, 0, rec["qty"], project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user)
-            await server.post_ledger("Transfer In", no, did, rec["item_id"], to, rec["qty"], 0, project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user)
+            out = await server.post_movement("Transfer Out", no, did, rec["item_id"], frm, 0, rec["qty"],
+                                             project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user,
+                                             line_id=rec.get("id"), source_key=f"TRF-O::{rec.get('id')}",
+                                             txn_at=normalized.get("date"))
+            tv = float(out.get("value_out") or 0)
+            await server.post_movement("Transfer In", no, did, rec["item_id"], to, rec["qty"], 0,
+                                       project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user,
+                                       value_in=tv, line_id=rec.get("id"), source_key=f"TRF-I::{rec.get('id')}",
+                                       txn_at=normalized.get("date"), require_cost=True)
     elif module == "loan":
         frm, to = normalized.get("from_warehouse_id"), normalized.get("to_warehouse_id")
         if frm == to:
