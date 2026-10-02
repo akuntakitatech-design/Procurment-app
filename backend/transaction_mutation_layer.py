@@ -306,11 +306,11 @@ async def _replace(server, module, did, body, user):
             wh = normalized.get("warehouse_id")
             before = await server.stock_balance(line.get("item_id"), wh)
             delta = float(line.get("adjustment") or 0)
-            rec = {"id": lid, "adjustment_id": did, "item_id": line.get("item_id"), "before": before, "adjustment": delta, "after": before + delta, "reason": line.get("reason")}
+            rec = {"id": lid, "adjustment_id": did, "item_id": line.get("item_id"), "before": before, "adjustment": delta, "after": before + delta, "reason": line.get("reason"), "approved_unit_cost": line.get("approved_unit_cost")}
         else:  # opname
             old = old_line_by_id.get(line.get("id")) or {}
             snapshot = float(line.get("snapshot") if line.get("snapshot") is not None else old.get("snapshot") or 0)
-            rec = {"id": lid, "opname_id": did, "item_id": line.get("item_id") or old.get("item_id"), "snapshot": snapshot, "counted": line.get("counted")}
+            rec = {"id": lid, "opname_id": did, "item_id": line.get("item_id") or old.get("item_id"), "snapshot": snapshot, "counted": line.get("counted"), "approved_unit_cost": line.get("approved_unit_cost") if line.get("approved_unit_cost") is not None else old.get("approved_unit_cost"), "reason": line.get("reason") or old.get("reason")}
         if umeta:
             rec.update(umeta)
         await line_col.insert_one(rec)
@@ -373,20 +373,31 @@ async def _replace(server, module, did, body, user):
             await server.post_ledger("Loan In", no, did, rec["item_id"], to, rec["qty"], 0, user=user)
     elif module == "adjustment":
         wh = normalized.get("warehouse_id")
+        import doc_warehouse as _dw
         for rec in new_lines:
             delta = float(rec.get("adjustment") or 0)
-            await server.post_ledger("Stock Adjustment", no, did, rec["item_id"], wh, delta if delta > 0 else 0, -delta if delta < 0 else 0, division_id=normalized.get("division_id"), user=user)
+            if abs(delta) < 1e-9:
+                continue
+            uc = None
+            if delta > 0:
+                uc, _ov = await _dw._resolve_in_cost(rec["item_id"], wh, rec.get("approved_unit_cost"), rec.get("reason"))
+            await server.post_movement("Stock Adjustment", no, did, rec["item_id"], wh, delta if delta > 0 else 0, -delta if delta < 0 else 0, division_id=normalized.get("division_id"), user=user, line_id=rec.get("id"), unit_cost_in=uc, require_cost=(delta > 0), source_key=f"ADJ::{rec.get('id')}", txn_at=normalized.get("date"))
     elif module == "opname":
         old_status = doc.get("status")
         if old_status == "Posted":
             wh = normalized.get("warehouse_id")
+            import doc_warehouse as _dw
             for rec in new_lines:
                 if rec.get("counted") is None:
                     continue
                 variance = float(rec.get("counted") or 0) - float(rec.get("snapshot") or 0)
                 if abs(variance) < 1e-9:
                     continue
-                await server.post_ledger("Stock Opname Adjustment", no, did, rec["item_id"], wh, variance if variance > 0 else 0, -variance if variance < 0 else 0, user=user)
+                if variance > 0:
+                    uc, _ov = await _dw._resolve_in_cost(rec["item_id"], wh, rec.get("approved_unit_cost"), rec.get("reason"))
+                    await server.post_movement("Stock Opname Adjustment", no, did, rec["item_id"], wh, variance, 0, user=user, line_id=rec.get("id"), unit_cost_in=uc, require_cost=True, source_key=f"OPN::{did}::{rec.get('id')}", txn_at=normalized.get("date"))
+                else:
+                    await server.post_movement("Stock Opname Adjustment", no, did, rec["item_id"], wh, 0, -variance, user=user, line_id=rec.get("id"), source_key=f"OPN::{did}::{rec.get('id')}", txn_at=normalized.get("date"))
             await head_col.update_one({"id": did}, {"$set": {"status": "Posted", "posted_at": server.now_iso()}})
 
     if module == "do":

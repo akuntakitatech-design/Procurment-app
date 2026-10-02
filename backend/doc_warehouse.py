@@ -3,7 +3,7 @@ import uuid
 from fastapi import Depends, HTTPException, UploadFile, File, Form, Query, Request
 from fastapi.responses import Response
 from server import (api, db, gid, now_iso, clean, current_user, require, has_perm,
-                    audit, notify, next_number, post_ledger, stock_balance)
+                    audit, notify, next_number, post_ledger, post_movement, stock_balance)
 import storage as S
 
 
@@ -62,7 +62,6 @@ async def create_transfer(body: dict, user=Depends(current_user)):
             "qty": qty, "unit": l.get("unit"), "project_id": l.get("project_id"),
             "unit_id": l.get("unit_id"), "notes": l.get("notes")})
         # OUT at source moving-average snapshot; carry the EXACT value to destination (no P/L).
-        from server import post_movement, reverse_document_valuation
         out = await post_movement("Transfer Out", no, did, l["item_id"], frm, 0, qty,
                                   project_id=l.get("project_id"), user=user, line_id=lid,
                                   source_key=f"TRF-O::{lid}", txn_at=body.get("date"))
@@ -190,6 +189,31 @@ async def return_loan(did: str, body: dict, user=Depends(current_user)):
 
 
 # ---------------- STOCK ADJUSTMENT ----------------
+async def _resolve_in_cost(item_id, wh, approved, reason):
+    """Resolve the unit cost for a positive (IN) stock change under moving average.
+    Case A (existing qty>0 and avg>0): default = current avg; override allowed only with a reason.
+    Case B (qty 0 / no avg): approved unit cost mandatory (>0). Never defaults to 0 or latest PO.
+    Returns (unit_cost, overridden)."""
+    iw = await db.item_warehouse.find_one({"item_id": item_id, "warehouse_id": wh}) or {}
+    cur_qty = float(iw.get("current_stock") or 0); cur_avg = float(iw.get("avg_cost") or 0)
+    ap = None
+    try:
+        ap = float(approved) if approved not in (None, "") else None
+    except Exception:
+        ap = None
+    if cur_qty > 0 and cur_avg > 0:
+        if ap is None:
+            return cur_avg, False
+        if ap <= 0:
+            raise HTTPException(400, "Approved Unit Cost tidak valid (harus > 0)")
+        if abs(ap - cur_avg) > 1e-6 and not (reason and str(reason).strip()):
+            raise HTTPException(400, "Alasan wajib diisi karena Approved Unit Cost berbeda dari rata-rata persediaan saat ini.")
+        return ap, abs(ap - cur_avg) > 1e-6
+    if ap is None or ap <= 0:
+        raise HTTPException(400, "Approved Unit Cost wajib diisi (tidak ada rata-rata persediaan untuk item/gudang ini).")
+    return ap, True
+
+
 @api.get("/adjustments")
 async def list_adjustments(user=Depends(current_user)):
     require(user, "view")
@@ -227,13 +251,24 @@ async def create_adjustment(body: dict, user=Depends(current_user)):
     for l in body.get("lines", []):
         before = await stock_balance(l["item_id"], wh)
         delta = float(l.get("adjustment", 0))
+        if abs(delta) < 1e-9: continue
         after = before + delta
-        await db.adjustment_lines.insert_one({"id": gid(), "adjustment_id": did, "item_id": l["item_id"],
-            "before": before, "adjustment": delta, "after": after, "reason": l.get("reason")})
+        lid = gid()
+        unit_cost = None; overridden = False
+        if delta > 0:
+            unit_cost, overridden = await _resolve_in_cost(l["item_id"], wh, l.get("approved_unit_cost"), l.get("reason"))
+        await db.adjustment_lines.insert_one({"id": lid, "adjustment_id": did, "item_id": l["item_id"],
+            "before": before, "adjustment": delta, "after": after, "reason": l.get("reason"),
+            "approved_unit_cost": unit_cost, "cost_overridden": overridden})
         qty_in = delta if delta > 0 else 0
         qty_out = -delta if delta < 0 else 0
-        await post_ledger("Stock Adjustment", no, did, l["item_id"], wh, qty_in, qty_out,
-                          division_id=body.get("division_id"), user=user)
+        await post_movement("Stock Adjustment", no, did, l["item_id"], wh, qty_in, qty_out,
+                            division_id=body.get("division_id"), user=user, line_id=lid,
+                            unit_cost_in=(unit_cost if delta > 0 else None), require_cost=(delta > 0),
+                            source_key=f"ADJ::{lid}", txn_at=body.get("date"))
+        if delta > 0 and overridden:
+            await audit(user, "override_cost", "adjustment", did, no, reason=l.get("reason"),
+                        after={"item_id": l["item_id"], "approved_unit_cost": unit_cost})
     await audit(user, "create", "adjustment", did, no, reason=body.get("reason"))
     return await get_adjustment(did, user)
 
@@ -291,7 +326,13 @@ async def create_opname(body: dict, user=Depends(current_user)):
 async def opname_count(did: str, body: dict, user=Depends(current_user)):
     require(user, "edit")
     for l in body.get("lines", []):
-        await db.opname_lines.update_one({"id": l["line_id"]}, {"$set": {"counted": float(l["counted"])}})
+        patch = {"counted": float(l["counted"])} if l.get("counted") is not None else {}
+        if l.get("approved_unit_cost") is not None:
+            patch["approved_unit_cost"] = l.get("approved_unit_cost")
+        if l.get("reason") is not None:
+            patch["reason"] = l.get("reason")
+        if patch:
+            await db.opname_lines.update_one({"id": l["line_id"]}, {"$set": patch})
     await db.opname.update_one({"id": did}, {"$set": {"status": body.get("status", "Review")}})
     await audit(user, "edit", "opname", did)
     return await get_opname(did, user)
@@ -305,8 +346,11 @@ async def opname_submit(did: str, user=Depends(current_user)):
 
 
 @api.post("/opname/{did}/post")
-async def opname_post(did: str, user=Depends(current_user)):
+async def opname_post(did: str, body: dict = None, user=Depends(current_user)):
     require(user, "post_stock_opname")
+    body = body or {}
+    costs = body.get("costs") or {}       # optional {line_id: approved_unit_cost} for surplus
+    reasons = body.get("reasons") or {}   # optional {line_id: reason} for overrides
     d = await db.opname.find_one({"id": did})
     if not d: raise HTTPException(404, "Opname tidak ditemukan")
     if d.get("status") == "Posted": raise HTTPException(400, "Sudah diposting")
@@ -316,9 +360,21 @@ async def opname_post(did: str, user=Depends(current_user)):
         if l.get("counted") is None: continue
         variance = l["counted"] - l.get("snapshot", 0)
         if abs(variance) < 1e-9: continue
-        qty_in = variance if variance > 0 else 0
-        qty_out = -variance if variance < 0 else 0
-        await post_ledger("Stock Opname Adjustment", d["no"], did, l["item_id"], wh, qty_in, qty_out, user=user)
+        lid = l.get("id")
+        if variance > 0:
+            # surplus = inventory IN; needs a valid valuation basis (default avg or approved cost)
+            approved = costs.get(lid, l.get("approved_unit_cost"))
+            unit_cost, overridden = await _resolve_in_cost(l["item_id"], wh, approved, reasons.get(lid, l.get("reason")))
+            await post_movement("Stock Opname Adjustment", d["no"], did, l["item_id"], wh, variance, 0,
+                                user=user, line_id=lid, unit_cost_in=unit_cost, require_cost=True,
+                                source_key=f"OPN::{did}::{lid}", txn_at=d.get("date"))
+            if overridden:
+                await audit(user, "override_cost", "opname", did, d.get("no"), reason=reasons.get(lid),
+                            after={"item_id": l["item_id"], "approved_unit_cost": unit_cost})
+        else:
+            # shortage = inventory OUT at current average snapshot
+            await post_movement("Stock Opname Adjustment", d["no"], did, l["item_id"], wh, 0, -variance,
+                                user=user, line_id=lid, source_key=f"OPN::{did}::{lid}", txn_at=d.get("date"))
     await db.opname.update_one({"id": did}, {"$set": {"status": "Posted", "approved_by": user.get("name"), "posted_at": now_iso()}})
     await audit(user, "approve", "opname", did, d.get("no"))
     return await get_opname(did, user)
