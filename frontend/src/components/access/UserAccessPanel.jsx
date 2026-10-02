@@ -19,7 +19,8 @@ export function UserAccessPanel({ uid, divisions, onChange }) {
     api.get("/access/catalog").then((r) => setCatalog(r.data));
     api.get(`/access/users/${uid}`).then((r) => { setInfo(r.data); setOv(r.data.overrides || {}); setDiv(r.data.division_override); });
   }, [uid]);
-  useEffect(() => { if (info) onChange({ overrides: ov, division_override: div }); }, [ov, div]); // eslint-disable-line react-hooks/exhaustive-deps
+  const updOv = (next) => { setOv(next); onChange({ overrides: next, division_override: div }); };
+  const updDiv = (next) => { setDiv(next); onChange({ overrides: ov, division_override: next }); };
   const role = useMemo(() => new Set(info?.role_permissions || []), [info]);
   const labelOf = useMemo(() => {
     const m = {};
@@ -31,7 +32,7 @@ export function UserAccessPanel({ uid, divisions, onChange }) {
   const effective = (k) => (ov[k] === "allow" ? true : ov[k] === "deny" ? false : role.has(k));
   const cell = (k) => {
     const e = effective(k), o = ov[k];
-    return <button type="button" onClick={() => setOv((s) => { const n = { ...s }; const nx = NEXT[o]; if (nx) n[k] = nx; else delete n[k]; return n; })}
+    return <button type="button" onClick={() => { const n = { ...ov }; const nx = NEXT[o]; if (nx) n[k] = nx; else delete n[k]; updOv(n); }}
       title={`Role: ${role.has(k) ? "Ya" : "Tidak"} · Pengaturan Khusus: ${OV[o] || "Ikuti Role"} · Efektif: ${e ? "Ya" : "Tidak"}`}
       className={`inline-flex h-6 min-w-6 items-center justify-center rounded-md border px-1 text-[11px] font-bold transition-colors ${e ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-400"} ${o ? "ring-2 ring-offset-1 " + (o === "allow" ? "ring-sky-400" : "ring-rose-400") : ""}`}
       data-testid={`user-perm-${k}`} data-state={o || "inherit"}>{e ? "✓" : "✕"}</button>;
@@ -39,7 +40,7 @@ export function UserAccessPanel({ uid, divisions, onChange }) {
   const changed = Object.keys(ov);
   return <div className="space-y-4" data-testid="user-access-panel">
     <div className="rounded-xl border bg-card p-4"><div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cakupan Divisi</div>
-      <DivisionScopeEditor value={div} onChange={setDiv} divisions={divisions} allowInherit testid="user-scope" />
+      <DivisionScopeEditor value={div} onChange={updDiv} divisions={divisions} allowInherit testid="user-scope" />
       <p className="mt-2 text-xs text-muted-foreground">Default role: {info.role_division_scope?.mode === "all" ? "Semua Divisi" : `Divisi Tertentu (${(info.role_division_scope?.divisions || []).length})`}</p></div>
     <div className="rounded-xl border bg-muted/20 p-3 text-xs text-muted-foreground">Klik sel untuk mengganti: <b>Ikuti Role</b> → <b className="text-sky-700">Izinkan</b> → <b className="text-rose-700">Tolak</b>. Sel bergaris warna = pengaturan khusus pengguna. ✓/✕ = hak akses efektif.</div>
     {changed.length > 0 && <div className="rounded-xl border bg-card" data-testid="user-override-summary">
