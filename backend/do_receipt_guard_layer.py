@@ -37,6 +37,11 @@ def _find_route(app, path: str, method: str):
     return None
 
 
+def _over_ok(po_line_id):
+    from receipt_control_layer import over_allowed
+    return over_allowed(po_line_id)
+
+
 def _norm(value):
     return str(value or "").strip().lower()
 
@@ -139,7 +144,7 @@ async def _validate_body(server, body: dict, user: dict, current_do_id: str | No
         already_elsewhere = await Mutation._allocated_elsewhere(server, po_line_id, "do", current_do_id)
         accumulated[po_line_id] = accumulated.get(po_line_id, 0.0) + qty
         available = float(po_line.get("qty") or 0) - float(already_elsewhere or 0)
-        if accumulated[po_line_id] > available + 1e-6:
+        if accumulated[po_line_id] > available + 1e-6 and not _over_ok(po_line_id):
             raise HTTPException(400, f"Qty terima melebihi outstanding PO (tersedia {max(0, available)})")
 
     if len(supplier_ids) != 1:

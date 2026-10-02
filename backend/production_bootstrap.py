@@ -179,6 +179,9 @@ do_receipt_guard_layer.install(server)
 # Receipt quality/discrepancy sits outside the PO quantity guard. Damaged quantities are removed
 # from usable stock via an offset ledger while shortage/excess remain documented exceptions.
 do_receipt_condition_layer.install(server)
+# DO/PO receipt control (over receipt, closed PO, source lock) + list traceability — outermost DO wrapper.
+import receipt_control_layer  # noqa: E402
+receipt_control_layer.install(server)
 # Register opening inventory before the generic Excel routes are installed.
 opening_inventory_layer.install(server, excel_import_layer)
 # Install last so transaction imports call the final wrapped transaction endpoints.

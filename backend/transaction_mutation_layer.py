@@ -167,7 +167,9 @@ async def _validate_sources(server, module, did, specs, item_id):
         elsewhere = await _allocated_elsewhere(server, source_line_id, target_type, did)
         available = float(row.get("qty") or 0) - elsewhere
         if qty > available + 1e-6:
-            raise HTTPException(400, "Qty hasil edit melebihi outstanding sumber transaksi")
+            from receipt_control_layer import over_allowed
+            if not (module == "do" and over_allowed(source_line_id)):
+                raise HTTPException(400, "Qty hasil edit melebihi outstanding sumber transaksi")
 
 
 async def _reset_approval(server, module, did):

@@ -16,6 +16,9 @@ import { Input } from "@/components/ui/input";
 import { ArrowLeftRight, Plus, ArrowLeft, Paperclip, X } from "lucide-react";
 import { fmtDate, todayISO } from "@/lib/format";
 import { toast } from "sonner";
+import { TxnList } from "@/components/TxnList";
+import { traceCol, noCol, dateCol } from "@/lib/txnList";
+
 
 const EMPTY = () => ({ date: todayISO(), from_warehouse_id: "", to_warehouse_id: "", project_id: "", notes: "", document_message: null });
 
@@ -33,8 +36,10 @@ export default function Transfer() {
   useEffect(() => { load(); }, []);
   const openDetail = (id) => api.get(`/transfers/${id}`).then((r) => setSelected(r.data));
   const startNew = () => { setEditingId(null); setH(EMPTY()); setLines([]); setSelected(null); setMode("form"); };
-  const startEdit = () => {
-    if (!selected) return;
+  const startEdit = (doc = selected) => {
+    if (!doc) return;
+    const selected = doc;
+    setSelected(doc);
     setEditingId(selected.id);
     setH({ date:selected.date, from_warehouse_id:selected.from_warehouse_id||"", to_warehouse_id:selected.to_warehouse_id||"", project_id:selected.project_id||"", notes:selected.notes||"", document_message:selected.document_message||"" });
     setLines((selected.lines||[]).map(l=>({...l,_readonly:false})));
@@ -79,8 +84,10 @@ export default function Transfer() {
   return (
     <div>
       <PageHeader title="Transfer Antar Gudang" subtitle="Perpindahan barang permanen">{can("create") && <Button onClick={startNew} data-testid="transfer-create-btn"><Plus className="h-4 w-4 mr-2" />Buat Transfer</Button>}</PageHeader>
-      <div className="border rounded-md overflow-x-auto bg-card shadow-sm"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground"><th className="p-3">No. Transfer</th><th className="p-3">Tanggal</th><th className="p-3">Dari</th><th className="p-3">Ke</th><th className="p-3 text-right">Item</th><th className="p-3">Status</th></tr></thead><tbody>{rows.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Belum ada transfer</td></tr>}{rows.map((r) => (<tr key={r.id} onClick={() => openDetail(r.id)} className={`border-t cursor-pointer hover:bg-accent/40 ${selected?.id === r.id ? "bg-primary/5" : ""}`}><td className="p-3 font-mono text-xs font-semibold">{r.no}</td><td className="p-3">{fmtDate(r.date)}</td><td className="p-3">{r.from_name}</td><td className="p-3 flex items-center gap-1"><ArrowLeftRight className="h-3 w-3 text-muted-foreground" />{r.to_name}</td><td className="p-3 text-right">{r.line_count}</td><td className="p-3"><StatusBadge status={r.status} /></td></tr>))}</tbody></table></div>
-      {selected && <Card className="mt-4 border-primary/20"><CardContent className="pt-5 space-y-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wider text-primary">Detail Transaksi</div><div className="mt-1 font-mono font-semibold">{selected.no}</div><div className="mt-2"><TransactionMutationActions module="transfer" id={selected.id} onEdit={startEdit} onDeleted={()=>{setSelected(null);load();}} compact /></div></div><Button variant="ghost" size="icon" onClick={() => setSelected(null)}><X className="h-4 w-4" /></Button></div><AttachmentPanel entity="transfer" entityId={selected.id} /><DocumentMessageEditor module="transfer" value={selected.document_message||""} readOnly /></CardContent></Card>}
+      <TxnList module="transfer" testidPrefix="transfer" rows={rows} onReload={() => { setSelected(null); load(); }} selectedId={selected?.id} emptyText="Belum ada transfer" minWidth={1100}
+        onOpen={(r) => openDetail(r.id)} onEdit={async (r) => { const d = await api.get(`/transfers/${r.id}`); startEdit(d.data); }}
+        columns={[noCol("No. Transfer"), dateCol(fmtDate), { key: "from_name", label: "Dari" }, { key: "to_name", label: "Ke", render: (r) => <span className="flex items-center gap-1"><ArrowLeftRight className="h-3 w-3 text-muted-foreground" />{r.to_name}</span> }, traceCol("project"), traceCol("unit"), { key: "line_count", label: "Item", num: true }, { key: "status", label: "Status", status: true }]} />
+      {selected && <Card className="mt-4 border-primary/20"><CardContent className="pt-5 space-y-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wider text-primary">Detail Transaksi</div><div className="mt-1 font-mono font-semibold">{selected.no}</div><div className="mt-2"><TransactionMutationActions module="transfer" id={selected.id} onEdit={()=>startEdit()} onDeleted={()=>{setSelected(null);load();}} compact /></div></div><Button variant="ghost" size="icon" onClick={() => setSelected(null)}><X className="h-4 w-4" /></Button></div><AttachmentPanel entity="transfer" entityId={selected.id} /><DocumentMessageEditor module="transfer" value={selected.document_message||""} readOnly /></CardContent></Card>}
     </div>
   );
 }
