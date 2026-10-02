@@ -129,6 +129,8 @@ async def _apply_metadata_and_damage(server, did: str, body: dict, user: dict, r
                     0, exc_base,
                     project_id=stored.get("project_id"), unit_id=stored.get("unit_id"),
                     division_id=division_id, user=user,
+                    line_id=stored.get("id"), source_key=f"DMG::{did}::{stored.get('id')}",
+                    txn_at=body.get("date"),
                 )
         if cond != "Baik" and exc_display > EPS:
             has_exception = True

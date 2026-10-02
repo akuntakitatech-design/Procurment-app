@@ -168,11 +168,14 @@ async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in,
             {"item_id": item_id, "warehouse_id": warehouse_id}, {"_id": 0}).sort("txn_at", -1).to_list(1)
         if latest:
             last_at = latest[0].get("txn_at") or latest[0].get("at")
-            if last_at and txn_at and str(txn_at) < str(last_at):
-                ref = latest[0].get("doc_no") or str(last_at)[:10]
+            # Compare by DATE (YYYY-MM-DD): same-day postings are allowed (ordered by posting
+            # sequence); only a strictly earlier calendar date is blocked.
+            new_d = str(txn_at)[:10]; last_d = str(last_at or "")[:10]
+            if last_d and new_d and new_d < last_d:
+                ref = latest[0].get("doc_no") or last_d
                 raise StockError(
                     f"Transaksi tidak dapat diposting mundur karena sudah terdapat transaksi stok "
-                    f"setelah tanggal ini (transaksi terakhir: {ref}).")
+                    f"setelah tanggal ini (transaksi terakhir: {ref} pada {last_d}).")
 
     # ---------- atomic pool update (optimistic version CAS) ----------
     new_qty = new_val_r = new_avg_r = None; v_in = _Dec(0); v_out = _Dec(0)
