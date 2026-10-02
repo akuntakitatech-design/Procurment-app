@@ -13,6 +13,7 @@ async def maps():
         "units": {u["id"]: u for u in await db.units.find({}, {"_id": 0}).to_list(2000)},
         "divisions": {d["id"]: d for d in await db.divisions.find({}, {"_id": 0}).to_list(500)},
         "suppliers": {s["id"]: s for s in await db.suppliers.find({}, {"_id": 0}).to_list(2000)},
+        "uoms": {u["id"]: u for u in await db.uoms.find({}, {"_id": 0}).to_list(2000)},
     }
 
 
@@ -1220,6 +1221,49 @@ async def mi_valuation_report(mid: str, user=Depends(current_user)):
             "spk_hpp_totals": spk_tot}
 
 
+@api.get("/valuation/opening-candidates")
+async def opening_candidates(q: str = None, warehouse_id: str = None, status: str = None,
+                             user=Depends(current_user)):
+    """List existing physical stock pools (qty>0) with their opening-valuation status.
+    status filter: 'valued' (Sudah Dinilai) | 'unvalued' (Belum Dinilai)."""
+    _require_value(user)
+    m = await maps()
+    flt = {}
+    if warehouse_id:
+        flt["warehouse_id"] = warehouse_id
+    rows = await db.item_warehouse.find(flt, {"_id": 0}).to_list(10000)
+    opened = {(o.get("item_id"), o.get("warehouse_id"))
+              for o in await db.valuation_ledger.find({"doc_type": "Opening Valuation"}, {"_id": 0}).to_list(10000)}
+    out = []
+    ql = (q or "").strip().lower()
+    for r in rows:
+        qty = float(r.get("current_stock") or 0)
+        if qty <= 0:
+            continue
+        it = m["items"].get(r.get("item_id"), {})
+        name = it.get("name") or ""; code = it.get("code") or ""
+        if ql and ql not in name.lower() and ql not in code.lower():
+            continue
+        is_valued = (r.get("item_id"), r.get("warehouse_id")) in opened
+        if status == "valued" and not is_valued:
+            continue
+        if status == "unvalued" and is_valued:
+            continue
+        buid = it.get("base_uom_id")
+        out.append({
+            "item_id": r.get("item_id"), "item_code": code, "item_name": name,
+            "warehouse_id": r.get("warehouse_id"),
+            "warehouse_name": m["warehouses"].get(r.get("warehouse_id"), {}).get("name"),
+            "qty_existing": qty, "base_uom": buid,
+            "base_uom_name": (m.get("uoms", {}).get(buid, {}) or {}).get("symbol")
+                              or (m.get("uoms", {}).get(buid, {}) or {}).get("name"),
+            "avg_cost": float(r.get("avg_cost") or 0),
+            "inventory_value": float(r.get("total_value") or 0),
+            "status": "valued" if is_valued else "unvalued"})
+    out.sort(key=lambda x: (x["status"] != "unvalued", x["item_name"] or "", x["warehouse_name"] or ""))
+    return {"rows": out}
+
+
 @api.post("/valuation/opening")
 async def post_opening_valuation(body: dict, user=Depends(current_user)):
     """Controlled Opening Inventory Valuation: establishes opening average/value for EXISTING
@@ -1228,6 +1272,7 @@ async def post_opening_valuation(body: dict, user=Depends(current_user)):
         raise HTTPException(403, "Tidak diizinkan")
     item_id = body.get("item_id"); wh = body.get("warehouse_id")
     cost = float(body.get("opening_avg_cost") or 0)
+    cutoff = body.get("cutoff_date") or body.get("date") or now_iso()
     if not item_id or not wh:
         raise HTTPException(400, "item & gudang wajib")
     iw = await db.item_warehouse.find_one({"item_id": item_id, "warehouse_id": wh}) or {}
@@ -1242,15 +1287,16 @@ async def post_opening_valuation(body: dict, user=Depends(current_user)):
     from decimal import Decimal, ROUND_HALF_UP
     val = (Decimal(str(qty)) * Decimal(str(cost))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
     await db.valuation_ledger.insert_one({
-        "id": gid(), "doc_type": "Opening Valuation", "doc_no": body.get("date") or now_iso(),
+        "id": gid(), "doc_type": "Opening Valuation", "doc_no": cutoff,
         "doc_id": gid(), "item_id": item_id, "warehouse_id": wh, "qty_in": 0, "qty_out": 0,
         "unit_cost": cost, "value_in": float(val), "value_out": 0,
         "qty_before": qty, "value_before": float(iw.get("total_value") or 0), "avg_before": float(iw.get("avg_cost") or 0),
         "qty_after": qty, "value_after": float(val), "avg_after": cost,
         "valuation_method": "moving_weighted_average", "valuation_estimated": False,
-        "notes": body.get("notes"), "user": user.get("email"), "at": now_iso()})
+        "cutoff_date": cutoff, "notes": body.get("notes"), "user": user.get("email"),
+        "txn_at": cutoff, "at": now_iso()})
     await db.item_warehouse.update_one({"item_id": item_id, "warehouse_id": wh},
-        {"$set": {"avg_cost": cost, "total_value": float(val)}})
-    await audit(user, "create", "valuation", item_id, "Opening Valuation", after={"warehouse_id": wh, "qty": qty, "cost": cost})
+        {"$set": {"avg_cost": cost, "total_value": float(val)}, "$inc": {"_ver": 1}})
+    await audit(user, "create", "valuation", item_id, "Opening Valuation", after={"warehouse_id": wh, "qty": qty, "cost": cost, "cutoff": cutoff})
     return {"item_id": item_id, "warehouse_id": wh, "qty_on_hand": qty, "opening_avg_cost": cost, "inventory_value": float(val)}
 
