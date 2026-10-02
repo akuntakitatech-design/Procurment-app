@@ -825,6 +825,96 @@ async def create_do(body: dict, user=Depends(current_user)):
     return await get_do(did, user)
 
 
+# ---------------- DO monetary traceability (BACKEND / REPORTING ONLY) ----------------
+# DO UI is non-nominal. PO stays the source of truth for commercial value.
+# These helpers derive receiving value from the referenced PO line (po_id/po_line_id),
+# reusing the canonical per-line amounts already persisted by compute_po_totals
+# (dpp/tax_amount/total already include the PO Final Discount prorated per line).
+# Nothing here mutates PO, PO commitment, or stock.
+def _po_line_item_discount(po_line):
+    v = po_line.get("discount_amount")
+    if v is None:
+        v = po_line.get("discount")
+    return float(v or 0)
+
+
+async def compute_do_receiving_value(did, user):
+    d = await db.do.find_one({"id": did}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "DO tidak ditemukan")
+    m = await maps()
+    lines = await db.do_lines.find({"do_id": did}, {"_id": 0}).to_list(500)
+    out_lines = []
+    tot = {"qty_received": 0.0, "gross": 0.0, "item_discount": 0.0, "final_discount": 0.0,
+           "net": 0.0, "tax": 0.0, "total": 0.0}
+    for l in lines:
+        recv = float(l.get("qty") or 0)
+        pl = await db.po_lines.find_one({"id": l.get("po_line_id")}, {"_id": 0}) if l.get("po_line_id") else None
+        po = await db.po.find_one({"id": l.get("po_id")}, {"_id": 0}) if l.get("po_id") else None
+        base = {"do_line_id": l.get("id"), "po_id": l.get("po_id"), "po_line_id": l.get("po_line_id"),
+                "po_no": (po or {}).get("no"), "item_id": l.get("item_id"),
+                "item_name": m["items"].get(l.get("item_id"), {}).get("name"),
+                "qty_received": recv, "unit": l.get("unit"), "spk": l.get("spk"),
+                "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
+                "warehouse_id": l.get("warehouse_id")}
+        if not pl:
+            base.update({"po_qty": None, "po_unit_price": None, "effective_unit_price": None,
+                         "gross_receiving_value": None, "item_discount_attributable": None,
+                         "final_discount_attributable": None, "net_receiving_value": None,
+                         "tax_attributable": None, "total_receiving_value": None, "tax_inclusive": None,
+                         "_note": "PO line tidak ditemukan"})
+            out_lines.append(base)
+            continue
+        po_qty = float(pl.get("qty") or 0)
+        ratio = (recv / po_qty) if po_qty > 0 else 0.0
+        price = float(pl.get("price") or 0)
+        disc_amt = _po_line_item_discount(pl)
+        gross_full = po_qty * price
+        net_after_item_full = max(0.0, gross_full - disc_amt)
+        dpp_full = float(pl.get("dpp") or 0)         # net taxable after item + final discount
+        tax_full = float(pl.get("tax_amount") or 0)
+        total_full = float(pl.get("total") or 0)
+        inclusive = bool(pl.get("tax_inclusive"))
+        # Final-discount share attributable to this line (reconciles with compute_po_totals).
+        net_value_full = dpp_full if not inclusive else (dpp_full + tax_full)
+        final_disc_full = max(0.0, net_after_item_full - net_value_full)
+        eff_unit = (net_after_item_full / po_qty) if po_qty > 0 else price
+        base.update({
+            "po_qty": po_qty, "po_unit_price": price, "item_discount_amount_po": disc_amt,
+            "effective_unit_price": eff_unit, "tax_rate": float(pl.get("tax") or 0), "tax_inclusive": inclusive,
+            "gross_receiving_value": gross_full * ratio,
+            "item_discount_attributable": disc_amt * ratio,
+            "final_discount_attributable": final_disc_full * ratio,
+            "net_receiving_value": net_value_full * ratio,
+            "taxable_basis": dpp_full * ratio,
+            "tax_attributable": tax_full * ratio,
+            "total_receiving_value": total_full * ratio,
+        })
+        out_lines.append(base)
+        tot["qty_received"] += recv
+        tot["gross"] += base["gross_receiving_value"]
+        tot["item_discount"] += base["item_discount_attributable"]
+        tot["final_discount"] += base["final_discount_attributable"]
+        tot["net"] += base["net_receiving_value"]
+        tot["tax"] += base["tax_attributable"]
+        tot["total"] += base["total_receiving_value"]
+    return {"do_id": did, "do_no": d.get("no"), "date": d.get("date"),
+            "supplier_id": d.get("supplier_id"),
+            "supplier_name": m["suppliers"].get(d.get("supplier_id"), {}).get("name"),
+            "lines": out_lines, "totals": tot}
+
+
+@api.get("/reports/do-receiving/{did}")
+async def do_receiving_report(did: str, user=Depends(current_user)):
+    """Backend-only monetary view of a DO's receiving value. Gated behind the same
+    purchase-price permission as PO pricing so normal receiving users never see nominal."""
+    require(user, "view")
+    if not has_perm(user, "view_purchase_price"):
+        raise HTTPException(403, "Tidak memiliki akses nilai pembelian")
+    return await compute_do_receiving_value(did, user)
+
+
+
 # ---------------- MI ----------------
 @api.get("/mi")
 async def list_mi(user=Depends(current_user)):
