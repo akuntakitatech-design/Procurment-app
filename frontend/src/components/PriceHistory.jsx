@@ -43,10 +43,9 @@ export function PriceHistory({ itemId, uomId, supplierId, itemName }) {
   };
 
   return (
-    <div className="mt-1">
-      <button type="button" onClick={openModal} data-testid="price-history-btn" title="Riwayat Harga" className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors">
-        <History className="h-3 w-3" />
-        {summary ? <span>Terakhir: {rupiah(summary.unit_price)} · {fmtDate(summary.date)}</span> : <span>Riwayat Harga</span>}
+    <div className="inline-flex">
+      <button type="button" onClick={openModal} data-testid="price-history-btn" title={summary ? `Riwayat Harga — Terakhir ${rupiah(summary.unit_price)} · ${fmtDate(summary.date)}` : "Riwayat Harga"} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-primary">
+        <History className="h-4 w-4" />
       </button>
 
       {open && (

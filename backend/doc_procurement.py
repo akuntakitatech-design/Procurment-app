@@ -620,17 +620,23 @@ async def assert_po_price_reason(did: str):
         _cp = float(_res.get("net_contract_price") or 0)
         _dp = _l.get("display_price")
         _dp = float(_dp) if _dp is not None else (float(_l.get("price") or 0) * _f)
-        if abs(_dp - _cp) > 0.5:
+        # Effective unit price AFTER item discount (Final Discount is PO-level and NEVER
+        # affects per-item contract comparison). Compare effective price vs contract + tolerance.
+        _disc = float(_l.get("discount") or 0)
+        _eff = (((_dqty * _dp) - _disc) / _dqty) if _dqty > 0 else _dp
+        _tol = float(_res.get("tolerance_pct") or 0)
+        _varpct = ((_eff - _cp) / _cp * 100.0) if _cp else 0.0
+        if _cp and _varpct > _tol + 1e-9:  # Price Override (effective price beyond tolerance)
             _reason = str(_l.get("price_change_reason") or "").strip()
             if not _reason:
                 raise HTTPException(400, "Alasan perubahan harga wajib diisi karena Harga Satuan berbeda dari Harga Kontrak.")
             overrides.append({
                 "item_name": _res.get("item_name") or _l.get("item_name") or _l.get("item_code") or _item,
                 "contract_number": _res.get("contract_number"),
-                "contract_price": _cp, "po_price": _dp,
-                "variance": round(_dp - _cp, 2),
-                "variance_pct": round((_dp - _cp) / _cp * 100, 2) if _cp else None,
-                "reason": _reason,
+                "contract_price": _cp, "po_price": _dp, "item_discount": round(_disc, 2),
+                "effective_unit_price": round(_eff, 2),
+                "variance": round(_eff - _cp, 2), "variance_pct": round(_varpct, 2),
+                "tolerance_pct": _tol, "reason": _reason,
             })
     return overrides
 
@@ -646,8 +652,10 @@ async def log_po_price_overrides(did: str, user, overrides):
         await audit(user, "price_override", "po", did, no,
                     after={"item": o.get("item_name"), "contract_number": o.get("contract_number"),
                            "contract_price": o.get("contract_price"), "po_price": o.get("po_price"),
-                           "variance": o.get("variance"), "variance_pct": o.get("variance_pct")},
-                    reason=f"Perubahan harga {o.get('item_name')}: {o.get('reason')}")
+                           "item_discount": o.get("item_discount"), "effective_unit_price": o.get("effective_unit_price"),
+                           "variance": o.get("variance"), "variance_pct": o.get("variance_pct"),
+                           "tolerance_pct": o.get("tolerance_pct")},
+                    reason=f"Perubahan harga {o.get('item_name')} (efektif {o.get('effective_unit_price')} vs kontrak {o.get('contract_price')}): {o.get('reason')}")
 
 
 @api.post("/po/{did}/submit")
