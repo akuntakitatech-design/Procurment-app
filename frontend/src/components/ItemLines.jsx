@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Combobox } from "@/components/Combobox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, ChevronRight, ChevronDown } from "lucide-react";
+import { Plus, Trash2, ChevronRight, ChevronDown, Info } from "lucide-react";
 import { rupiah, num } from "@/lib/format";
 import { computePriceStatus, StatusBadgePrice } from "@/components/PoPriceControl";
 import { NumericInput } from "@/components/NumericInput";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null }) {
   const items = masters.map("items");
@@ -99,7 +100,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const total = (l) => { const base = (Number(l.qty) || 0) * (Number(l.price) || 0) - discAmt(l); return taxInclusive ? Math.max(0, base) : base + base * (Number(l.tax) || 0) / 100; };
   const grand = lines.reduce((s, l) => s + total(l), 0);
   const stockInfo = (l) => { const it = items[l.item_id]; if (!it) return ""; const base = it.base_uom_id ? uomLabel(it.base_uom_id) : it.unit; return base ? `${num((Number(l.qty) || 0) * (Number(l.conversion_factor) || 1))} ${base}` : ""; };
-  const Uom = ({ l, i }) => <div><Combobox options={itemUoms(l.item_id)} value={l.uom_id || items[l.item_id]?.base_uom_id || ""} onChange={(v) => update(i, { uom_id: v })} placeholder="Satuan" disabled={!l.item_id || itemUoms(l.item_id).length <= 1} />{l.item_id && <div className="mt-1 text-[10px] text-muted-foreground">Terhitung stok: {stockInfo(l)}</div>}</div>;
+  const Uom = ({ l, i }) => <div className="flex items-center gap-1"><div className="min-w-0 flex-1"><Combobox options={itemUoms(l.item_id)} value={l.uom_id || items[l.item_id]?.base_uom_id || ""} onChange={(v) => update(i, { uom_id: v })} placeholder="Satuan" disabled={!l.item_id || itemUoms(l.item_id).length <= 1} /></div>{l.item_id && <Popover><PopoverTrigger asChild><button type="button" className="shrink-0 text-muted-foreground transition-colors hover:text-primary" title="Konversi Stok" data-testid={`po-uom-info-${i}`}><Info className="h-4 w-4" /></button></PopoverTrigger><PopoverContent align="end" className="w-60 text-xs"><div className="space-y-1"><div className="font-semibold">Konversi Stok</div><div className="flex justify-between gap-3"><span className="text-muted-foreground">Satuan transaksi</span><span className="font-medium">{num(l.qty)} {l.unit || ""}</span></div>{(Number(l.conversion_factor) || 1) !== 1 && <div className="flex justify-between gap-3"><span className="text-muted-foreground">Konversi</span><span>1 {l.unit || ""} = {num(l.conversion_factor)} {items[l.item_id]?.unit || ""}</span></div>}<div className="flex justify-between gap-3 border-t pt-1"><span className="text-muted-foreground">Terhitung stok</span><span className="font-semibold">{stockInfo(l)}</span></div></div></PopoverContent></Popover>}</div>;
 
   // Total rendered columns (keeps empty-row / grand-total colSpans correct).
   const colCount = 4 + (allocationColumn ? 1 : 0) + (fields.warehouse ? 1 : 0) + (fields.project ? 1 : 0) + (fields.unit ? 1 : 0) + (showPrice ? 4 : 0) + 1;
@@ -108,11 +109,11 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   if (poControl) {
     const fmtPct = (p) => `${p >= 0 ? "+" : ""}${Number(p).toFixed(2).replace(".", ",")}%`;
     const fmtRp = (v) => `${v >= 0 ? "+" : "-"}${rupiah(Math.abs(v))}`;
-    const head = [["w-[36px]", ""], ["w-[190px]", "Barang"], ["w-[170px]", "Keterangan"], ["w-[90px]", "Qty"], ["w-[100px]", "Satuan"], ["w-[130px]", "Harga Kontrak"], ["w-[190px]", "Harga Satuan"], ["w-[170px]", "Diskon Item"], ["w-[150px]", "Selisih"], ["w-[150px] text-right", "Total"], ["w-[120px]", "Status"], ["w-[44px]", ""]];
+    const head = [["w-[36px]", ""], ["w-[190px]", "Barang"], ["w-[170px]", "Keterangan"], ["w-[90px]", "Qty"], ["w-[100px]", "Satuan"], ["w-[130px]", "Harga Kontrak"], ["w-[190px]", "Harga Satuan"], ["w-[170px]", "Diskon Item"], ["w-[140px]", "Selisih"], ["w-[150px] text-right", "Total"], ["w-[115px]", "Status"], ["w-[40px]", ""]];
     const lbl = "mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground";
     return <div className="space-y-3">
       <div className="overflow-x-auto rounded-md border bg-card shadow-sm">
-        <div className="min-w-[1680px]">
+        <div className="min-w-[1640px]">
           <div className="flex items-stretch gap-2 border-b bg-muted px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {head.map(([w, t], k) => <div key={k} className={w}>{t}</div>)}
           </div>
@@ -121,12 +122,13 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
             const c = poControl.contractOf(i);
             const hasC = !!(c && c.found && Number(c.contract_price) > 0);
             const priceNum = Number(l.price) || 0;
-            const r = computePriceStatus(c, priceNum);
+            const qtyNum = Number(l.qty) || 0;
+            const effNum = qtyNum > 0 ? (qtyNum * priceNum - discAmt(l)) / qtyNum : priceNum;
+            const r = computePriceStatus(c, effNum);
             const showVar = hasC && priceNum > 0;
             let status = r.status;
             if (hasC && !(priceNum > 0)) status = "Belum dihitung";
-            const priceDiff = hasC && priceNum > 0 && Math.abs(priceNum - Number(c.contract_price)) > 0.5;
-            const reasonMissing = priceDiff && !String(l.price_change_reason || "").trim();
+            const reasonMissing = hasC && priceNum > 0 && r.status === "Price Override" && !String(l.price_change_reason || "").trim();
             const expanded = expandedRows[i] !== undefined ? expandedRows[i] : reasonMissing;
             const toggle = () => setExpandedRows((s) => ({ ...s, [i]: !(s[i] !== undefined ? s[i] : reasonMissing) }));
             return <div key={i} className="border-b px-3 py-2.5 last:border-b-0" data-testid={`po-item-block-${i}`}>
@@ -140,10 +142,10 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
                 <div className="w-[130px] text-sm">{hasC ? <span className="font-semibold tabular-nums">{rupiah(Number(c.contract_price))}</span> : (c && c.out_of_period ? <span className="text-[11px] font-medium text-amber-700" data-testid={`po-contract-period-warn-${i}`}>Kontrak {c.contract_number || ""} di luar periode</span> : <span className="text-xs text-muted-foreground">Tidak ada kontrak</span>)}</div>
                 <div className="w-[190px]"><div className="flex items-center gap-1"><div className="flex-1 min-w-[140px]"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v, _priceTouched: true, _priceAuto: false })} className="h-9 text-right" data-testid={`po-price-input-${i}`} /></div>{poControl.history && <div className="shrink-0">{poControl.history(l, i)}</div>}</div></div>
                 <div className="w-[170px]"><div className="flex items-center gap-1"><button type="button" onClick={() => update(i, { discount_type: discType(l) === "percent" ? "amount" : "percent", discount_value: discVal(l) })} className="h-9 w-10 shrink-0 rounded border text-xs font-semibold hover:bg-accent" data-testid={`po-discount-type-${i}`} title="Ubah metode diskon (% / Rp)">{discType(l) === "percent" ? "%" : "Rp"}</button><div className="flex-1 min-w-[110px]"><NumericInput mode={discType(l) === "percent" ? "quantity" : "money"} value={discVal(l)} onChange={(v) => update(i, { discount_value: v, discount_type: discType(l) })} className="h-9 text-right" data-testid={`po-discount-${i}`} /></div></div></div>
-                <div className="w-[150px] text-xs tabular-nums" data-testid={`po-variance-${i}`}>{showVar ? <span className={r.varRp > 0 ? "text-amber-700" : r.varRp < 0 ? "text-emerald-700" : "text-muted-foreground"}>{fmtRp(r.varRp)}<br />{fmtPct(r.varPct)}</span> : <span className="text-muted-foreground">—</span>}</div>
+                <div className="w-[140px] text-xs tabular-nums" data-testid={`po-variance-${i}`}>{showVar ? <span className={r.varRp > 0 ? "text-amber-700" : r.varRp < 0 ? "text-emerald-700" : "text-muted-foreground"}>{fmtRp(r.varRp)}<br />{fmtPct(r.varPct)}</span> : <span className="text-muted-foreground">—</span>}</div>
                 <div className="w-[150px] text-right text-sm font-semibold tabular-nums" data-testid={`po-total-${i}`}>{rupiah(total(l))}</div>
-                <div className="w-[120px]">{status === "Belum dihitung" ? <span data-testid={`po-status-${i}`} className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Belum dihitung</span> : <StatusBadgePrice status={status} testid={`po-status-${i}`} />}{reasonMissing && <div className="mt-0.5 text-[10px] font-semibold text-amber-700" data-testid={`po-reason-required-${i}`}>Alasan diperlukan</div>}</div>
-                <div className="w-[44px]"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
+                <div className="w-[115px]">{status === "Belum dihitung" ? <span data-testid={`po-status-${i}`} className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Belum dihitung</span> : <StatusBadgePrice status={status} testid={`po-status-${i}`} />}{reasonMissing && <div className="mt-0.5 text-[10px] font-semibold text-amber-700" data-testid={`po-reason-required-${i}`}>Alasan diperlukan</div>}</div>
+                <div className="w-[40px]"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
               </div>
               {/* SECONDARY ROW — Reference & Operational (labelled) */}
               <div className="mt-2 flex items-end gap-2 pl-[44px]">
