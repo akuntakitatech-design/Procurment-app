@@ -211,6 +211,8 @@ def install(server):
             if len(seg) > 1 and seg[1] == "me":
                 return None, [], []
             return "users", ["view" if method == "GET" else "edit"], []
+        if head == "lookup":
+            return None, [], []  # authorised inside the lookup endpoint (functional reason)
         if head == "verify" and method == "POST":
             mod = str((body or {}).get("doc_type") or "").lower()
             mod = TXN_ALIAS.get(mod, mod)
@@ -259,9 +261,6 @@ def install(server):
             if str(doc.get("status") or "").lower() == "posted":
                 acts = acts + ["cancel"]
         user["_mod"], user["_implied"] = mod, implied
-        if (request.method == "GET" and route.path == "/api/master/{name}" and acts == ["view"]
-                and any(k.split(".")[0] in TXN and k.endswith((".create", ".edit")) for k in user["effective_permissions"])):
-            return  # reference data for transaction form dropdowns (division scope still applies)
         for a in acts:
             if f"{mod}.{a}" not in user["effective_permissions"]:
                 raise HTTPException(403, f"Anda tidak memiliki izin untuk {ACTION_VERB.get(a, a)} data {MODULES[mod][0]}.")
@@ -584,6 +583,71 @@ def install(server):
         return ep
     wrap("/api/search", "GET", mk_search)
 
+    async def doc_visible(mod, did, user):
+        try:
+            await require_doc(mod, did, user)
+            return True
+        except HTTPException:
+            return False
+
+    async def visible_ids(mod, user):
+        """Ids of documents the user may see (None = all). Multi-division docs need every division in scope."""
+        alw = allowed(user)
+        if alw is None:
+            return None
+        docs = await getattr(db(), COLL[mod]).find({}, {"_id": 0}).to_list(100000)
+        rows = await RC.enrich_list(server, mod, docs) if docs else []
+        whd = {w["id"]: w.get("division_id") for w in await db().warehouses.find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(5000)} \
+            if mod in WAREHOUSE_DOCS else {}
+        ok_ids, out = await assigned(mod, user), set()
+        for r in rows:
+            divs = set(r.get("trace_division_ids") or []) | ({r["division_id"]} if r.get("division_id") else set())
+            divs |= {whd.get(r.get(k)) for k in ("warehouse_id", "from_warehouse_id", "to_warehouse_id") if whd.get(r.get(k))}
+            if visible(mod, divs, alw) or r.get("id") in ok_ids:
+                out.add(r.get("id"))
+        return out
+
+    AUDIT_MOD = {"mro": "mro", "ro": "ro", "po": "po", "do": "do", "mi": "mi", "transfer": "transfer", "transfers": "transfer",
+                 "loan": "loan", "loans": "loan", "adjustment": "adjustment", "adjustments": "adjustment", "opname": "opname"}
+
+    async def audit_filter(rows, user, limit):
+        """Audit rows visible in the user's division scope (own actions, visible docs, in-scope masters)."""
+        alw = allowed(user)
+        if alw is None:
+            return rows[:limit]
+        cache, out, me = {}, [], str(user.get("email") or "").lower()
+        for row in rows:
+            ent, eid = str(row.get("entity") or "").lower(), row.get("entity_id")
+            ok = str(row.get("user") or "").lower() == me
+            if not ok and ent in AUDIT_MOD and eid:
+                m = AUDIT_MOD[ent]
+                if m not in cache:
+                    cache[m] = await visible_ids(m, user)
+                ok = eid in cache[m]
+            elif not ok and (ent in DIV_MASTERS or ent == "spk") and eid:
+                coll = db().spk if ent == "spk" else server._mc(ent)
+                rec = await coll.find_one({"id": eid}, {"_id": 0, "division_id": 1})
+                ok = bool(rec) and in_scope(rec, alw)
+            if ok:
+                out.append(row)
+            if len(out) >= limit:
+                break
+        return out
+
+    server.ACCESS_DOC_VISIBLE, server.ACCESS_VISIBLE_IDS, server.ACCESS_AUDIT_FILTER = doc_visible, visible_ids, audit_filter
+
+    def mk_verify(orig):
+        async def ep(body: dict, user=Depends(server.current_user)):
+            mod = TXN_ALIAS.get(str((body or {}).get("doc_type") or "").lower(), str((body or {}).get("doc_type") or "").lower())
+            if mod in COLL and (body or {}).get("doc_id"):
+                await require_doc(mod, body["doc_id"], user)
+            elif mod == "spk" and (body or {}).get("doc_id"):
+                await require_master("spk", body["doc_id"], user)
+            return await orig(body=body, user=user)
+        return ep
+    wrap("/api/verify/generate", "POST", mk_verify)
+
+    _install_lookup(server, allowed, in_scope)
     _install_admin_api(server, resolve, role_default, role_div_default)
 
 
@@ -744,3 +808,75 @@ def _install_admin_api(server, resolve, role_default, role_div_default):
                 raise HTTPException(400, "Role tidak valid")
             return await orig_post(body=body, user=user)
         app.add_api_route("/api/users", create_user, methods=["POST"], tags=["access-control"])
+
+
+STOCK_MODS = ["do", "mi", "transfer", "loan", "adjustment", "opname"]
+_TX = TXN
+# lookup name -> (modules whose Tambah/Edit justify it, modules whose Lihat justify it)
+LOOKUP_REASONS = {
+    "items": (_TX + ["stock_minmax", "vendor_contracts"], STOCK_MODS + ["stock_minmax", "vendor_contracts"]),
+    "warehouses": (_TX + ["stock_minmax", "users"], STOCK_MODS + ["stock_minmax", "users"]),
+    "projects": (["mro", "ro", "po", "do", "mi", "loan", "units", "spk"], ["units", "spk"]),
+    "units": (["mro", "ro", "po", "mi", "loan"], []),
+    "suppliers": (["po", "do", "ro", "vendor_contracts"], ["vendor_contracts"]),
+    "contacts": (["mro", "ro", "po", "projects", "divisions", "spk"], ["projects", "divisions", "spk"]),
+    "divisions": (_TX + ["items", "warehouses", "projects", "units", "contacts", "spk", "users"],
+                  _TX + ["items", "warehouses", "projects", "units", "contacts", "spk", "users"]),
+    "uoms": (_TX + ["items", "vendor_contracts"], STOCK_MODS + ["items", "vendor_contracts"]),
+    "taxes": (["po", "suppliers"], ["suppliers"]),
+    "item_categories": (["po", "mro", "ro", "items", "suppliers"], STOCK_MODS + ["items", "suppliers"]),
+    "supplier_categories": (["po", "suppliers"], ["suppliers"]),
+    "spk": (["mro", "ro", "po", "mi", "do"], ["mro", "ro", "po", "mi", "do"]),
+}
+_COMMON = ["id", "code", "name", "is_active", "division_id"]
+LOOKUP_FIELDS = {
+    "items": ["unit", "base_uom_id", "uom_id", "uom_name", "uom_conversions", "conversions", "category_id", "specification", "brand", "item_type"],
+    "warehouses": ["location"],
+    "projects": ["pic_id", "pic_name", "status", "default_global_budget_policy", "default_category_budget_policy"],
+    "units": ["project_id", "plate_no", "unit_type", "type"],
+    "suppliers": ["legal_name", "banks", "address", "phone", "email", "contacts", "currency", "payment_term", "lead_time_days", "min_order", "pkp", "npwp",
+                  "country", "supplier_type", "supplier_category_id", "supplier_category_name", "supplied_category_ids",
+                  "default_tax_id", "default_tax_name", "default_tax_rate"],
+    "contacts": ["email", "phone", "position"],
+    "divisions": [],
+    "uoms": ["symbol", "factor", "base_uom_id"],
+    "taxes": ["rate", "type", "is_default"],
+    "item_categories": ["parent_id"],
+    "supplier_categories": [],
+    "spk": ["spk_number", "project_name", "project_id", "status", "start_date", "end_date"],
+}
+
+
+def _install_lookup(server, allowed, in_scope):
+    app = server.app
+
+    @app.get("/api/lookup/{name}", tags=["access-control"])
+    async def lookup(name: str, q: str = "", active_only: bool = True, limit: int = 0, user=Depends(server.current_user)):
+        # Reference data for forms: Tenant -> functional permission -> Division Scope. Minimal fields only.
+        if name not in LOOKUP_REASONS:
+            raise HTTPException(404, "Data referensi tidak ditemukan")
+        eff = set(user.get("effective_permissions") or [])
+        edit_mods, view_mods = LOOKUP_REASONS[name]
+        ok = user.get("role") == "admin" or f"{name}.view" in eff \
+            or any(f"{m}.{a}" in eff for m in edit_mods for a in ("create", "edit")) \
+            or any(f"{m}.view" in eff for m in view_mods) \
+            or (name == "spk" and any(k.startswith("spk_allocation:") for k in eff))
+        if not ok:
+            raise HTTPException(403, f"Anda tidak memiliki izin untuk memilih data {MODULES[name][0]}.")
+        coll = server.db.spk if name == "spk" else server._mc(name)
+        rows = await coll.find({}, {"_id": 0}).to_list(50000)
+        alw = allowed(user)
+        scoped = name in DIV_MASTERS or name == "spk"
+        ql, fields, out = (q or "").strip().lower(), _COMMON + LOOKUP_FIELDS[name], []
+        for r in rows:
+            if active_only and (r.get("is_active") is False or (name == "spk" and str(r.get("status") or "").lower() not in ("active", "aktif"))):
+                continue
+            if scoped and not in_scope(r, alw):
+                continue
+            label = f"{r.get('spk_number')} — {r.get('project_name') or ''}" if name == "spk" else \
+                f"{r.get('code') + ' — ' if r.get('code') else ''}{r.get('name') or ''}"
+            if ql and ql not in label.lower():
+                continue
+            out.append({**{k: r[k] for k in fields if k in r}, "label": label})
+        out.sort(key=lambda x: x["label"].lower())
+        return out[:limit] if limit and limit > 0 else out

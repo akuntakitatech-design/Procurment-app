@@ -235,7 +235,7 @@ function MasterTab({ name }) {
 
   const [loaded, setLoaded] = useState(false);
   const load = useCallback(() => api.get(`/master/${name}`).then((r) => { setRows(r.data); setLoaded(true); }), [name]);
-  const loadRef = useCallback((rn) => api.get(`/master/${rn}?active_only=true`).then((r) => setRefs((s) => ({ ...s, [rn]: r.data }))).catch(() => {}), []);
+  const loadRef = useCallback((rn) => api.get(`/lookup/${rn}`).then((r) => setRefs((s) => ({ ...s, [rn]: r.data }))).catch(() => {}), []);
 
   useEffect(() => {
     load();
@@ -369,7 +369,7 @@ function ItemWarehouseTab() {
   const selectable = can("edit", "stock_minmax") || can("delete", "stock_minmax");
   const [loaded, setLoaded] = useState(false);
   const load = () => api.get("/item-warehouse").then((r) => { setRows(r.data); setLoaded(true); });
-  useEffect(() => { load(); api.get("/master/items?active_only=true").then((r) => setItems(r.data)); api.get("/master/warehouses?active_only=true").then((r) => setWhs(r.data)); }, []);
+  useEffect(() => { load(); api.get("/lookup/items").then((r) => setItems(r.data)).catch(() => {}); api.get("/lookup/warehouses").then((r) => setWhs(r.data)).catch(() => {}); }, []);
   const save = async () => { try { await api.post("/item-warehouse", form); toast.success("Stok Min/Max tersimpan"); load(); } catch (e) { toast.error(apiError(e.response?.data?.detail)); } };
   const edit = (r) => { setForm({ item_id: r.item_id, warehouse_id: r.warehouse_id, min_stock: r.min_stock || 0, max_stock: r.max_stock || 0 }); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const selRows = rows.filter((r) => sel.has(iwKey(r)));

@@ -34,7 +34,7 @@ export function RoleAccessTab() {
   const load = () => api.get("/access/roles").then((r) => setRoles(r.data));
   useEffect(() => {
     api.get("/access/catalog").then((r) => setCatalog(r.data));
-    api.get("/master/divisions").then((r) => setDivisions(r.data)).catch(() => {});
+    api.get("/lookup/divisions").then((r) => setDivisions(r.data)).catch(() => {});
     load();
   }, []);
   const role = roles.find((r) => r.role === active);

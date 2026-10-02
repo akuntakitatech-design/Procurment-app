@@ -67,7 +67,7 @@ export function SpkList() {
   const [divisions, setDivisions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { api.get("/master/divisions?active_only=true").then((r) => setDivisions(r.data || [])).catch(() => {}); }, []);
+  useEffect(() => { api.get("/lookup/divisions").then((r) => setDivisions(r.data || [])).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -170,9 +170,9 @@ export function SpkForm() {
   const set = (k, v) => setForm((s) => ({ ...s, [k]: v }));
 
   useEffect(() => {
-    api.get("/master/divisions?active_only=true").then((r) => setDivisions(r.data || [])).catch(() => {});
-    api.get("/master/contacts?active_only=true").then((r) => setContacts(r.data || [])).catch(() => {});
-    api.get("/master/projects?active_only=true").then((r) => setProjects(r.data || [])).catch(() => {});
+    api.get("/lookup/divisions").then((r) => setDivisions(r.data || [])).catch(() => {});
+    api.get("/lookup/contacts").then((r) => setContacts(r.data || [])).catch(() => {});
+    api.get("/lookup/projects").then((r) => setProjects(r.data || [])).catch(() => {});
     api.get("/procurement/budget-policy").then((r) => setTenantPolicy(r.data)).catch(() => {});
     if (editing) api.get(`/spk/${id}`).then((r) => {
       const d = r.data;

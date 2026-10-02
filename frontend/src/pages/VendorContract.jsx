@@ -107,7 +107,7 @@ export function VendorContractList() {
   const [loading, setLoading] = useState(true);
   const [checkOpen, setCheckOpen] = useState(false);
 
-  useEffect(() => { api.get("/master/suppliers?active_only=true").then((r) => setSuppliers(r.data || [])).catch(() => {}); }, []);
+  useEffect(() => { api.get("/lookup/suppliers").then((r) => setSuppliers(r.data || [])).catch(() => {}); }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -194,8 +194,8 @@ function PriceCheckDialog({ open, onOpenChange, suppliers }) {
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   useEffect(() => {
     if (!open) return;
-    api.get("/master/items?active_only=true").then((r) => setItems(r.data || [])).catch(() => {});
-    api.get("/master/uoms?active_only=true").then((r) => setUoms(r.data || [])).catch(() => {});
+    api.get("/lookup/items").then((r) => setItems(r.data || [])).catch(() => {});
+    api.get("/lookup/uoms").then((r) => setUoms(r.data || [])).catch(() => {});
     setResult(null);
   }, [open]);
 
@@ -259,7 +259,7 @@ export function VendorContractForm() {
   const set = (k, v) => setForm((s) => ({ ...s, [k]: v }));
 
   useEffect(() => {
-    api.get("/master/suppliers?active_only=true").then((r) => setSuppliers(r.data || [])).catch(() => {});
+    api.get("/lookup/suppliers").then((r) => setSuppliers(r.data || [])).catch(() => {});
     if (editing) api.get(`/vendor-contracts/${id}`).then((r) => {
       const d = r.data;
       if (d.status !== "draft") { toast.error("Hanya kontrak Draft yang dapat diedit"); nav(`/vendor-contracts/${id}`); return; }
@@ -345,8 +345,8 @@ function ItemDialog({ open, onOpenChange, contract, editRow, onSaved }) {
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   useEffect(() => {
     if (!open) return;
-    api.get("/master/items?active_only=true").then((r) => setItems(r.data || [])).catch(() => {});
-    api.get("/master/uoms?active_only=true").then((r) => setUoms(r.data || [])).catch(() => {});
+    api.get("/lookup/items").then((r) => setItems(r.data || [])).catch(() => {});
+    api.get("/lookup/uoms").then((r) => setUoms(r.data || [])).catch(() => {});
     setF(editRow ? {
       item_id: editRow.item_id || "", uom_id: editRow.uom_id || "", min_qty: editRow.min_qty ?? "",
       base_price: editRow.base_price ?? "", discount_type: editRow.discount_type || "NONE",

@@ -71,7 +71,7 @@ export function MroForm() {
   const [noError, setNoError] = useState(false); const noRef = useRef(null);
   const { confirm, dialog } = useCompletenessWarning();
   const lineKey = (l) => l.id || l._key;
-  useEffect(() => { api.get("/spk?status=active&page_size=500").then((r)=>{ const m={}; (r.data.items||r.data||[]).forEach((s)=>{m[s.id]=s.spk_number;}); setSpkMap(m); }).catch(()=>{}); }, []);
+  useEffect(() => { api.get("/lookup/spk").then((r)=>{ const m={}; (r.data||[]).forEach((s)=>{m[s.id]=s.spk_number;}); setSpkMap(m); }).catch(()=>{}); }, []);
   // Default Pemohon to the logged-in user on a brand-new MRO (still editable).
   useEffect(() => { if (isNew && user?.name) setH((prev) => (prev.requester ? prev : { ...prev, requester: user.name })); }, [isNew, user]);
   const load = useCallback(() => api.get(`/mro/${id}`).then(async (r) => {

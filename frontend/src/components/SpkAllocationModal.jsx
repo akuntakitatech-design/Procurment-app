@@ -54,7 +54,7 @@ export function SpkAllocationModal({ open, onClose, sourceType, lineId, docStatu
 
   const load = useCallback(() => {
     if (!open) return;
-    api.get("/spk?status=active&page_size=200").then((r) => setSpks(r.data.items || r.data || [])).catch(() => {});
+    api.get("/lookup/spk").then((r) => setSpks(r.data || [])).catch(() => {});
     if (localMode) {
       setSummary({ item_qty: num(itemQtyProp), unit: unitProp, allocations: initialAllocations || [] });
       setRows((initialAllocations || []).map((a) => ({ spk_id: a.spk_id, allocated_qty: a.allocated_qty })));

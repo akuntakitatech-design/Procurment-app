@@ -8,7 +8,7 @@ export function useMasters(names = ["divisions", "contacts", "warehouses", "proj
     const out = {};
     const list = namesKey ? namesKey.split(",") : [];
     await Promise.all(list.map(async (n) => {
-      const r = await api.get(`/master/${n}?active_only=true`);
+      const r = await api.get(`/lookup/${n}`).catch(() => ({ data: [] }));
       out[n] = r.data;
     }));
     setData(out);

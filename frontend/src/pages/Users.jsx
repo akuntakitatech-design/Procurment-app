@@ -55,8 +55,8 @@ export default function Users() {
   useEffect(() => {
     load();
     loadInvites();
-    api.get("/master/divisions?active_only=true").then((r) => setDivisions(r.data));
-    api.get("/master/warehouses?active_only=true").then((r) => setWarehouses(r.data));
+    api.get("/lookup/divisions").then((r) => setDivisions(r.data)).catch(() => {});
+    api.get("/lookup/warehouses").then((r) => setWarehouses(r.data)).catch(() => {});
     api.get("/permissions/catalog").then((r) => setCatalog(r.data)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

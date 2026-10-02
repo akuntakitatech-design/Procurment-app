@@ -61,9 +61,9 @@ export default function Inventory() {
     Promise.all([
       api.get("/inventory/position"),
       api.get("/inventory/ledger"),
-      api.get("/master/items?active_only=true"),
-      api.get("/master/warehouses?active_only=true"),
-      api.get("/master/item_categories?active_only=true").catch(() => ({ data: [] })),
+      api.get("/lookup/items"),
+      api.get("/lookup/warehouses"),
+      api.get("/lookup/item_categories").catch(() => ({ data: [] })),
     ]).then(([p, l, i, w, c]) => {
       setPos(p.data || []);
       setLedger(l.data || []);
