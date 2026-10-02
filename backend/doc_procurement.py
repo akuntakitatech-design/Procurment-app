@@ -13,6 +13,7 @@ async def maps():
         "units": {u["id"]: u for u in await db.units.find({}, {"_id": 0}).to_list(2000)},
         "divisions": {d["id"]: d for d in await db.divisions.find({}, {"_id": 0}).to_list(500)},
         "suppliers": {s["id"]: s for s in await db.suppliers.find({}, {"_id": 0}).to_list(2000)},
+        "uoms": {u["id"]: u for u in await db.uoms.find({}, {"_id": 0}).to_list(2000)},
     }
 
 
@@ -789,6 +790,41 @@ async def _refresh_po_receipt_status(po_id):
     await db.po.update_one({"id": po_id}, {"$set": {"status": status}})
 
 
+async def resolve_do_acq_cost(po_line_id, item_id=None, doc_id=None, line_id=None):
+    """Resolve the acquisition unit cost for a DO receipt line under Moving Average.
+
+    Priority:
+      1. Referenced PO line net per unit = dpp / qty (PO net merchandise value AFTER item discount
+         and proportional final discount, EXCLUDING normal creditable VAT).
+      2. (edit/re-post only) A prior VERIFIED (non-estimated) DO valuation snapshot for this line.
+    If neither resolves, HARD-BLOCK — never estimate / use current avg / latest price.
+    """
+    if po_line_id:
+        pol = await db.po_lines.find_one({"id": po_line_id}, {"_id": 0})
+        if pol and float(pol.get("qty") or 0) > 0:
+            return float(pol.get("dpp") or 0) / float(pol.get("qty"))
+    if doc_id:
+        q = {"doc_id": doc_id, "doc_type": "DO", "qty_in": {"$gt": 0}, "valuation_estimated": {"$ne": True}}
+        if item_id:
+            q["item_id"] = item_id   # line ids are regenerated on edit; match by item within the doc
+        prev = await db.valuation_ledger.find(q, {"_id": 0}).sort("at", -1).to_list(1)
+        if prev and prev[0].get("unit_cost") not in (None, 0):
+            return float(prev[0]["unit_cost"])
+    # human-readable context (no UUIDs)
+    item = await db.items.find_one({"id": item_id}, {"_id": 0}) if item_id else None
+    po_no = None
+    if po_line_id:
+        pol = await db.po_lines.find_one({"id": po_line_id}, {"_id": 0})
+        if pol and pol.get("po_id"):
+            po = await db.po.find_one({"id": pol["po_id"]}, {"_id": 0})
+            po_no = (po or {}).get("no")
+    item_label = (item or {}).get("code") or (item or {}).get("name") or "tidak diketahui"
+    raise HTTPException(400,
+        "Penerimaan tidak dapat diposting karena sumber harga dari PO tidak ditemukan. "
+        "Periksa kembali referensi PO pada item penerimaan. "
+        f"(PO: {po_no or 'tidak diketahui'}, Item: {item_label})")
+
+
 @api.post("/do")
 async def create_do(body: dict, user=Depends(current_user)):
     require(user, "create")
@@ -815,14 +851,110 @@ async def create_do(body: dict, user=Depends(current_user)):
             "warehouse_id": wh, "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
             "spk": l.get("spk"), "condition": l.get("condition", "Baik"), "notes": l.get("notes")})
         await create_alloc("po", l["po_line_id"], l.get("po_id"), "do", lid, did, qty, l["item_id"])
+        # Acquisition cost for Moving Average = PO net per unit (after item + final discount, excl tax).
+        # Hard-block (no estimated fallback) if the PO source cannot be resolved.
+        acq_cost = await resolve_do_acq_cost(l["po_line_id"], item_id=l["item_id"])
         await post_ledger("DO", no, did, l["item_id"], wh, qty, 0,
-                          project_id=l.get("project_id"), unit_id=l.get("unit_id"), user=user)
+                          project_id=l.get("project_id"), unit_id=l.get("unit_id"), user=user,
+                          unit_cost_in=acq_cost, line_id=lid, uom=l.get("unit"),
+                          conversion_factor=l.get("conversion_factor", 1),
+                          txn_at=body.get("date"), source_key=f"DO::{lid}", require_cost=True)
         if l.get("po_id"): po_ids.add(l["po_id"])
     for pid in po_ids:
         await _refresh_po_receipt_status(pid)
     await audit(user, "create", "do", did, no)
     await notify("Barang diterima", f"DO {no} diposting", "do", None)
     return await get_do(did, user)
+
+
+# ---------------- DO monetary traceability (BACKEND / REPORTING ONLY) ----------------
+# DO UI is non-nominal. PO stays the source of truth for commercial value.
+# These helpers derive receiving value from the referenced PO line (po_id/po_line_id),
+# reusing the canonical per-line amounts already persisted by compute_po_totals
+# (dpp/tax_amount/total already include the PO Final Discount prorated per line).
+# Nothing here mutates PO, PO commitment, or stock.
+def _po_line_item_discount(po_line):
+    v = po_line.get("discount_amount")
+    if v is None:
+        v = po_line.get("discount")
+    return float(v or 0)
+
+
+async def compute_do_receiving_value(did, user):
+    d = await db.do.find_one({"id": did}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "DO tidak ditemukan")
+    m = await maps()
+    lines = await db.do_lines.find({"do_id": did}, {"_id": 0}).to_list(500)
+    out_lines = []
+    tot = {"qty_received": 0.0, "gross": 0.0, "item_discount": 0.0, "final_discount": 0.0,
+           "net": 0.0, "tax": 0.0, "total": 0.0}
+    for l in lines:
+        recv = float(l.get("qty") or 0)
+        pl = await db.po_lines.find_one({"id": l.get("po_line_id")}, {"_id": 0}) if l.get("po_line_id") else None
+        po = await db.po.find_one({"id": l.get("po_id")}, {"_id": 0}) if l.get("po_id") else None
+        base = {"do_line_id": l.get("id"), "po_id": l.get("po_id"), "po_line_id": l.get("po_line_id"),
+                "po_no": (po or {}).get("no"), "item_id": l.get("item_id"),
+                "item_name": m["items"].get(l.get("item_id"), {}).get("name"),
+                "qty_received": recv, "unit": l.get("unit"), "spk": l.get("spk"),
+                "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
+                "warehouse_id": l.get("warehouse_id")}
+        if not pl:
+            base.update({"po_qty": None, "po_unit_price": None, "effective_unit_price": None,
+                         "gross_receiving_value": None, "item_discount_attributable": None,
+                         "final_discount_attributable": None, "net_receiving_value": None,
+                         "tax_attributable": None, "total_receiving_value": None, "tax_inclusive": None,
+                         "_note": "PO line tidak ditemukan"})
+            out_lines.append(base)
+            continue
+        po_qty = float(pl.get("qty") or 0)
+        ratio = (recv / po_qty) if po_qty > 0 else 0.0
+        price = float(pl.get("price") or 0)
+        disc_amt = _po_line_item_discount(pl)
+        gross_full = po_qty * price
+        net_after_item_full = max(0.0, gross_full - disc_amt)
+        dpp_full = float(pl.get("dpp") or 0)         # net taxable after item + final discount
+        tax_full = float(pl.get("tax_amount") or 0)
+        total_full = float(pl.get("total") or 0)
+        inclusive = bool(pl.get("tax_inclusive"))
+        # Final-discount share attributable to this line (reconciles with compute_po_totals).
+        net_value_full = dpp_full if not inclusive else (dpp_full + tax_full)
+        final_disc_full = max(0.0, net_after_item_full - net_value_full)
+        eff_unit = (net_after_item_full / po_qty) if po_qty > 0 else price
+        base.update({
+            "po_qty": po_qty, "po_unit_price": price, "item_discount_amount_po": disc_amt,
+            "effective_unit_price": eff_unit, "tax_rate": float(pl.get("tax") or 0), "tax_inclusive": inclusive,
+            "gross_receiving_value": gross_full * ratio,
+            "item_discount_attributable": disc_amt * ratio,
+            "final_discount_attributable": final_disc_full * ratio,
+            "net_receiving_value": net_value_full * ratio,
+            "taxable_basis": dpp_full * ratio,
+            "tax_attributable": tax_full * ratio,
+            "total_receiving_value": total_full * ratio,
+        })
+        out_lines.append(base)
+        tot["qty_received"] += recv
+        tot["gross"] += base["gross_receiving_value"]
+        tot["item_discount"] += base["item_discount_attributable"]
+        tot["final_discount"] += base["final_discount_attributable"]
+        tot["net"] += base["net_receiving_value"]
+        tot["tax"] += base["tax_attributable"]
+        tot["total"] += base["total_receiving_value"]
+    return {"do_id": did, "do_no": d.get("no"), "date": d.get("date"),
+            "supplier_id": d.get("supplier_id"),
+            "supplier_name": m["suppliers"].get(d.get("supplier_id"), {}).get("name"),
+            "lines": out_lines, "totals": tot}
+
+
+@api.get("/reports/do-receiving/{did}")
+async def do_receiving_report(did: str, user=Depends(current_user)):
+    """Backend-only monetary view of a DO's receiving value. Gated behind the same
+    purchase-price permission as PO pricing so normal receiving users never see nominal."""
+    require(user, "view")
+    if not has_perm(user, "view_purchase_price"):
+        raise HTTPException(403, "Tidak memiliki akses nilai pembelian")
+    return await compute_do_receiving_value(did, user)
+
 
 
 # ---------------- MI ----------------
@@ -856,40 +988,394 @@ async def get_mi(did: str, user=Depends(current_user)):
     return d
 
 
+# ---------------- MI settings (Direct mode config), stock-per-warehouse, MI trace ----------------
+def _is_admin_like(user):
+    u = user or {}
+    return u.get("role") in ("admin", "director", "purchasing") or "view_all_division" in (u.get("permissions") or [])
+
+
+async def _mi_settings():
+    s = await db.settings.find_one({"id": "mi_settings"}, {"_id": 0}) or {}
+    return {"mi_mode": s.get("mi_mode", "mro_only"),
+            "direct_authorized_roles": list(s.get("direct_authorized_roles") or []),
+            "direct_authorized_user_ids": list(s.get("direct_authorized_user_ids") or [])}
+
+
+def _can_direct_mi(user, st):
+    if st.get("mi_mode") != "mro_plus_direct":
+        return False
+    if (user or {}).get("role") == "admin":
+        return True
+    roles = st.get("direct_authorized_roles") or []
+    uids = st.get("direct_authorized_user_ids") or []
+    if not roles and not uids:
+        return has_perm(user, "direct_mi")
+    return (user.get("role") in roles) or (user.get("id") in uids) or (user.get("email") in uids)
+
+
+@api.get("/settings/mi")
+async def get_mi_settings(user=Depends(current_user)):
+    require(user, "view")
+    st = await _mi_settings()
+    return {**st, "can_direct": _can_direct_mi(user, st), "can_manage": _is_admin_like(user)}
+
+
+@api.put("/settings/mi")
+async def put_mi_settings(body: dict, user=Depends(current_user)):
+    if not _is_admin_like(user):
+        raise HTTPException(403, "Hanya admin yang dapat mengubah konfigurasi MI")
+    mode = body.get("mi_mode", "mro_only")
+    if mode not in ("mro_only", "mro_plus_direct"):
+        raise HTTPException(400, "mi_mode tidak valid")
+    doc = {"id": "mi_settings", "mi_mode": mode,
+           "direct_authorized_roles": list(body.get("direct_authorized_roles") or []),
+           "direct_authorized_user_ids": list(body.get("direct_authorized_user_ids") or [])}
+    await db.settings.update_one({"id": "mi_settings"}, {"$set": doc}, upsert=True)
+    await audit(user, "edit", "settings", "mi_settings", "MI Settings", after=doc)
+    return doc
+
+
+@api.get("/stock/by-warehouse/{item_id}")
+async def stock_by_warehouse(item_id: str, user=Depends(current_user)):
+    """Read-only on-hand per warehouse for one item (base UOM). Used by MI stock info icon."""
+    require(user, "view")
+    m = await maps()
+    rows = await db.item_warehouse.find({"item_id": item_id}, {"_id": 0}).to_list(1000)
+    seen = {}
+    for r in rows:
+        seen[r.get("warehouse_id")] = float(r.get("current_stock") or 0)
+    whs = m.get("warehouses") or {}
+    out = [{"warehouse_id": wid, "warehouse_name": w.get("name") or wid, "stock": seen.get(wid, 0.0)}
+           for wid, w in whs.items()]
+    for wid, stv in seen.items():
+        if wid not in whs:
+            out.append({"warehouse_id": wid, "warehouse_name": wid, "stock": stv})
+    out.sort(key=lambda x: (-x["stock"], x["warehouse_name"] or ""))
+    return {"item_id": item_id, "warehouses": out}
+
+
+@api.get("/reports/mi-trace/{mid}")
+async def mi_trace_report(mid: str, user=Depends(current_user)):
+    """Non-monetary MI traceability (MI -> MRO; dimensions for reporting). NOTE: no inventory
+    valuation basis exists for MI in current architecture, so monetary value is intentionally
+    NOT derived here and is reported as a gap (valuation_basis=null)."""
+    require(user, "view")
+    d = await db.mi.find_one({"id": mid}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "MI tidak ditemukan")
+    m = await maps()
+    lines = await db.mi_lines.find({"mi_id": mid}, {"_id": 0}).to_list(500)
+    out = []
+    for l in lines:
+        mline = await db.mro_lines.find_one({"id": l.get("mro_line_id")}, {"_id": 0}) if l.get("mro_line_id") else None
+        mro = await db.mro.find_one({"id": l.get("mro_id") or (mline or {}).get("mro_id")}, {"_id": 0}) if (l.get("mro_id") or mline) else None
+        out.append({"mi_line_id": l.get("id"), "item_id": l.get("item_id"),
+                    "item_name": m["items"].get(l.get("item_id"), {}).get("name"),
+                    "qty_issue": float(l.get("qty") or 0), "unit": l.get("unit"),
+                    "warehouse_id": l.get("warehouse_id"),
+                    "warehouse_name": m["warehouses"].get(l.get("warehouse_id"), {}).get("name"),
+                    "project_id": l.get("project_id"), "unit_id": l.get("unit_id"), "spk": l.get("spk"),
+                    "mro_id": l.get("mro_id") or (mline or {}).get("mro_id"), "mro_no": (mro or {}).get("no"),
+                    "mro_line_id": l.get("mro_line_id"),
+                    "pemohon": (mro or {}).get("requester") or (mro or {}).get("pemohon")})
+    return {"mi_id": mid, "mi_no": d.get("no"),
+            "source_mode": d.get("source_mode") or ("direct" if d.get("source_type") == "Direct" else "mro"),
+            "receiver": d.get("receiver"), "requester": d.get("requester"), "date": d.get("date"),
+            "division_id": d.get("division_id"), "lines": out,
+            "valuation_basis": None,
+            "valuation_note": "MI inventory valuation basis not defined (no moving-average or PO-cost on stock). Monetary value intentionally not derived."}
+
+
+
 @api.post("/mi")
 async def create_mi(body: dict, user=Depends(current_user)):
     require(user, "create")
     source_type = body.get("source_type", "MRO")
-    if source_type == "Direct":
-        require(user, "direct_mi")
+    st = await _mi_settings()
+    if source_type == "Direct" and not _can_direct_mi(user, st):
+        raise HTTPException(403, "Direct MI tidak diizinkan untuk tenant/pengguna ini")
+    source_mode = "direct" if source_type == "Direct" else "mro"
     did = gid(); no = await next_number("MI")
     await db.mi.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
         "division_id": body.get("division_id"), "default_warehouse_id": body.get("default_warehouse_id"),
         "default_project_id": body.get("default_project_id"), "receiver": body.get("receiver"),
-        "department": body.get("department"), "source_type": source_type, "notes": body.get("notes"),
+        "requester": body.get("requester"), "department": body.get("department"),
+        "source_type": source_type, "source_mode": source_mode, "spk": body.get("spk"),
+        "notes": body.get("notes"),
         "status": "Posted", "created_by": user.get("email"), "created_at": now_iso()})
     for l in body.get("lines", []):
         qty = float(l.get("qty", 0))
         if qty <= 0: continue
-        wh = l.get("warehouse_id") or body.get("default_warehouse_id")
+        mline = None
+        if source_type == "MRO":
+            # STRICT: MRO-mode line must originate from a valid MRO line with a matching item.
+            if not l.get("mro_line_id"):
+                raise HTTPException(400, "MI Dari MRO wajib bersumber dari baris MRO")
+            mline = await db.mro_lines.find_one({"id": l["mro_line_id"]})
+            if not mline:
+                raise HTTPException(400, "Baris MRO sumber tidak ditemukan")
+            if str(mline.get("item_id")) != str(l.get("item_id")):
+                raise HTTPException(400, "Barang MI tidak sesuai dengan barang MRO sumber")
+        # Warehouse LOCKED to the MRO line's warehouse in MRO mode (client override ignored).
+        wh = (mline.get("warehouse_id") if (source_type == "MRO" and mline) else None) or l.get("warehouse_id") or body.get("default_warehouse_id")
         avail = await stock_balance(l["item_id"], wh)
         if qty > avail + 1e-6 and not has_perm(user, "override_qty"):
             raise HTTPException(400, f"Stok tidak cukup (tersedia {avail})")
-        if l.get("mro_line_id"):
-            mline = await db.mro_lines.find_one({"id": l["mro_line_id"]})
-            if mline and not has_perm(user, "override_qty"):
-                rem = mline.get("qty", 0) - await alloc_out(l["mro_line_id"], "mi")
-                if qty > rem + 1e-6:
-                    raise HTTPException(400, "Qty MI melebihi kebutuhan MRO")
+        if mline and not has_perm(user, "override_qty"):
+            rem = mline.get("qty", 0) - await alloc_out(l["mro_line_id"], "mi")
+            if qty > rem + 1e-6:
+                raise HTTPException(400, "Qty MI melebihi kebutuhan MRO")
         lid = gid()
-        await db.mi_lines.insert_one({"id": lid, "mi_id": did, "mro_line_id": l.get("mro_line_id"),
+        await db.mi_lines.insert_one({"id": lid, "mi_id": did, "mro_id": l.get("mro_id"),
+            "mro_line_id": l.get("mro_line_id"),
             "item_id": l["item_id"], "qty": qty, "unit": l.get("unit"), "warehouse_id": wh,
-            "project_id": l.get("project_id"), "unit_id": l.get("unit_id"), "notes": l.get("notes")})
+            "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
+            "spk": l.get("spk"), "notes": l.get("notes")})
         if l.get("mro_line_id"):
             await create_alloc("mro", l["mro_line_id"], l.get("mro_id"), "mi", lid, did, qty, l["item_id"])
         await post_ledger("MI", no, did, l["item_id"], wh, 0, qty,
                           project_id=l.get("project_id"), unit_id=l.get("unit_id"),
-                          division_id=body.get("division_id"), user=user)
-    await audit(user, "create", "mi", did, no)
+                          division_id=body.get("division_id"), user=user,
+                          line_id=lid, uom=l.get("unit"), conversion_factor=l.get("conversion_factor", 1),
+                          txn_at=body.get("date"), source_key=f"MI::{lid}")
+    await audit(user, "create", "mi", did, no, after={"source_mode": source_mode})
     await notify("Barang dikeluarkan", f"MI {no} diposting", "mi", body.get("division_id"))
     return await get_mi(did, user)
+
+# ================= INVENTORY VALUATION REPORTING + OPENING (moving average) =================
+def _require_value(user):
+    require(user, "view")
+    if not has_perm(user, "view_purchase_price"):
+        raise HTTPException(403, "Tidak memiliki akses nilai persediaan")
+
+
+@api.get("/reports/valuation-summary")
+async def valuation_summary(item_id: str = None, warehouse_id: str = None, user=Depends(current_user)):
+    _require_value(user)
+    m = await maps()
+    q = {}
+    if item_id: q["item_id"] = item_id
+    if warehouse_id: q["warehouse_id"] = warehouse_id
+    rows = await db.item_warehouse.find(q, {"_id": 0}).to_list(5000)
+    out = []
+    for r in rows:
+        qty = float(r.get("current_stock") or 0)
+        if qty == 0 and float(r.get("total_value") or 0) == 0:
+            continue
+        it = m["items"].get(r.get("item_id"), {})
+        out.append({"item_id": r.get("item_id"), "item_name": it.get("name"), "item_code": it.get("code"),
+                    "warehouse_id": r.get("warehouse_id"),
+                    "warehouse_name": m["warehouses"].get(r.get("warehouse_id"), {}).get("name"),
+                    "qty_on_hand": qty, "base_uom": it.get("base_uom_id"),
+                    "avg_cost": float(r.get("avg_cost") or 0), "inventory_value": float(r.get("total_value") or 0)})
+    out.sort(key=lambda x: (x["item_name"] or "", x["warehouse_name"] or ""))
+    return {"method": "moving_weighted_average", "rows": out,
+            "total_value": round(sum(x["inventory_value"] for x in out), 4)}
+
+
+@api.get("/reports/valuation-ledger")
+async def valuation_ledger(item_id: str = None, warehouse_id: str = None, doc_type: str = None,
+                           date_from: str = None, date_to: str = None, user=Depends(current_user)):
+    _require_value(user)
+    m = await maps()
+    q = {}
+    if item_id: q["item_id"] = item_id
+    if warehouse_id: q["warehouse_id"] = warehouse_id
+    if doc_type: q["doc_type"] = doc_type
+    rows = await db.valuation_ledger.find(q, {"_id": 0}).sort("at", 1).to_list(5000)
+    def inrange(a):
+        if date_from and (a or "") < date_from: return False
+        if date_to and (a or "") > date_to + "T23:59:59": return False
+        return True
+    out = []
+    for r in rows:
+        if not inrange(r.get("at")): continue
+        it = m["items"].get(r.get("item_id"), {})
+        out.append({**{k: r.get(k) for k in ("doc_type", "doc_no", "at", "qty_in", "qty_out", "unit_cost",
+                       "value_in", "value_out", "qty_before", "value_before", "avg_before",
+                       "qty_after", "value_after", "avg_after", "valuation_method", "valuation_estimated")},
+                    "item_name": it.get("name"),
+                    "warehouse_name": m["warehouses"].get(r.get("warehouse_id"), {}).get("name")})
+    return {"rows": out}
+
+
+@api.get("/reports/valuation-reconcile")
+async def valuation_reconcile(user=Depends(current_user)):
+    """QA reconciliation + invalid-balance diagnostics for moving-average valuation.
+    - stock qty (item_warehouse.current_stock) vs last valuation ledger qty_after per pool
+    - invalid pools: qty<0, value<0, qty=0 but value!=0, qty>0 but missing average
+    - duplicate valuation source_key, orphan valuation entries (no physical pool)
+    """
+    _require_value(user)
+    m = await maps()
+    pools = await db.item_warehouse.find({}, {"_id": 0}).to_list(10000)
+    pool_keys = {(p.get("item_id"), p.get("warehouse_id")) for p in pools}
+    mismatches = []; diagnostics = []
+
+    def nm(r):
+        return {"item_id": r.get("item_id"),
+                "item_name": m["items"].get(r.get("item_id"), {}).get("name"),
+                "warehouse_name": m["warehouses"].get(r.get("warehouse_id"), {}).get("name")}
+
+    for r in pools:
+        phys = float(r.get("current_stock") or 0)
+        val = float(r.get("total_value") or 0)
+        avg = float(r.get("avg_cost") or 0)
+        last = await db.valuation_ledger.find({"item_id": r.get("item_id"), "warehouse_id": r.get("warehouse_id")},
+                                              {"_id": 0}).sort("txn_at", -1).to_list(1)
+        if last:
+            val_qty = float(last[0].get("qty_after"))
+            if abs(val_qty - phys) > 1e-6:
+                mismatches.append({**nm(r), "physical_qty": phys, "valuation_qty": val_qty, "diff": phys - val_qty})
+        if phys < -1e-6:
+            diagnostics.append({**nm(r), "type": "negative_qty", "physical_qty": phys})
+        if val < -1e-6:
+            diagnostics.append({**nm(r), "type": "negative_value", "inventory_value": val})
+        if abs(phys) < 1e-9 and abs(val) > 1e-6:
+            diagnostics.append({**nm(r), "type": "zero_qty_nonzero_value", "inventory_value": val})
+        if phys > 1e-6 and avg <= 0:
+            diagnostics.append({**nm(r), "type": "missing_average", "physical_qty": phys, "inventory_value": val})
+
+    # duplicate source_key
+    seen = {}; dups = []
+    vl = await db.valuation_ledger.find({}, {"_id": 0}).to_list(50000)
+    for e in vl:
+        sk = e.get("source_key")
+        if not sk:
+            continue
+        seen[sk] = seen.get(sk, 0) + 1
+    for sk, c in seen.items():
+        if c > 1:
+            dups.append({"type": "duplicate_source_key", "source_key": sk, "count": c})
+    diagnostics.extend(dups)
+
+    # orphan valuation entries: non-reversal movement referencing a pool that no longer exists
+    orphans = []
+    for e in vl:
+        key = (e.get("item_id"), e.get("warehouse_id"))
+        if key not in pool_keys:
+            orphans.append({"type": "orphan_valuation_entry", "doc_type": e.get("doc_type"),
+                            "doc_no": e.get("doc_no"), "item_id": e.get("item_id"),
+                            "warehouse_id": e.get("warehouse_id")})
+    diagnostics.extend(orphans[:200])
+
+    return {"ok": len(mismatches) == 0 and len(diagnostics) == 0,
+            "mismatches": mismatches, "diagnostics": diagnostics,
+            "pool_count": len(pools)}
+
+
+@api.get("/reports/mi-valuation/{mid}")
+async def mi_valuation_report(mid: str, user=Depends(current_user)):
+    """Authorized MI HPP report: per-line avg-cost snapshot + value out, with SPK HPP split."""
+    _require_value(user)
+    d = await db.mi.find_one({"id": mid}, {"_id": 0})
+    if not d: raise HTTPException(404, "MI tidak ditemukan")
+    m = await maps()
+    entries = await db.valuation_ledger.find({"doc_id": mid}, {"_id": 0}).to_list(500)
+    by_line = {e.get("line_id"): e for e in entries}
+    lines = await db.mi_lines.find({"mi_id": mid}, {"_id": 0}).to_list(500)
+    out = []; spk_tot = {}; total_out = 0.0
+    for l in lines:
+        e = by_line.get(l.get("id")) or {}
+        vout = float(e.get("value_out") or 0); avg = float(e.get("unit_cost") or 0)
+        total_out += vout
+        allocs = await db.procurement_item_spk_allocations.find({"source_type": "mi", "item_line_id": l.get("id")}, {"_id": 0}).to_list(50)
+        tot_alloc = sum(float(a.get("allocated_qty") or 0) for a in allocs) or 0
+        spk_split = []
+        for a in allocs:
+            share = (float(a.get("allocated_qty") or 0) / tot_alloc) if tot_alloc > 0 else 0
+            hpp = round(vout * share, 4)
+            spk_split.append({"spk_id": a.get("spk_id"), "qty": a.get("allocated_qty"), "hpp": hpp})
+            spk_tot[a.get("spk_id")] = round(spk_tot.get(a.get("spk_id"), 0) + hpp, 4)
+        out.append({"mi_line_id": l.get("id"), "item_id": l.get("item_id"),
+                    "item_name": m["items"].get(l.get("item_id"), {}).get("name"),
+                    "qty_issue": float(l.get("qty") or 0), "unit": l.get("unit"),
+                    "warehouse_name": m["warehouses"].get(l.get("warehouse_id"), {}).get("name"),
+                    "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
+                    "average_cost_at_posting": avg, "inventory_value_out": vout,
+                    "valuation_method": e.get("valuation_method"), "spk_split": spk_split})
+    return {"mi_id": mid, "mi_no": d.get("no"), "source_mode": d.get("source_mode"),
+            "receiver": d.get("receiver"), "requester": d.get("requester"),
+            "lines": out, "total_inventory_value_out": round(total_out, 4),
+            "spk_hpp_totals": spk_tot}
+
+
+@api.get("/valuation/opening-candidates")
+async def opening_candidates(q: str = None, warehouse_id: str = None, status: str = None,
+                             user=Depends(current_user)):
+    """List existing physical stock pools (qty>0) with their opening-valuation status.
+    status filter: 'valued' (Sudah Dinilai) | 'unvalued' (Belum Dinilai)."""
+    _require_value(user)
+    m = await maps()
+    flt = {}
+    if warehouse_id:
+        flt["warehouse_id"] = warehouse_id
+    rows = await db.item_warehouse.find(flt, {"_id": 0}).to_list(10000)
+    opened = {(o.get("item_id"), o.get("warehouse_id"))
+              for o in await db.valuation_ledger.find({"doc_type": "Opening Valuation"}, {"_id": 0}).to_list(10000)}
+    out = []
+    ql = (q or "").strip().lower()
+    for r in rows:
+        qty = float(r.get("current_stock") or 0)
+        if qty <= 0:
+            continue
+        it = m["items"].get(r.get("item_id"), {})
+        name = it.get("name") or ""; code = it.get("code") or ""
+        if ql and ql not in name.lower() and ql not in code.lower():
+            continue
+        is_valued = (r.get("item_id"), r.get("warehouse_id")) in opened
+        if status == "valued" and not is_valued:
+            continue
+        if status == "unvalued" and is_valued:
+            continue
+        buid = it.get("base_uom_id")
+        out.append({
+            "item_id": r.get("item_id"), "item_code": code, "item_name": name,
+            "warehouse_id": r.get("warehouse_id"),
+            "warehouse_name": m["warehouses"].get(r.get("warehouse_id"), {}).get("name"),
+            "qty_existing": qty, "base_uom": buid,
+            "base_uom_name": (m.get("uoms", {}).get(buid, {}) or {}).get("symbol")
+                              or (m.get("uoms", {}).get(buid, {}) or {}).get("name"),
+            "avg_cost": float(r.get("avg_cost") or 0),
+            "inventory_value": float(r.get("total_value") or 0),
+            "status": "valued" if is_valued else "unvalued"})
+    out.sort(key=lambda x: (x["status"] != "unvalued", x["item_name"] or "", x["warehouse_name"] or ""))
+    return {"rows": out}
+
+
+@api.post("/valuation/opening")
+async def post_opening_valuation(body: dict, user=Depends(current_user)):
+    """Controlled Opening Inventory Valuation: establishes opening average/value for EXISTING
+    physical qty WITHOUT adding stock. Does not duplicate physical quantity."""
+    if not _is_admin_like(user) and not has_perm(user, "view_purchase_price"):
+        raise HTTPException(403, "Tidak diizinkan")
+    item_id = body.get("item_id"); wh = body.get("warehouse_id")
+    cost = float(body.get("opening_avg_cost") or 0)
+    cutoff = body.get("cutoff_date") or body.get("date") or now_iso()
+    if not item_id or not wh:
+        raise HTTPException(400, "item & gudang wajib")
+    iw = await db.item_warehouse.find_one({"item_id": item_id, "warehouse_id": wh}) or {}
+    qty = float(iw.get("current_stock") or 0)
+    if qty <= 0:
+        raise HTTPException(400, "Qty 0 tidak memerlukan opening valuation")
+    if cost <= 0:
+        raise HTTPException(400, "Opening Average Cost wajib > 0")
+    exists = await db.valuation_ledger.find_one({"item_id": item_id, "warehouse_id": wh, "doc_type": "Opening Valuation"})
+    if exists and not body.get("force"):
+        raise HTTPException(400, "Opening valuation untuk pool ini sudah ada")
+    from decimal import Decimal, ROUND_HALF_UP
+    val = (Decimal(str(qty)) * Decimal(str(cost))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    await db.valuation_ledger.insert_one({
+        "id": gid(), "doc_type": "Opening Valuation", "doc_no": cutoff,
+        "doc_id": gid(), "item_id": item_id, "warehouse_id": wh, "qty_in": 0, "qty_out": 0,
+        "unit_cost": cost, "value_in": float(val), "value_out": 0,
+        "qty_before": qty, "value_before": float(iw.get("total_value") or 0), "avg_before": float(iw.get("avg_cost") or 0),
+        "qty_after": qty, "value_after": float(val), "avg_after": cost,
+        "valuation_method": "moving_weighted_average", "valuation_estimated": False,
+        "cutoff_date": cutoff, "notes": body.get("notes"), "user": user.get("email"),
+        "txn_at": cutoff, "at": now_iso()})
+    await db.item_warehouse.update_one({"item_id": item_id, "warehouse_id": wh},
+        {"$set": {"avg_cost": cost, "total_value": float(val)}, "$inc": {"_ver": 1}})
+    await audit(user, "create", "valuation", item_id, "Opening Valuation", after={"warehouse_id": wh, "qty": qty, "cost": cost, "cutoff": cutoff})
+    return {"item_id": item_id, "warehouse_id": wh, "qty_on_hand": qty, "opening_avg_cost": cost, "inventory_value": float(val)}
+

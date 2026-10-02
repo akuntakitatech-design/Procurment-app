@@ -623,6 +623,14 @@ def _is_duplicate_pk(exc: Exception) -> bool:
     return bool(args) and args[0] == 1062
 
 
+# Collections whose logical identity is encoded in a DETERMINISTIC primary key. For these we
+# MUST NOT fall back to a random UUID pk on a duplicate-key error (that would create a second
+# logical row for the same key). Instead the duplicate is re-raised so the caller re-reads the
+# canonical row and continues through its optimistic/versioned flow. This guarantees exactly one
+# logical inventory/valuation pool per tenant+item+warehouse(+base_uom).
+STRICT_PK_COLLECTIONS = {"item_warehouse"}
+
+
 class MariaCollection:
     def __init__(self, db: "MariaDatabase", name: str):
         self.database = db; self.name = name; self.full_name = name
@@ -713,7 +721,9 @@ class MariaCollection:
         except Exception as exc:  # noqa: BLE001
             # Mongo mengizinkan beberapa dokumen dengan `id` sama (mis. settings per tenant);
             # bila pk deterministik bentrok, pakai UUID agar semantik Mongo tetap terjaga.
-            if not _is_duplicate_pk(exc): raise
+            # KECUALI koleksi strict-pk (mis. item_warehouse): duplikat di-raise agar caller
+            # membaca ulang pool kanonik, bukan membuat pool kedua.
+            if not _is_duplicate_pk(exc) or self.name in STRICT_PK_COLLECTIONS: raise
             pk = str(uuid.uuid4())
             await self.database._execute(
                 f"INSERT INTO {_q(self.name)} (pk, doc, created_at, updated_at) VALUES (%s, %s, %s, %s)",
@@ -747,7 +757,7 @@ class MariaCollection:
                         await db._execute(f"INSERT INTO {_q(self.name)} (pk, doc, created_at, updated_at) VALUES (%s, %s, %s, %s)",
                                           [pk, _json_dumps(new), created, datetime.utcnow()], conn=conn)
                     except Exception as exc:  # noqa: BLE001
-                        if not _is_duplicate_pk(exc): raise
+                        if not _is_duplicate_pk(exc) or self.name in STRICT_PK_COLLECTIONS: raise
                         pk = str(uuid.uuid4())
                         await db._execute(f"INSERT INTO {_q(self.name)} (pk, doc, created_at, updated_at) VALUES (%s, %s, %s, %s)",
                                           [pk, _json_dumps(new), created, datetime.utcnow()], conn=conn)
@@ -1065,6 +1075,39 @@ class MariaDatabase:
         return {r[0] for r in rows} - {"pk", "doc", "created_at", "updated_at"}
 
     def invalidate_schema_cache(self): self._tables.clear()
+
+    async def ensure_pool_unique_index(self, name: str, columns: Sequence[str], index_name: str) -> dict:
+        """Idempotently ensure a composite UNIQUE index on generated columns for `name`.
+
+        Safe migration per spec: ensures the generated columns exist, then PRE-SCANS for existing
+        duplicate logical keys. If duplicates exist it SKIPS index creation and returns the
+        conflicting keys (no silent merge/delete/auto-repair). Otherwise it creates the index.
+        """
+        await self._ensure_table(name)
+        # ensure generated columns exist (idempotent)
+        for c in columns:
+            try:
+                await self._execute(
+                    f"ALTER TABLE {_q(name)} ADD COLUMN IF NOT EXISTS {_q(c)} "
+                    f"VARCHAR(191) AS (LEFT(JSON_VALUE(doc, '$.{c}'), 191)) STORED", [])
+            except Exception as exc:  # noqa: BLE001
+                if "Duplicate column" not in str(exc) and "exists" not in str(exc):
+                    raise
+        self.invalidate_schema_cache()
+        # already present?
+        rows = await self._fetchall(
+            "SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() "
+            "AND TABLE_NAME=%s AND INDEX_NAME=%s LIMIT 1", [name, index_name])
+        if rows:
+            return {"created": False, "exists": True}
+        col_list = ", ".join(_q(c) for c in columns)
+        dups = await self._fetchall(
+            f"SELECT {col_list}, COUNT(*) c FROM {_q(name)} GROUP BY {col_list} HAVING c > 1 LIMIT 50", [])
+        if dups:
+            return {"created": False, "duplicates": [list(r) for r in dups]}
+        await self._execute(f"ALTER TABLE {_q(name)} ADD UNIQUE INDEX {_q(index_name)} ({col_list})", [])
+        self.invalidate_schema_cache()
+        return {"created": True}
 
 
 class MariaClient:

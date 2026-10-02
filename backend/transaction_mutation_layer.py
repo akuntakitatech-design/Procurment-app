@@ -98,43 +98,10 @@ async def _capability(server, module, did, user):
 
 
 async def _reverse_ledgers(server, did, user, reason="edit"):
-    rows = await server.db.stock_ledger.find({
-        "doc_id": did,
-        "is_reversal": {"$ne": True},
-        "reversed": {"$ne": True},
-    }, {"_id": 0}).sort("at", 1).to_list(10000)
-    for row in rows:
-        qty_in = float(row.get("qty_out") or 0)
-        qty_out = float(row.get("qty_in") or 0)
-        item_id = row.get("item_id")
-        wh = row.get("warehouse_id")
-        bal = await server.stock_balance(item_id, wh)
-        running = bal + qty_in - qty_out
-        await server.db.stock_ledger.insert_one({
-            "id": server.gid(),
-            "doc_type": f"Reversal {row.get('doc_type') or ''}".strip(),
-            "doc_no": row.get("doc_no"),
-            "doc_id": did,
-            "item_id": item_id,
-            "warehouse_id": wh,
-            "qty_in": qty_in,
-            "qty_out": qty_out,
-            "running_balance": running,
-            "project_id": row.get("project_id"),
-            "unit_id": row.get("unit_id"),
-            "division_id": row.get("division_id"),
-            "user": user.get("email"),
-            "at": server.now_iso(),
-            "is_reversal": True,
-            "reversal_of_ledger_id": row.get("id"),
-            "reversal_reason": reason,
-        })
-        await server.db.item_warehouse.update_one(
-            {"item_id": item_id, "warehouse_id": wh},
-            {"$set": {"item_id": item_id, "warehouse_id": wh, "current_stock": running}},
-            upsert=True,
-        )
-        await server.db.stock_ledger.update_one({"id": row.get("id")}, {"$set": {"reversed": True, "reversed_at": server.now_iso()}})
+    """Delegate to the central valuation-safe reversal engine so that a document's stock AND
+    its moving-average valuation are both reversed using the ORIGINAL cost snapshots (and a
+    compensating valuation_ledger entry is written), instead of only fixing current_stock."""
+    return await server.reverse_document_valuation(did, user=user, reason=reason, block_negative=True)
 
 
 async def _incoming_for_old_line(server, line_id):
@@ -339,11 +306,11 @@ async def _replace(server, module, did, body, user):
             wh = normalized.get("warehouse_id")
             before = await server.stock_balance(line.get("item_id"), wh)
             delta = float(line.get("adjustment") or 0)
-            rec = {"id": lid, "adjustment_id": did, "item_id": line.get("item_id"), "before": before, "adjustment": delta, "after": before + delta, "reason": line.get("reason")}
+            rec = {"id": lid, "adjustment_id": did, "item_id": line.get("item_id"), "before": before, "adjustment": delta, "after": before + delta, "reason": line.get("reason"), "approved_unit_cost": line.get("approved_unit_cost")}
         else:  # opname
             old = old_line_by_id.get(line.get("id")) or {}
             snapshot = float(line.get("snapshot") if line.get("snapshot") is not None else old.get("snapshot") or 0)
-            rec = {"id": lid, "opname_id": did, "item_id": line.get("item_id") or old.get("item_id"), "snapshot": snapshot, "counted": line.get("counted")}
+            rec = {"id": lid, "opname_id": did, "item_id": line.get("item_id") or old.get("item_id"), "snapshot": snapshot, "counted": line.get("counted"), "approved_unit_cost": line.get("approved_unit_cost") if line.get("approved_unit_cost") is not None else old.get("approved_unit_cost"), "reason": line.get("reason") or old.get("reason")}
         if umeta:
             rec.update(umeta)
         await line_col.insert_one(rec)
@@ -366,44 +333,75 @@ async def _replace(server, module, did, body, user):
             "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
             "tax_inclusive": bool(normalized.get("tax_inclusive", False)), "status": "Draft"}})
     elif module == "do":
+        import doc_procurement as _dp
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
         for rec in new_lines:
-            await server.post_ledger("DO", no, did, rec["item_id"], rec["warehouse_id"], rec["qty"], 0, project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user)
+            # Hard-block (no estimated fallback): resolve from PO line, else a prior verified
+            # non-estimated snapshot for this DO+item, else reject with a clear PO message.
+            acq = await _dp.resolve_do_acq_cost(rec.get("po_line_id"), item_id=rec["item_id"], doc_id=did)
+            await server.post_ledger("DO", no, did, rec["item_id"], rec["warehouse_id"], rec["qty"], 0,
+                                     project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user,
+                                     unit_cost_in=acq, line_id=rec.get("id"), source_key=f"DO::{rec.get('id')}",
+                                     txn_at=normalized.get("date"), require_cost=True)
     elif module == "mi":
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
         for rec in new_lines:
-            await server.post_ledger("MI", no, did, rec["item_id"], rec["warehouse_id"], 0, rec["qty"], project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), division_id=normalized.get("division_id"), user=user)
+            await server.post_ledger("MI", no, did, rec["item_id"], rec["warehouse_id"], 0, rec["qty"], project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), division_id=normalized.get("division_id"), user=user, line_id=rec.get("id"), source_key=f"MI::{rec.get('id')}", txn_at=normalized.get("date"))
     elif module == "transfer":
         frm, to = normalized.get("from_warehouse_id"), normalized.get("to_warehouse_id")
         if frm == to:
             raise HTTPException(400, "Gudang asal dan tujuan sama")
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
         for rec in new_lines:
-            await server.post_ledger("Transfer Out", no, did, rec["item_id"], frm, 0, rec["qty"], project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user)
-            await server.post_ledger("Transfer In", no, did, rec["item_id"], to, rec["qty"], 0, project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user)
+            out = await server.post_movement("Transfer Out", no, did, rec["item_id"], frm, 0, rec["qty"],
+                                             project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user,
+                                             line_id=rec.get("id"), source_key=f"TRF-O::{rec.get('id')}",
+                                             txn_at=normalized.get("date"))
+            tv = float(out.get("value_out") or 0)
+            await server.post_movement("Transfer In", no, did, rec["item_id"], to, rec["qty"], 0,
+                                       project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user,
+                                       value_in=tv, line_id=rec.get("id"), source_key=f"TRF-I::{rec.get('id')}",
+                                       txn_at=normalized.get("date"), require_cost=True)
     elif module == "loan":
         frm, to = normalized.get("from_warehouse_id"), normalized.get("to_warehouse_id")
         if frm == to:
             raise HTTPException(400, "Gudang pemberi dan peminjam sama")
         for rec in new_lines:
-            await server.post_ledger("Loan Out", no, did, rec["item_id"], frm, 0, rec["qty"], user=user)
-            await server.post_ledger("Loan In", no, did, rec["item_id"], to, rec["qty"], 0, user=user)
+            out = await server.post_movement("Loan Out", no, did, rec["item_id"], frm, 0, rec["qty"], user=user,
+                                             line_id=rec.get("id"), source_key=f"LOAN-O::{rec.get('id')}",
+                                             txn_at=normalized.get("date"))
+            lv = float(out.get("value_out") or 0)
+            await line_col.update_one({"id": rec.get("id")}, {"$set": {"cost_snapshot": out.get("unit_cost"), "loan_value": lv}})
+            await server.post_movement("Loan In", no, did, rec["item_id"], to, rec["qty"], 0, user=user,
+                                       value_in=lv, line_id=rec.get("id"), source_key=f"LOAN-I::{rec.get('id')}",
+                                       txn_at=normalized.get("date"), require_cost=True)
     elif module == "adjustment":
         wh = normalized.get("warehouse_id")
+        import doc_warehouse as _dw
         for rec in new_lines:
             delta = float(rec.get("adjustment") or 0)
-            await server.post_ledger("Stock Adjustment", no, did, rec["item_id"], wh, delta if delta > 0 else 0, -delta if delta < 0 else 0, division_id=normalized.get("division_id"), user=user)
+            if abs(delta) < 1e-9:
+                continue
+            uc = None
+            if delta > 0:
+                uc, _ov = await _dw._resolve_in_cost(rec["item_id"], wh, rec.get("approved_unit_cost"), rec.get("reason"))
+            await server.post_movement("Stock Adjustment", no, did, rec["item_id"], wh, delta if delta > 0 else 0, -delta if delta < 0 else 0, division_id=normalized.get("division_id"), user=user, line_id=rec.get("id"), unit_cost_in=uc, require_cost=(delta > 0), source_key=f"ADJ::{rec.get('id')}", txn_at=normalized.get("date"))
     elif module == "opname":
         old_status = doc.get("status")
         if old_status == "Posted":
             wh = normalized.get("warehouse_id")
+            import doc_warehouse as _dw
             for rec in new_lines:
                 if rec.get("counted") is None:
                     continue
                 variance = float(rec.get("counted") or 0) - float(rec.get("snapshot") or 0)
                 if abs(variance) < 1e-9:
                     continue
-                await server.post_ledger("Stock Opname Adjustment", no, did, rec["item_id"], wh, variance if variance > 0 else 0, -variance if variance < 0 else 0, user=user)
+                if variance > 0:
+                    uc, _ov = await _dw._resolve_in_cost(rec["item_id"], wh, rec.get("approved_unit_cost"), rec.get("reason"))
+                    await server.post_movement("Stock Opname Adjustment", no, did, rec["item_id"], wh, variance, 0, user=user, line_id=rec.get("id"), unit_cost_in=uc, require_cost=True, source_key=f"OPN::{did}::{rec.get('id')}", txn_at=normalized.get("date"))
+                else:
+                    await server.post_movement("Stock Opname Adjustment", no, did, rec["item_id"], wh, 0, -variance, user=user, line_id=rec.get("id"), source_key=f"OPN::{did}::{rec.get('id')}", txn_at=normalized.get("date"))
             await head_col.update_one({"id": did}, {"$set": {"status": "Posted", "posted_at": server.now_iso()}})
 
     if module == "do":

@@ -3,7 +3,7 @@ import uuid
 from fastapi import Depends, HTTPException, UploadFile, File, Form, Query, Request
 from fastapi.responses import Response
 from server import (api, db, gid, now_iso, clean, current_user, require, has_perm,
-                    audit, notify, next_number, post_ledger, stock_balance)
+                    audit, notify, next_number, post_ledger, post_movement, stock_balance)
 import storage as S
 
 
@@ -57,11 +57,29 @@ async def create_transfer(body: dict, user=Depends(current_user)):
         avail = await stock_balance(l["item_id"], frm)
         if qty > avail + 1e-6 and not has_perm(user, "override_qty"):
             raise HTTPException(400, f"Stok gudang asal tidak cukup (tersedia {avail})")
-        await db.transfer_lines.insert_one({"id": gid(), "transfer_id": did, "item_id": l["item_id"],
+        lid = gid()
+        await db.transfer_lines.insert_one({"id": lid, "transfer_id": did, "item_id": l["item_id"],
             "qty": qty, "unit": l.get("unit"), "project_id": l.get("project_id"),
             "unit_id": l.get("unit_id"), "notes": l.get("notes")})
-        await post_ledger("Transfer Out", no, did, l["item_id"], frm, 0, qty, project_id=l.get("project_id"), user=user)
-        await post_ledger("Transfer In", no, did, l["item_id"], to, qty, 0, project_id=l.get("project_id"), user=user)
+        # OUT at source moving-average snapshot; carry the EXACT value to destination (no P/L).
+        out = await post_movement("Transfer Out", no, did, l["item_id"], frm, 0, qty,
+                                  project_id=l.get("project_id"), user=user, line_id=lid,
+                                  source_key=f"TRF-O::{lid}", txn_at=body.get("date"))
+        transfer_value = float(out.get("value_out") or 0)
+        await db.transfer_lines.update_one({"id": lid}, {"$set": {
+            "cost_snapshot": out.get("unit_cost"), "transfer_value": transfer_value}})
+        try:
+            await post_movement("Transfer In", no, did, l["item_id"], to, qty, 0,
+                                project_id=l.get("project_id"), user=user, value_in=transfer_value,
+                                line_id=lid, source_key=f"TRF-I::{lid}", txn_at=body.get("date"),
+                                require_cost=True)
+        except Exception:
+            # Atomicity: destination leg failed -> restore the source OUT so no stock/value is lost.
+            await post_movement("Reversal Transfer Out", no, did, l["item_id"], frm, qty, 0,
+                                project_id=l.get("project_id"), user=user, reversal_value=transfer_value,
+                                is_reversal=True, reversal_of=out.get("valuation_ledger_id"),
+                                source_key=f"TRF-O-REV::{lid}", backdate_guard=False)
+            raise
     await audit(user, "create", "transfer", did, no)
     return await get_transfer(did, user)
 
@@ -122,11 +140,18 @@ async def create_loan(body: dict, user=Depends(current_user)):
         avail = await stock_balance(l["item_id"], frm)
         if qty > avail + 1e-6 and not has_perm(user, "override_qty"):
             raise HTTPException(400, f"Stok pemberi tidak cukup (tersedia {avail})")
-        await db.loan_lines.insert_one({"id": gid(), "loan_id": did, "item_id": l["item_id"],
+        lid = gid()
+        await db.loan_lines.insert_one({"id": lid, "loan_id": did, "item_id": l["item_id"],
             "qty": qty, "returned": 0, "unit": l.get("unit"), "project_id": l.get("project_id"),
             "unit_id": l.get("unit_id"), "notes": l.get("notes")})
-        await post_ledger("Loan Out", no, did, l["item_id"], frm, 0, qty, user=user)
-        await post_ledger("Loan In", no, did, l["item_id"], to, qty, 0, user=user)
+        # OUT at source moving-average snapshot; store the loan cost so returns reuse it (no P/L).
+        out = await post_movement("Loan Out", no, did, l["item_id"], frm, 0, qty, user=user,
+                                  line_id=lid, source_key=f"LOAN-O::{lid}", txn_at=body.get("date"))
+        lv = float(out.get("value_out") or 0); uc = out.get("unit_cost")
+        await db.loan_lines.update_one({"id": lid}, {"$set": {"cost_snapshot": uc, "loan_value": lv}})
+        # Borrowing warehouse physically receives the stock carrying the ORIGINAL loan value.
+        await post_movement("Loan In", no, did, l["item_id"], to, qty, 0, user=user, value_in=lv,
+                            line_id=lid, source_key=f"LOAN-I::{lid}", txn_at=body.get("date"), require_cost=True)
     await audit(user, "create", "loan", did, no)
     await notify("Pinjaman baru", f"{no} dibuat", "loan", None)
     return await get_loan(did, user)
@@ -164,13 +189,44 @@ async def return_loan(did: str, body: dict, user=Depends(current_user)):
         if qty > rem + 1e-6 and not has_perm(user, "override_qty"):
             raise HTTPException(400, "Qty return melebihi outstanding")
         await db.loan_lines.update_one({"id": ll["id"]}, {"$inc": {"returned": qty}})
-        await post_ledger("Loan Return Out", no, rid, ll["item_id"], loan["to_warehouse_id"], 0, qty, user=user)
-        await post_ledger("Loan Return In", no, rid, ll["item_id"], loan["from_warehouse_id"], qty, 0, user=user)
+        # Return reuses the ORIGINAL loan cost snapshot deterministically (no gain/loss from avg drift).
+        uc = float(ll.get("cost_snapshot") or 0); rv = qty * uc
+        await post_movement("Loan Return Out", no, rid, ll["item_id"], loan["to_warehouse_id"], 0, qty,
+                            user=user, reversal_value=rv, line_id=ll["id"],
+                            source_key=f"LOANRET-O::{rid}::{ll['id']}", txn_at=body.get("date"))
+        await post_movement("Loan Return In", no, rid, ll["item_id"], loan["from_warehouse_id"], qty, 0,
+                            user=user, value_in=rv, line_id=ll["id"],
+                            source_key=f"LOANRET-I::{rid}::{ll['id']}", txn_at=body.get("date"), require_cost=True)
     await audit(user, "create", "loan_return", rid, no)
     return await get_loan(did, user)
 
 
 # ---------------- STOCK ADJUSTMENT ----------------
+async def _resolve_in_cost(item_id, wh, approved, reason):
+    """Resolve the unit cost for a positive (IN) stock change under moving average.
+    Case A (existing qty>0 and avg>0): default = current avg; override allowed only with a reason.
+    Case B (qty 0 / no avg): approved unit cost mandatory (>0). Never defaults to 0 or latest PO.
+    Returns (unit_cost, overridden)."""
+    iw = await db.item_warehouse.find_one({"item_id": item_id, "warehouse_id": wh}) or {}
+    cur_qty = float(iw.get("current_stock") or 0); cur_avg = float(iw.get("avg_cost") or 0)
+    ap = None
+    try:
+        ap = float(approved) if approved not in (None, "") else None
+    except Exception:
+        ap = None
+    if cur_qty > 0 and cur_avg > 0:
+        if ap is None:
+            return cur_avg, False
+        if ap <= 0:
+            raise HTTPException(400, "Approved Unit Cost tidak valid (harus > 0)")
+        if abs(ap - cur_avg) > 1e-6 and not (reason and str(reason).strip()):
+            raise HTTPException(400, "Alasan wajib diisi karena Approved Unit Cost berbeda dari rata-rata persediaan saat ini.")
+        return ap, abs(ap - cur_avg) > 1e-6
+    if ap is None or ap <= 0:
+        raise HTTPException(400, "Approved Unit Cost wajib diisi (tidak ada rata-rata persediaan untuk item/gudang ini).")
+    return ap, True
+
+
 @api.get("/adjustments")
 async def list_adjustments(user=Depends(current_user)):
     require(user, "view")
@@ -208,13 +264,24 @@ async def create_adjustment(body: dict, user=Depends(current_user)):
     for l in body.get("lines", []):
         before = await stock_balance(l["item_id"], wh)
         delta = float(l.get("adjustment", 0))
+        if abs(delta) < 1e-9: continue
         after = before + delta
-        await db.adjustment_lines.insert_one({"id": gid(), "adjustment_id": did, "item_id": l["item_id"],
-            "before": before, "adjustment": delta, "after": after, "reason": l.get("reason")})
+        lid = gid()
+        unit_cost = None; overridden = False
+        if delta > 0:
+            unit_cost, overridden = await _resolve_in_cost(l["item_id"], wh, l.get("approved_unit_cost"), l.get("reason"))
+        await db.adjustment_lines.insert_one({"id": lid, "adjustment_id": did, "item_id": l["item_id"],
+            "before": before, "adjustment": delta, "after": after, "reason": l.get("reason"),
+            "approved_unit_cost": unit_cost, "cost_overridden": overridden})
         qty_in = delta if delta > 0 else 0
         qty_out = -delta if delta < 0 else 0
-        await post_ledger("Stock Adjustment", no, did, l["item_id"], wh, qty_in, qty_out,
-                          division_id=body.get("division_id"), user=user)
+        await post_movement("Stock Adjustment", no, did, l["item_id"], wh, qty_in, qty_out,
+                            division_id=body.get("division_id"), user=user, line_id=lid,
+                            unit_cost_in=(unit_cost if delta > 0 else None), require_cost=(delta > 0),
+                            source_key=f"ADJ::{lid}", txn_at=body.get("date"))
+        if delta > 0 and overridden:
+            await audit(user, "override_cost", "adjustment", did, no, reason=l.get("reason"),
+                        after={"item_id": l["item_id"], "approved_unit_cost": unit_cost})
     await audit(user, "create", "adjustment", did, no, reason=body.get("reason"))
     return await get_adjustment(did, user)
 
@@ -272,7 +339,13 @@ async def create_opname(body: dict, user=Depends(current_user)):
 async def opname_count(did: str, body: dict, user=Depends(current_user)):
     require(user, "edit")
     for l in body.get("lines", []):
-        await db.opname_lines.update_one({"id": l["line_id"]}, {"$set": {"counted": float(l["counted"])}})
+        patch = {"counted": float(l["counted"])} if l.get("counted") is not None else {}
+        if l.get("approved_unit_cost") is not None:
+            patch["approved_unit_cost"] = l.get("approved_unit_cost")
+        if l.get("reason") is not None:
+            patch["reason"] = l.get("reason")
+        if patch:
+            await db.opname_lines.update_one({"id": l["line_id"]}, {"$set": patch})
     await db.opname.update_one({"id": did}, {"$set": {"status": body.get("status", "Review")}})
     await audit(user, "edit", "opname", did)
     return await get_opname(did, user)
@@ -297,9 +370,21 @@ async def opname_post(did: str, user=Depends(current_user)):
         if l.get("counted") is None: continue
         variance = l["counted"] - l.get("snapshot", 0)
         if abs(variance) < 1e-9: continue
-        qty_in = variance if variance > 0 else 0
-        qty_out = -variance if variance < 0 else 0
-        await post_ledger("Stock Opname Adjustment", d["no"], did, l["item_id"], wh, qty_in, qty_out, user=user)
+        lid = l.get("id")
+        if variance > 0:
+            # surplus = inventory IN; needs a valid valuation basis. Approved cost + reason are
+            # captured earlier on the line via PUT /opname/{id}/count (stored on opname_lines).
+            unit_cost, overridden = await _resolve_in_cost(l["item_id"], wh, l.get("approved_unit_cost"), l.get("reason"))
+            await post_movement("Stock Opname Adjustment", d["no"], did, l["item_id"], wh, variance, 0,
+                                user=user, line_id=lid, unit_cost_in=unit_cost, require_cost=True,
+                                source_key=f"OPN::{did}::{lid}", txn_at=d.get("date"))
+            if overridden:
+                await audit(user, "override_cost", "opname", did, d.get("no"), reason=l.get("reason"),
+                            after={"item_id": l["item_id"], "approved_unit_cost": unit_cost})
+        else:
+            # shortage = inventory OUT at current average snapshot
+            await post_movement("Stock Opname Adjustment", d["no"], did, l["item_id"], wh, 0, -variance,
+                                user=user, line_id=lid, source_key=f"OPN::{did}::{lid}", txn_at=d.get("date"))
     await db.opname.update_one({"id": did}, {"$set": {"status": "Posted", "approved_by": user.get("name"), "posted_at": now_iso()}})
     await audit(user, "approve", "opname", did, d.get("no"))
     return await get_opname(did, user)

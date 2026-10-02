@@ -21,9 +21,11 @@ const EMPTY = () => ({ date: todayISO(), warehouse_id: "", division_id: "", mode
 
 export default function Opname() {
   const masters = useMasters(); const { can } = useAuth();
+  const canPrice = can("view_purchase_price");
   const [rows, setRows] = useState([]); const [createOpen, setCreateOpen] = useState(false);
   const [h, setH] = useState(EMPTY());
   const [detail, setDetail] = useState(null); const [counts, setCounts] = useState({}); const [countUoms, setCountUoms] = useState({}); const [forceEditing,setForceEditing]=useState(false);
+  const [surplusCost, setSurplusCost] = useState({}); const [surplusReason, setSurplusReason] = useState({});
   const itemsMap = masters.map("items"); const uomsMap = masters.map("uoms");
   const uomLabel = (id) => { const u = uomsMap[id]; return u ? (u.symbol || u.name || u.code) : ""; };
   const uomOptions = (itemId) => {
@@ -42,9 +44,9 @@ export default function Opname() {
 
   const openDetail = (id) => api.get(`/opname/${id}`).then((r) => {
     setCreateOpen(false); setDetail(r.data); setForceEditing(false); setH({date:r.data.date,warehouse_id:r.data.warehouse_id||"",division_id:r.data.division_id||"",mode:r.data.mode||"live",scope:r.data.scope||"all",notes:r.data.notes||"",document_message:r.data.document_message||""});
-    const nextUoms = {}; const nextCounts = {};
-    r.data.lines.forEach((l) => { const it = itemsMap[l.item_id]; const uid = it?.base_uom_id || (it?.unit ? `legacy:${it.unit}` : ""); nextUoms[l.id] = uid; nextCounts[l.id] = l.counted ?? ""; });
-    setCountUoms(nextUoms); setCounts(nextCounts);
+    const nextUoms = {}; const nextCounts = {}; const nextCost = {}; const nextReason = {};
+    r.data.lines.forEach((l) => { const it = itemsMap[l.item_id]; const uid = it?.base_uom_id || (it?.unit ? `legacy:${it.unit}` : ""); nextUoms[l.id] = uid; nextCounts[l.id] = l.counted ?? ""; nextCost[l.id] = l.approved_unit_cost ?? ""; nextReason[l.id] = l.reason ?? ""; });
+    setCountUoms(nextUoms); setCounts(nextCounts); setSurplusCost(nextCost); setSurplusReason(nextReason);
   });
 
   const changeUom = (line, uid) => {
@@ -55,7 +57,7 @@ export default function Opname() {
 
   const baseCountLines=()=>detail.lines.map(line=>{const uid=countUoms[line.id];const factor=factorFor(line,uid);const c=counts[line.id];return{id:line.id,item_id:line.item_id,snapshot:line.snapshot,counted:c===""||c==null?null:Number(c)*factor};});
   const saveCount = async (status) => {
-    const lines = baseCountLines().filter(x=>x.counted!==null).map(x=>({line_id:x.id,counted:x.counted}));
+    const lines = baseCountLines().filter(x=>x.counted!==null).map(x=>{const o={line_id:x.id,counted:x.counted};const sc=surplusCost[x.id];const sr=surplusReason[x.id];if(sc!==""&&sc!=null)o.approved_unit_cost=Number(sc);if(sr)o.reason=sr;return o;});
     await api.put(`/opname/${detail.id}/count`, { lines, status }); toast.success("Hasil hitung tersimpan dalam satuan dasar"); openDetail(detail.id); load();
   };
   const saveEdit=async()=>{try{await api.put(`/transactions/opname/${detail.id}`,{...h,lines:baseCountLines()});await saveDocumentMessage("opname",detail.id,h.document_message);toast.success("Stock opname diperbarui. Jika sudah Posted, efek stok lama direversal lalu diposting ulang.");openDetail(detail.id);load();}catch(e){toast.error(apiError(e.response?.data?.detail));}};
@@ -70,9 +72,9 @@ export default function Opname() {
 
     {detail && <Card className="mt-4 border-primary/20"><CardContent className="pt-5 space-y-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wider text-primary">Workspace Stock Opname</div><div className="mt-1 flex flex-wrap items-center gap-2"><span className="text-xs font-semibold text-muted-foreground">No. Opname</span><h2 className="font-head font-mono text-lg font-semibold">{detail.no}</h2><StatusBadge status={detail.status} /></div><p className="mt-1 text-xs text-muted-foreground">Fisik boleh dihitung dengan satuan kemasan; sistem mengonversi ke satuan dasar saat disimpan.</p><div className="mt-2"><TransactionMutationActions module="opname" id={detail.id} onEdit={()=>setForceEditing(true)} onDeleted={()=>{setDetail(null);load();}} compact /></div></div><Button variant="ghost" size="icon" onClick={() => setDetail(null)}><X className="h-4 w-4" /></Button></div>
       {forceEditing&&<div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-lg border p-3"><Field label="Tanggal"><DatePicker value={h.date} onChange={v=>setH({...h,date:v})}/></Field><Field label="Gudang"><Combobox options={masters.opts("warehouses")} value={h.warehouse_id} onChange={v=>setH({...h,warehouse_id:v})}/></Field><Field label="Catatan"><Input value={h.notes||""} onChange={e=>setH({...h,notes:e.target.value})}/></Field></div>}
-      <div className="max-h-[560px] overflow-auto border rounded-md"><table className="w-full text-sm zebra min-w-[820px]"><thead className="sticky top-0 bg-muted z-10"><tr className="text-left text-xs uppercase text-muted-foreground"><th className="p-2">Barang</th><th className="p-2 min-w-[170px]">Satuan Hitung</th><th className="p-2 text-right">Sistem</th><th className="p-2 w-28">Fisik</th><th className="p-2 text-right">Variance</th></tr></thead><tbody>{detail.lines.map((l) => {
+      <div className="max-h-[560px] overflow-auto border rounded-md"><table className="w-full text-sm zebra min-w-[820px]"><thead className="sticky top-0 bg-muted z-10"><tr className="text-left text-xs uppercase text-muted-foreground"><th className="p-2">Barang</th><th className="p-2 min-w-[170px]">Satuan Hitung</th><th className="p-2 text-right">Sistem</th><th className="p-2 w-28">Fisik</th><th className="p-2 text-right">Variance</th>{canPrice && <th className="p-2 w-40">Biaya (Surplus)</th>}</tr></thead><tbody>{detail.lines.map((l) => {
         const uid = countUoms[l.id]; const factor = factorFor(l, uid); const systemDisplay = (Number(l.snapshot) || 0) / factor; const c = counts[l.id]; const physical = c === "" || c == null ? systemDisplay : Number(c); const v = physical - systemDisplay; const editable = forceEditing||["Counting", "Review"].includes(detail.status); const opts = uomOptions(l.item_id);
-        return <tr key={l.id} className="border-t"><td className="p-2">{l.item_code} — {l.item_name}</td><td className="p-1.5">{editable ? <Combobox options={opts} value={uid || itemsMap[l.item_id]?.base_uom_id || ""} onChange={(x) => changeUom(l, x)} disabled={opts.length <= 1} /> : (uomLabel(itemsMap[l.item_id]?.base_uom_id) || itemsMap[l.item_id]?.unit || "-")}</td><td className="p-2 text-right tabular-nums">{num(systemDisplay)}</td><td className="p-1.5">{editable ? <Input type="number" step="any" value={c} onChange={(e) => setCounts({ ...counts, [l.id]: e.target.value })} className="h-8 text-right" /> : num(l.counted)}</td><td className={`p-2 text-right tabular-nums font-semibold ${v < 0 ? "text-destructive" : v > 0 ? "text-emerald-600" : ""}`}>{v > 0 ? "+" : ""}{num(v)}</td></tr>;
+        return <tr key={l.id} className="border-t"><td className="p-2">{l.item_code} — {l.item_name}</td><td className="p-1.5">{editable ? <Combobox options={opts} value={uid || itemsMap[l.item_id]?.base_uom_id || ""} onChange={(x) => changeUom(l, x)} disabled={opts.length <= 1} /> : (uomLabel(itemsMap[l.item_id]?.base_uom_id) || itemsMap[l.item_id]?.unit || "-")}</td><td className="p-2 text-right tabular-nums">{num(systemDisplay)}</td><td className="p-1.5">{editable ? <Input type="number" step="any" value={c} onChange={(e) => setCounts({ ...counts, [l.id]: e.target.value })} className="h-8 text-right" /> : num(l.counted)}</td><td className={`p-2 text-right tabular-nums font-semibold ${v < 0 ? "text-destructive" : v > 0 ? "text-emerald-600" : ""}`}>{v > 0 ? "+" : ""}{num(v)}</td>{canPrice && <td className="p-1.5">{v > 0 && editable ? <><Input type="number" step="any" value={surplusCost[l.id] ?? ""} onChange={(e) => setSurplusCost({ ...surplusCost, [l.id]: e.target.value })} className="h-8 text-right" placeholder="biaya satuan" data-testid={`opname-cost-${l.id}`} /><Input value={surplusReason[l.id] ?? ""} onChange={(e) => setSurplusReason({ ...surplusReason, [l.id]: e.target.value })} className="h-7 mt-1 text-xs" placeholder="alasan bila beda rata-rata" /></> : <span className="text-[10px] text-muted-foreground">—</span>}</td>}</tr>;
       })}</tbody></table></div>
       <div className="rounded-xl border bg-card p-4"><div className="mb-3 flex items-center gap-2 font-head text-sm font-semibold"><Paperclip className="h-4 w-4" />Lampiran</div><AttachmentPanel entity="opname" entityId={detail.id} /></div>
       <DocumentMessageEditor module="opname" value={forceEditing?h.document_message:(detail.document_message||"")} onChange={(v)=>setH({...h,document_message:v})} readOnly={!forceEditing} />

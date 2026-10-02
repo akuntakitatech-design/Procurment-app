@@ -39,38 +39,8 @@ async def _reverse_blockers(server, rid):
 
 
 async def _reverse(server, rid, user, reason):
-    rows=await server.db.stock_ledger.find({"doc_id":rid,"is_reversal":{"$ne":True},"reversed":{"$ne":True}},{"_id":0}).sort("at",1).to_list(5000)
-    for row in rows:
-        qty_in=float(row.get("qty_out") or 0)
-        qty_out=float(row.get("qty_in") or 0)
-        item_id=row.get("item_id"); wh=row.get("warehouse_id")
-        bal=float(await server.stock_balance(item_id,wh) or 0)
-        running=bal+qty_in-qty_out
-        await server.db.stock_ledger.insert_one({
-            "id":server.gid(),
-            "doc_type":f"Reversal {row.get('doc_type') or 'Loan Return'}",
-            "doc_no":row.get("doc_no"),
-            "doc_id":rid,
-            "item_id":item_id,
-            "warehouse_id":wh,
-            "qty_in":qty_in,
-            "qty_out":qty_out,
-            "running_balance":running,
-            "project_id":row.get("project_id"),
-            "unit_id":row.get("unit_id"),
-            "division_id":row.get("division_id"),
-            "user":user.get("email"),
-            "at":server.now_iso(),
-            "is_reversal":True,
-            "reversal_of_ledger_id":row.get("id"),
-            "reversal_reason":reason,
-        })
-        await server.db.item_warehouse.update_one(
-            {"item_id":item_id,"warehouse_id":wh},
-            {"$set":{"item_id":item_id,"warehouse_id":wh,"current_stock":running}},
-            upsert=True,
-        )
-        await server.db.stock_ledger.update_one({"id":row.get("id")},{"$set":{"reversed":True,"reversed_at":server.now_iso(),"reversal_reason":reason}})
+    """Valuation-safe reversal of a loan-return document via the central engine."""
+    return await server.reverse_document_valuation(rid, user=user, reason=reason, block_negative=True)
 
 
 async def _legacy_lines(server, ret):
@@ -174,8 +144,9 @@ def install(server):
             if qty>rem+1e-6 and not server.has_perm(user,"override_qty"): raise HTTPException(400,"Qty return melebihi outstanding pinjaman")
             if qty<=0: continue
             await server.db.loan_lines.update_one({"id":ll["id"]},{"$inc":{"returned":qty}})
-            await server.post_ledger("Loan Return Out",ret.get("no"),rid,ll.get("item_id"),loan.get("to_warehouse_id"),0,qty,user=user)
-            await server.post_ledger("Loan Return In",ret.get("no"),rid,ll.get("item_id"),loan.get("from_warehouse_id"),qty,0,user=user)
+            uc=float(ll.get("cost_snapshot") or 0); rv=qty*uc
+            await server.post_movement("Loan Return Out",ret.get("no"),rid,ll.get("item_id"),loan.get("to_warehouse_id"),0,qty,user=user,reversal_value=rv,line_id=ll["id"],source_key=f"LOANRET-O::{rid}::{ll['id']}",txn_at=(body or {}).get("date"))
+            await server.post_movement("Loan Return In",ret.get("no"),rid,ll.get("item_id"),loan.get("from_warehouse_id"),qty,0,user=user,value_in=rv,line_id=ll["id"],source_key=f"LOANRET-I::{rid}::{ll['id']}",txn_at=(body or {}).get("date"),require_cost=True)
             new.append({"id":server.gid(),"return_id":rid,"loan_id":ret.get("loan_id"),"loan_line_id":ll["id"],"item_id":ll.get("item_id"),"qty":qty})
         await server.db.loan_return_lines.delete_many({"return_id":rid})
         if new: await server.db.loan_return_lines.insert_many(new)
