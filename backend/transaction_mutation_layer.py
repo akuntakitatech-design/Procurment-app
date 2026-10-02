@@ -326,7 +326,7 @@ async def _replace(server, module, did, body, user):
         elif module == "ro":
             rec = {"id": lid, "ro_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "unit": line.get("unit"), "warehouse_id": line.get("warehouse_id") or normalized.get("default_warehouse_id"), "project_id": line.get("project_id") or normalized.get("default_project_id"), "unit_id": line.get("unit_id") or normalized.get("default_unit_id"), "notes": line.get("notes")}
         elif module == "po":
-            rec = {"id": lid, "po_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "unit": line.get("unit"), "warehouse_id": line.get("warehouse_id") or normalized.get("default_warehouse_id"), "project_id": line.get("project_id") or normalized.get("default_project_id"), "unit_id": line.get("unit_id") or normalized.get("default_unit_id"), "spk": normalized.get("spk"), "price": float(line.get("price") or 0), "discount": float(line.get("discount") or 0), "tax": float(line.get("tax") or 0), "tax_id": line.get("tax_id"), "tax_name": line.get("tax_name"), "notes": line.get("notes")}
+            rec = {"id": lid, "po_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "unit": line.get("unit"), "warehouse_id": line.get("warehouse_id") or normalized.get("default_warehouse_id"), "project_id": line.get("project_id") or normalized.get("default_project_id"), "unit_id": line.get("unit_id") or normalized.get("default_unit_id"), "spk": normalized.get("spk"), "price": float(line.get("price") or 0), "discount": float(line.get("discount") or 0), "discount_type": (line.get("discount_type") or None), "discount_value": float(line.get("discount_value") or 0), "discount_amount": float(line.get("discount") or 0), "tax": float(line.get("tax") or 0), "tax_id": line.get("tax_id"), "tax_name": line.get("tax_name"), "notes": line.get("notes"), "price_change_reason": (line.get("price_change_reason") or None), "contract_price_snapshot": line.get("contract_price_snapshot"), "contract_number_snapshot": line.get("contract_number_snapshot"), "price_variance": line.get("price_variance"), "price_variance_pct": line.get("price_variance_pct"), "price_status": line.get("price_status")}
         elif module == "do":
             rec = {"id": lid, "do_id": did, "po_id": (specs[0][2] if specs else line.get("po_id")), "po_line_id": (specs[0][1] if specs else line.get("po_line_id")), "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "unit": line.get("unit"), "warehouse_id": line.get("warehouse_id") or normalized.get("default_warehouse_id"), "project_id": line.get("project_id") or normalized.get("default_project_id"), "unit_id": line.get("unit_id") or normalized.get("default_unit_id"), "spk": normalized.get("spk"), "condition": line.get("condition", "Baik"), "notes": line.get("notes")}
         elif module == "mi":
@@ -353,19 +353,18 @@ async def _replace(server, module, did, body, user):
 
     no = doc.get("no")
     if module == "po":
-        inclusive = bool(normalized.get("tax_inclusive", False))
-        grand = 0.0
-        for rec in new_lines:
-            gross = float(rec.get("qty") or 0) * float(rec.get("price") or 0)
-            net = max(0.0, gross - float(rec.get("discount") or 0))
-            rate = float(rec.get("tax") or 0)
-            if inclusive and rate:
-                dpp = net / (1 + rate / 100.0); tax_amount = net - dpp; total = net
-            else:
-                dpp = net; tax_amount = dpp * rate / 100.0; total = dpp + tax_amount
-            await line_col.update_one({"id": rec["id"]}, {"$set": {"gross": gross, "dpp": dpp, "tax_amount": tax_amount, "total": total, "tax_inclusive": inclusive}})
-            grand += total
-        await head_col.update_one({"id": did}, {"$set": {"grand_total": grand, "status": "Draft"}})
+        import doc_procurement as _dp
+        computed, totals = _dp.compute_po_totals(normalized, new_lines)
+        for rec, c in zip(new_lines, computed):
+            await line_col.update_one({"id": rec["id"]}, {"$set": {"gross": c["gross"], "dpp": c["dpp"], "tax_amount": c["tax_amount"], "total": c["total"], "tax_inclusive": c["tax_inclusive"]}})
+        await head_col.update_one({"id": did}, {"$set": {
+            "grand_total": totals["grand_total"], "gross_total": totals["gross_total"],
+            "item_discount_total": totals["item_discount_total"],
+            "subtotal_after_item_discount": totals["subtotal_after_item_discount"],
+            "final_discount_type": totals["final_discount_type"], "final_discount_value": totals["final_discount_value"],
+            "final_discount_amount": totals["final_discount_amount"],
+            "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
+            "tax_inclusive": bool(normalized.get("tax_inclusive", False)), "status": "Draft"}})
     elif module == "do":
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
         for rec in new_lines:

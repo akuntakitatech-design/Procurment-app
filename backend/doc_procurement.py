@@ -477,34 +477,90 @@ async def get_po(did: str, user=Depends(current_user)):
     return d
 
 
+def _po_final_discount_amount(subtotal_after_item, ftype, fvalue):
+    """Diskon Final level-PO. Persen dihitung dari Subtotal Setelah Diskon Item;
+    Rp langsung (tidak boleh melebihi subtotal)."""
+    fv = float(fvalue or 0)
+    base = max(0.0, float(subtotal_after_item or 0))
+    if fv <= 0 or base <= 0:
+        return 0.0
+    if str(ftype or "").lower() in ("percent", "%", "persen", "pct"):
+        return min(base, base * fv / 100.0)
+    return min(base, fv)
+
+
+def compute_po_totals(header, lines):
+    """Canonical PO money engine (shared by create_po + transaction update + preview).
+    Item discount (amount) is subtracted first, then the PO-level Final Discount is PRORATED
+    across each line's net (taxable base) before tax, so per-line `total` (and therefore the
+    SPK commitment that reads po_lines.total) always reconciles with the header grand_total.
+    Preserves the existing tax model: exclusive adds tax on the discounted base; inclusive
+    extracts tax from the discounted price (never double-added)."""
+    inclusive = bool(header.get("tax_inclusive"))
+    nets = []; gross_total = 0.0; item_disc_total = 0.0
+    for l in lines:
+        qty = float(l.get("qty") or 0); price = float(l.get("price") or 0)
+        disc = float(l.get("discount") or 0)
+        gross = qty * price; net = max(0.0, gross - disc)
+        gross_total += gross; item_disc_total += disc; nets.append(net)
+    subtotal_after_item = sum(nets)
+    fd_amount = _po_final_discount_amount(subtotal_after_item, header.get("final_discount_type"), header.get("final_discount_value"))
+    factor = ((subtotal_after_item - fd_amount) / subtotal_after_item) if subtotal_after_item > 0 else 1.0
+    out = []; grand = 0.0; tax_total = 0.0; subtotal_after_final = 0.0
+    for l, net in zip(lines, nets):
+        rate = float(l.get("tax") or 0); net_final = net * factor
+        if inclusive and rate:
+            dpp = net_final / (1 + rate / 100.0); tax_amount = net_final - dpp; total = net_final
+        else:
+            dpp = net_final; tax_amount = dpp * rate / 100.0; total = dpp + tax_amount
+        subtotal_after_final += net_final; tax_total += tax_amount; grand += total
+        x = dict(l)
+        x["gross"] = float(l.get("qty") or 0) * float(l.get("price") or 0)
+        x["dpp"] = dpp; x["tax_amount"] = tax_amount; x["total"] = total; x["tax_inclusive"] = inclusive
+        out.append(x)
+    totals = {"gross_total": gross_total, "item_discount_total": item_disc_total,
+              "subtotal_after_item_discount": subtotal_after_item,
+              "final_discount_type": (header.get("final_discount_type") or None),
+              "final_discount_value": float(header.get("final_discount_value") or 0),
+              "final_discount_amount": fd_amount, "subtotal_after_discount": subtotal_after_final,
+              "tax_total": tax_total, "grand_total": grand}
+    return out, totals
+
+
 @api.post("/po")
 async def create_po(body: dict, user=Depends(current_user)):
     require(user, "create")
     did = gid(); no = await next_number("PO")
-    grand = 0
     lines_in = body.get("lines", [])
-    for l in lines_in:
-        qty = float(l.get("qty", 0)); price = float(l.get("price", 0))
-        disc = float(l.get("discount", 0)); tax = float(l.get("tax", 0))
-        base = qty * price - disc
-        l["total"] = base + base * tax / 100.0
-        grand += l["total"]
+    computed, totals = compute_po_totals(body, lines_in)
+    for l, c in zip(lines_in, computed):
+        l["total"] = c["total"]
+    grand = totals["grand_total"]
     await db.po.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
         "supplier_id": body.get("supplier_id"), "division_id": body.get("division_id"),
         "payment_term": body.get("payment_term"), "eta": body.get("eta"),
         "default_warehouse_id": body.get("default_warehouse_id"), "default_project_id": body.get("default_project_id"),
         "currency": body.get("currency", "IDR"), "tax_pct": body.get("tax_pct", 0),
+        "tax_inclusive": bool(body.get("tax_inclusive", False)),
         "supplier_notes": body.get("supplier_notes"), "internal_notes": body.get("internal_notes"),
+        "final_discount_type": totals["final_discount_type"], "final_discount_value": totals["final_discount_value"],
+        "final_discount_amount": totals["final_discount_amount"],
+        "gross_total": totals["gross_total"], "item_discount_total": totals["item_discount_total"],
+        "subtotal_after_item_discount": totals["subtotal_after_item_discount"],
+        "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
         "grand_total": grand, "status": "Draft", "cancelled": False,
         "created_by": user.get("email"), "created_at": now_iso()})
-    for l in lines_in:
+    for l, c in zip(lines_in, computed):
         lid = gid()
         await db.po_lines.insert_one({"id": lid, "po_id": did, "item_id": l["item_id"],
             "qty": float(l.get("qty", 0)), "unit": l.get("unit"),
             "warehouse_id": l.get("warehouse_id") or body.get("default_warehouse_id"),
             "project_id": l.get("project_id"), "unit_id": l.get("unit_id"), "spk": l.get("spk"),
             "price": float(l.get("price", 0)), "discount": float(l.get("discount", 0)),
-            "tax": float(l.get("tax", 0)), "total": l.get("total", 0), "notes": l.get("notes"),
+            "discount_type": (l.get("discount_type") or None), "discount_value": float(l.get("discount_value") or 0),
+            "discount_amount": float(l.get("discount", 0)),
+            "dpp": c["dpp"], "tax_amount": c["tax_amount"], "tax_inclusive": c["tax_inclusive"],
+            "tax": float(l.get("tax", 0)), "total": c["total"], "notes": l.get("notes"),
             "price_change_reason": (l.get("price_change_reason") or None),
             "contract_price_snapshot": l.get("contract_price_snapshot"),
             "contract_number_snapshot": l.get("contract_number_snapshot"),

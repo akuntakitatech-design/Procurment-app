@@ -524,15 +524,17 @@ def install(server):
         base = qty * price - disc
         return int(round(base + base * tax / 100.0))
 
-    def _amounts_from_lines(raw_lines):
+    def _amounts_from_lines(raw_lines, final_factor=1.0):
         """Agregasi nilai commitment per SPK dari line mentah (reuse _distribute).
 
         - Non-SPK = qty - total_spk (derived) dan TIDAK ikut agregasi SPK.
         - Distribusi proporsional qty largest-remainder -> sum rekonsiliasi eksak = nilai line.
+        - final_factor: faktor Diskon Final level-PO (prorata), mengikuti compute_po_totals,
+          agar preview == commitment setelah diskon final.
         """
         per_spk = {}
         for l in raw_lines or []:
-            total_int = _line_total_int_raw(l)
+            total_int = int(round(_line_total_int_raw(l) * (final_factor if final_factor and final_factor > 0 else 1.0)))
             qty = float(l.get("qty") or 0)
             allocs = []
             seen = set()
@@ -625,7 +627,17 @@ def install(server):
         server.require(user, PERM_VIEW)
         raw_lines = (body or {}).get("lines") or []
         exclude_po_id = (body or {}).get("exclude_po_id") or None
-        per_spk = _amounts_from_lines(raw_lines)
+        # PO-level Final Discount (prorated) so preview matches the eventual commitment.
+        _sub = 0.0
+        for _l in raw_lines:
+            _sub += max(0.0, float(_l.get("qty") or 0) * float(_l.get("price") or 0) - float(_l.get("discount") or 0))
+        _fv = float((body or {}).get("final_discount_value") or 0)
+        _ft = str((body or {}).get("final_discount_type") or "").lower()
+        _fd = 0.0
+        if _fv > 0 and _sub > 0:
+            _fd = min(_sub, _sub * _fv / 100.0) if _ft in ("percent", "%", "persen", "pct") else min(_sub, _fv)
+        _factor = ((_sub - _fd) / _sub) if _sub > 0 else 1.0
+        per_spk = _amounts_from_lines(raw_lines, _factor)
         ev = await _budget_eval_for_amounts(per_spk, exclude_po_id=exclude_po_id)
         return {"status": "preview", "committed": False, **ev}
 
