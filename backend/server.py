@@ -49,15 +49,25 @@ def clean(doc):
         doc.pop("_id", None)
     return doc
 
+ACCESS_HOOK = None  # set by access_control_layer: effective permission + division scope + route check
+PERM_CHECK = None
+
 async def current_user(request: Request):
-    return await A.get_current_user(request, db)
+    user = await A.get_current_user(request, db)
+    if ACCESS_HOOK:
+        await ACCESS_HOOK(request, user)
+    return user
 
 def is_global(user):
+    if "_div_all" in user:
+        return bool(user["_div_all"])
     return user.get("role") in ("admin", "director", "purchasing") or user.get("scope") == "global" or "view_all_division" in user.get("permissions", [])
 
 def has_perm(user, perm):
     if user.get("role") == "admin":
         return True
+    if PERM_CHECK and "effective_permissions" in user:
+        return PERM_CHECK(user, perm)
     return perm in user.get("permissions", [])
 
 PERM_LABELS_ID = {"view": "melihat data", "create": "menambah data", "edit": "mengubah data", "delete": "menghapus data",

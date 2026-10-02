@@ -9,6 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import api, { API } from "@/lib/api";
 
+const NAV_MODULES = {
+  "/warehouse": ["mro", "ro", "do", "mi"], "/purchasing": ["po"], "/persediaan": ["transfer", "loan", "adjustment", "opname"],
+  "/master": ["spk", "vendor_contracts", "items", "item_categories", "uoms", "stock_minmax", "suppliers", "supplier_categories", "taxes", "divisions", "contacts", "warehouses", "projects", "units"],
+};
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/warehouse", label: "Gudang", icon: Warehouse, match: ["/warehouse", "/mro", "/ro", "/do", "/mi"] },
@@ -115,7 +119,8 @@ function SubscriptionBanner({ status }) {
 }
 
 export function Layout({ children }) {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
+  const navVisible = (n) => !NAV_MODULES[n.to] || NAV_MODULES[n.to].some((m) => can("view", m));
   const [dark, setDark] = useState(document.documentElement.classList.contains("dark"));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [brand, setBrand] = useState({ name: "App Proc", subtitle: "Procurement & Inventory", logo_available: false, logo_version: null });
@@ -153,7 +158,7 @@ export function Layout({ children }) {
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="px-5 pt-5 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Workspace</div>
           <nav className="px-3 pb-6 space-y-1.5">
-            {NAV.map((n) => {
+            {NAV.filter(navVisible).map((n) => {
               const active = activeFor(n);
               return <NavLink key={n.to} to={n.to} end={n.exact} onClick={() => setMobileOpen(false)}
                 data-testid={`nav-${n.to.replace("/", "") || "dashboard"}`}

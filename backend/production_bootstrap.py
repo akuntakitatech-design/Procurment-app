@@ -237,6 +237,9 @@ tenant_security_hardening_layer.install(server)
 # Tenant isolation is installed after all business/feature modules are registered. Its startup
 # handler runs after the original server startup and additive foundation backfill, then replaces
 # raw database references with tenant-aware proxies.
+# Tahap 2 — Hak Akses per Modul/Aksi + Cakupan Divisi. Wraps final business routes; must stay before tenant isolation.
+import access_control_layer  # noqa: E402
+access_control_layer.install(server)
 tenant_isolation_layer.install(server)
 
 # The subscription gate runs after isolation so it can enforce lifecycle access on every tenant

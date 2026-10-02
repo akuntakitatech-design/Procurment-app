@@ -363,6 +363,7 @@ async def enrich_list(server, module, rows):
         hdiv = r.get("division_name") or nm("divisions", r.get("division_id"))
         hproj = r.get("default_project_id") or r.get("project_id")
         mro_s, ro_s, po_s, proj_s, div_s, spk_s, wh_s, unit_s, req_s = (set() for _ in range(9))
+        div_ids = {r["division_id"]} if r.get("division_id") else set()
         if hdiv:
             div_s.add(hdiv)
         items = []
@@ -374,6 +375,8 @@ async def enrich_list(server, module, rows):
                 md = mros.get(mid) or {}
                 if md.get("requester"):
                     req_s.add(md["requester"])
+                if module in ("po", "do", "mi", "ro") and md.get("division_id"):
+                    div_ids.add(md["division_id"])
                 if module in ("po", "do", "mi", "ro") and nm("divisions", md.get("division_id")):
                     div_s.add(nm("divisions", md.get("division_id")))
             pname = nm("projects", l.get("project_id") or hproj)
@@ -410,6 +413,7 @@ async def enrich_list(server, module, rows):
         r["trace_po"] = ", ".join(_uniq(po_s))
         r["trace_project"] = ", ".join(_uniq(proj_s))
         r["trace_division"] = ", ".join(_uniq(div_s))
+        r["trace_division_ids"] = sorted(div_ids)
         r["trace_spk"] = ", ".join(_uniq(spk_s))
         r["trace_warehouse"] = ", ".join(_uniq(wh_s))
         r["trace_unit"] = ", ".join(_uniq(unit_s))
