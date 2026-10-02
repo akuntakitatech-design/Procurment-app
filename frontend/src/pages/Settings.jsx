@@ -9,7 +9,8 @@ import { Field } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
 import { clearDocumentMessageDefaultsCache } from "@/components/DocumentMessageEditor";
 import { EmailOutbound } from "@/components/EmailOutboundSettings";
-import { Save, Trash2, Image as ImageIcon, Plus, ArrowUp, ArrowDown, FileText, ShieldCheck } from "lucide-react";
+import { Save, Trash2, Image as ImageIcon, Plus, ArrowUp, ArrowDown, FileText, ShieldCheck, Warehouse } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 
@@ -224,7 +225,40 @@ function DocumentMessages() {
     <Button onClick={save} disabled={saving} className="rounded-xl"><Save className="h-4 w-4 mr-2" />{saving ? "Menyimpan..." : "Simpan Pesan Default"}</Button>
   </div>;
 }
+function MaterialIssuedSettings() {
+  const [s, setS] = useState(null);
+  const [roles, setRoles] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.get("/settings/mi").then((r) => setS(r.data)).catch(() => setS({ mi_mode: "mro_only", direct_authorized_roles: [], direct_authorized_user_ids: [], can_manage: false }));
+    api.get("/permissions/catalog").then((r) => setRoles(Object.keys(r.data?.role_defaults || {}))).catch(() => {});
+    api.get("/users").then((r) => setUsers(r.data || [])).catch(() => {});
+  }, []);
+  if (!s) return <Card><CardContent className="pt-6 text-sm text-muted-foreground">Memuat...</CardContent></Card>;
+  const direct = s.mi_mode === "mro_plus_direct";
+  const toggle = (key, val) => { const set = new Set(s[key] || []); set.has(val) ? set.delete(val) : set.add(val); setS({ ...s, [key]: [...set] }); };
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/settings/mi", { mi_mode: s.mi_mode, direct_authorized_roles: s.direct_authorized_roles || [], direct_authorized_user_ids: s.direct_authorized_user_ids || [] });
+      toast.success("Konfigurasi MI tersimpan");
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); } finally { setSaving(false); }
+  };
+  return <Card><CardContent className="pt-6 space-y-5">
+    <div className="flex items-start gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/8 text-primary"><Warehouse className="h-4.5 w-4.5" /></div><div><div className="font-head font-semibold">Mode Material Issued</div><p className="mt-1 text-sm leading-6 text-muted-foreground">Default <b>MRO Only</b>. Direct (Tanpa MRO) hanya tampil bila diaktifkan dan pengguna diotorisasi. Keamanan tetap divalidasi di server.</p></div></div>
+    <Field label="Mode MI"><Combobox options={[{ value: "mro_only", label: "MRO Only" }, { value: "mro_plus_direct", label: "MRO + Direct Exception" }]} value={s.mi_mode} onChange={(v) => setS({ ...s, mi_mode: v })} disabled={!s.can_manage} testid="mi-mode-select" /></Field>
+    {direct && <div className="space-y-4">
+      <div><div className="mb-2 text-sm font-semibold">Role yang diotorisasi</div><div className="grid grid-cols-2 md:grid-cols-3 gap-2">{roles.map((r) => <label key={r} className="flex items-center gap-2 text-sm"><Checkbox checked={(s.direct_authorized_roles || []).includes(r)} onCheckedChange={() => toggle("direct_authorized_roles", r)} disabled={!s.can_manage} />{r}</label>)}</div></div>
+      <div><div className="mb-2 text-sm font-semibold">User yang diotorisasi</div><div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-auto rounded-lg border p-3">{users.map((u) => <label key={u.id} className="flex items-center gap-2 text-sm"><Checkbox checked={(s.direct_authorized_user_ids || []).includes(u.id) || (s.direct_authorized_user_ids || []).includes(u.email)} onCheckedChange={() => toggle("direct_authorized_user_ids", u.id)} disabled={!s.can_manage} /><span>{u.name || u.email}</span><span className="text-xs text-muted-foreground">{u.email}</span></label>)}</div></div>
+    </div>}
+    {s.can_manage ? <Button onClick={save} disabled={saving} className="rounded-xl" data-testid="mi-settings-save"><Save className="h-4 w-4 mr-2" />{saving ? "Menyimpan..." : "Simpan Konfigurasi MI"}</Button>
+      : <p className="text-xs text-muted-foreground">Hanya admin yang dapat mengubah konfigurasi ini.</p>}
+  </CardContent></Card>;
+}
+
+
 
 export default function Settings() {
-  return <div><PageHeader title="System Settings" subtitle="Konfigurasi perusahaan, branding, email outbound, penomoran, approval, dan pesan dokumen" /><Tabs defaultValue="company"><TabsList className="flex-wrap h-auto"><TabsTrigger value="company">Perusahaan</TabsTrigger><TabsTrigger value="email">Email Outbound</TabsTrigger><TabsTrigger value="numbering">Penomoran</TabsTrigger><TabsTrigger value="approval">Approval</TabsTrigger><TabsTrigger value="procurement">Procurement</TabsTrigger><TabsTrigger value="messages">Pesan Default Dokumen</TabsTrigger></TabsList><TabsContent value="company" className="mt-4"><Company /></TabsContent><TabsContent value="email" className="mt-4"><EmailOutbound /></TabsContent><TabsContent value="numbering" className="mt-4"><Numbering /></TabsContent><TabsContent value="approval" className="mt-4"><ApprovalLevels /></TabsContent><TabsContent value="procurement" className="mt-4"><BudgetControl /></TabsContent><TabsContent value="messages" className="mt-4"><DocumentMessages /></TabsContent></Tabs></div>;
+  return <div><PageHeader title="System Settings" subtitle="Konfigurasi perusahaan, branding, email outbound, penomoran, approval, dan pesan dokumen" /><Tabs defaultValue="company"><TabsList className="flex-wrap h-auto"><TabsTrigger value="company">Perusahaan</TabsTrigger><TabsTrigger value="email">Email Outbound</TabsTrigger><TabsTrigger value="numbering">Penomoran</TabsTrigger><TabsTrigger value="approval">Approval</TabsTrigger><TabsTrigger value="procurement">Procurement</TabsTrigger><TabsTrigger value="warehouse">Warehouse / MI</TabsTrigger><TabsTrigger value="messages">Pesan Default Dokumen</TabsTrigger></TabsList><TabsContent value="company" className="mt-4"><Company /></TabsContent><TabsContent value="email" className="mt-4"><EmailOutbound /></TabsContent><TabsContent value="numbering" className="mt-4"><Numbering /></TabsContent><TabsContent value="approval" className="mt-4"><ApprovalLevels /></TabsContent><TabsContent value="procurement" className="mt-4"><BudgetControl /></TabsContent><TabsContent value="warehouse" className="mt-4"><MaterialIssuedSettings /></TabsContent><TabsContent value="messages" className="mt-4"><DocumentMessages /></TabsContent></Tabs></div>;
 }

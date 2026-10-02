@@ -116,18 +116,74 @@ async def stock_balance(item_id, warehouse_id):
     return (iw or {}).get("current_stock", 0)
 
 async def post_ledger(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in, qty_out,
-                      project_id=None, unit_id=None, division_id=None, user=None):
-    bal = await stock_balance(item_id, warehouse_id)
+                      project_id=None, unit_id=None, division_id=None, user=None,
+                      unit_cost_in=None, value_in=None, line_id=None, uom=None, conversion_factor=1,
+                      cost_snapshot=None):
+    """Central stock + MOVING WEIGHTED AVERAGE valuation posting.
+    Pool key: tenant(auto) + item + warehouse + base UOM. Qty here is ALWAYS base UOM.
+    OUT movements are valued at the average cost BEFORE posting (snapshot).
+    IN movements use unit_cost_in/value_in when provided; otherwise they default to the
+    current average (flagged valuation_estimated) so a warehouse's average is never corrupted.
+    Backward compatible: callers that omit cost still post qty correctly."""
+    from decimal import Decimal, ROUND_HALF_UP
+    def D(x):
+        try: return Decimal(str(x if x is not None else 0))
+        except Exception: return Decimal(0)
+    iw = await db.item_warehouse.find_one({"item_id": item_id, "warehouse_id": warehouse_id}) or {}
+    bal = iw.get("current_stock", 0)
     running = bal + qty_in - qty_out
+    # ---- valuation ----
+    old_qty = D(bal); old_val = D(iw.get("total_value", 0)); old_avg = D(iw.get("avg_cost", 0))
+    if old_qty <= 0:
+        old_val = Decimal(0)  # zero-balance policy: no residual value when empty
+    estimated = False; v_in = Decimal(0); v_out = Decimal(0); unit_cost = None
+    if qty_in and qty_in > 0:
+        qin = D(qty_in)
+        if cost_snapshot is not None:
+            unit_cost = D(cost_snapshot); v_in = qin * unit_cost
+        elif value_in is not None:
+            v_in = D(value_in); unit_cost = (v_in / qin) if qin > 0 else Decimal(0)
+        elif unit_cost_in is not None:
+            unit_cost = D(unit_cost_in); v_in = qin * unit_cost
+        else:
+            unit_cost = old_avg; v_in = qin * old_avg
+            estimated = True  # IN posted without explicit cost -> defaulted to current average
+        new_qty = old_qty + qin; new_val = old_val + v_in
+    else:
+        qout = D(qty_out)
+        avg_before = old_avg if old_qty > 0 else Decimal(0)
+        unit_cost = avg_before; v_out = qout * avg_before
+        new_qty = old_qty - qout; new_val = old_val - v_out
+        if new_qty <= 0:
+            new_qty = Decimal(0); new_val = Decimal(0)  # clean zero balance, no residual
+    new_avg = (new_val / new_qty) if new_qty > 0 else Decimal(0)
+    q4 = Decimal("0.0001"); q6 = Decimal("0.000001")
+    new_val_r = new_val.quantize(q4, rounding=ROUND_HALF_UP)
+    new_avg_r = new_avg.quantize(q6, rounding=ROUND_HALF_UP)
     await db.stock_ledger.insert_one({
         "id": gid(), "doc_type": doc_type, "doc_no": doc_no, "doc_id": doc_id,
         "item_id": item_id, "warehouse_id": warehouse_id, "qty_in": qty_in, "qty_out": qty_out,
         "running_balance": running, "project_id": project_id, "unit_id": unit_id,
         "division_id": division_id, "user": (user or {}).get("email") if user else None,
         "at": now_iso()})
+    await db.valuation_ledger.insert_one({
+        "id": gid(), "doc_type": doc_type, "doc_no": doc_no, "doc_id": doc_id, "line_id": line_id,
+        "item_id": item_id, "warehouse_id": warehouse_id, "base_uom": iw.get("base_uom"),
+        "uom": uom, "conversion_factor": conversion_factor,
+        "qty_in": qty_in, "qty_out": qty_out,
+        "unit_cost": float(unit_cost) if unit_cost is not None else None,
+        "value_in": float(v_in.quantize(q4, rounding=ROUND_HALF_UP)),
+        "value_out": float(v_out.quantize(q4, rounding=ROUND_HALF_UP)),
+        "qty_before": float(old_qty), "value_before": float(old_val.quantize(q4, rounding=ROUND_HALF_UP)),
+        "avg_before": float(old_avg.quantize(q6, rounding=ROUND_HALF_UP)),
+        "qty_after": float(new_qty), "value_after": float(new_val_r), "avg_after": float(new_avg_r),
+        "valuation_method": "moving_weighted_average", "valuation_estimated": estimated,
+        "project_id": project_id, "unit_id": unit_id,
+        "user": (user or {}).get("email") if user else None, "at": now_iso()})
     await db.item_warehouse.update_one(
         {"item_id": item_id, "warehouse_id": warehouse_id},
-        {"$set": {"item_id": item_id, "warehouse_id": warehouse_id, "current_stock": running}},
+        {"$set": {"item_id": item_id, "warehouse_id": warehouse_id, "current_stock": running,
+                  "avg_cost": float(new_avg_r), "total_value": float(new_val_r)}},
         upsert=True)
     return running
 

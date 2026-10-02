@@ -37,7 +37,7 @@ NEW_PERMISSIONS = [PERM_VIEW, PERM_MANAGE, PERM_VERIFY]
 LINE_COLL = {"mro": "mro_lines", "ro": "ro_lines", "po": "po_lines", "do": "do_lines", "mi": "mi_lines"}
 HEAD_COLL = {"mro": "mro", "ro": "ro", "po": "po", "do": "do", "mi": "mi"}
 # Inheritance source per target stage: RO<-MRO, PO<-RO, DO<-PO, MI<-DO
-SRC_OF = {"ro": "mro", "po": "ro", "do": "po", "mi": "do"}
+SRC_OF = {"ro": "mro", "po": "ro", "do": "po", "mi": "mro"}
 DERIVED_TYPES = ("ro", "po", "do", "mi")  # stages that inherit allocation from upstream
 PO_FINAL_STATUS = "Approved"
 PO_ALLOC_EDITABLE = {"Draft", "Waiting Approval"}
