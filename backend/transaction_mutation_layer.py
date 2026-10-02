@@ -98,43 +98,10 @@ async def _capability(server, module, did, user):
 
 
 async def _reverse_ledgers(server, did, user, reason="edit"):
-    rows = await server.db.stock_ledger.find({
-        "doc_id": did,
-        "is_reversal": {"$ne": True},
-        "reversed": {"$ne": True},
-    }, {"_id": 0}).sort("at", 1).to_list(10000)
-    for row in rows:
-        qty_in = float(row.get("qty_out") or 0)
-        qty_out = float(row.get("qty_in") or 0)
-        item_id = row.get("item_id")
-        wh = row.get("warehouse_id")
-        bal = await server.stock_balance(item_id, wh)
-        running = bal + qty_in - qty_out
-        await server.db.stock_ledger.insert_one({
-            "id": server.gid(),
-            "doc_type": f"Reversal {row.get('doc_type') or ''}".strip(),
-            "doc_no": row.get("doc_no"),
-            "doc_id": did,
-            "item_id": item_id,
-            "warehouse_id": wh,
-            "qty_in": qty_in,
-            "qty_out": qty_out,
-            "running_balance": running,
-            "project_id": row.get("project_id"),
-            "unit_id": row.get("unit_id"),
-            "division_id": row.get("division_id"),
-            "user": user.get("email"),
-            "at": server.now_iso(),
-            "is_reversal": True,
-            "reversal_of_ledger_id": row.get("id"),
-            "reversal_reason": reason,
-        })
-        await server.db.item_warehouse.update_one(
-            {"item_id": item_id, "warehouse_id": wh},
-            {"$set": {"item_id": item_id, "warehouse_id": wh, "current_stock": running}},
-            upsert=True,
-        )
-        await server.db.stock_ledger.update_one({"id": row.get("id")}, {"$set": {"reversed": True, "reversed_at": server.now_iso()}})
+    """Delegate to the central valuation-safe reversal engine so that a document's stock AND
+    its moving-average valuation are both reversed using the ORIGINAL cost snapshots (and a
+    compensating valuation_ledger entry is written), instead of only fixing current_stock."""
+    return await server.reverse_document_valuation(did, user=user, reason=reason, block_negative=True)
 
 
 async def _incoming_for_old_line(server, line_id):
@@ -368,11 +335,20 @@ async def _replace(server, module, did, body, user):
     elif module == "do":
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
         for rec in new_lines:
-            await server.post_ledger("DO", no, did, rec["item_id"], rec["warehouse_id"], rec["qty"], 0, project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user)
+            acq = None
+            plid = rec.get("po_line_id")
+            if plid:
+                pol = await server.db.po_lines.find_one({"id": plid}, {"_id": 0})
+                if pol and float(pol.get("qty") or 0) > 0:
+                    acq = float(pol.get("dpp") or 0) / float(pol.get("qty"))
+            await server.post_ledger("DO", no, did, rec["item_id"], rec["warehouse_id"], rec["qty"], 0,
+                                     project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user,
+                                     unit_cost_in=acq, line_id=rec.get("id"), source_key=f"DO::{rec.get('id')}",
+                                     txn_at=normalized.get("date"), require_cost=bool(acq is not None))
     elif module == "mi":
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
         for rec in new_lines:
-            await server.post_ledger("MI", no, did, rec["item_id"], rec["warehouse_id"], 0, rec["qty"], project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), division_id=normalized.get("division_id"), user=user)
+            await server.post_ledger("MI", no, did, rec["item_id"], rec["warehouse_id"], 0, rec["qty"], project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), division_id=normalized.get("division_id"), user=user, line_id=rec.get("id"), source_key=f"MI::{rec.get('id')}", txn_at=normalized.get("date"))
     elif module == "transfer":
         frm, to = normalized.get("from_warehouse_id"), normalized.get("to_warehouse_id")
         if frm == to:

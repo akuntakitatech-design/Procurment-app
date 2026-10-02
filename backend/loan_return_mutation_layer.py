@@ -39,38 +39,8 @@ async def _reverse_blockers(server, rid):
 
 
 async def _reverse(server, rid, user, reason):
-    rows=await server.db.stock_ledger.find({"doc_id":rid,"is_reversal":{"$ne":True},"reversed":{"$ne":True}},{"_id":0}).sort("at",1).to_list(5000)
-    for row in rows:
-        qty_in=float(row.get("qty_out") or 0)
-        qty_out=float(row.get("qty_in") or 0)
-        item_id=row.get("item_id"); wh=row.get("warehouse_id")
-        bal=float(await server.stock_balance(item_id,wh) or 0)
-        running=bal+qty_in-qty_out
-        await server.db.stock_ledger.insert_one({
-            "id":server.gid(),
-            "doc_type":f"Reversal {row.get('doc_type') or 'Loan Return'}",
-            "doc_no":row.get("doc_no"),
-            "doc_id":rid,
-            "item_id":item_id,
-            "warehouse_id":wh,
-            "qty_in":qty_in,
-            "qty_out":qty_out,
-            "running_balance":running,
-            "project_id":row.get("project_id"),
-            "unit_id":row.get("unit_id"),
-            "division_id":row.get("division_id"),
-            "user":user.get("email"),
-            "at":server.now_iso(),
-            "is_reversal":True,
-            "reversal_of_ledger_id":row.get("id"),
-            "reversal_reason":reason,
-        })
-        await server.db.item_warehouse.update_one(
-            {"item_id":item_id,"warehouse_id":wh},
-            {"$set":{"item_id":item_id,"warehouse_id":wh,"current_stock":running}},
-            upsert=True,
-        )
-        await server.db.stock_ledger.update_one({"id":row.get("id")},{"$set":{"reversed":True,"reversed_at":server.now_iso(),"reversal_reason":reason}})
+    """Valuation-safe reversal of a loan-return document via the central engine."""
+    return await server.reverse_document_valuation(rid, user=user, reason=reason, block_negative=True)
 
 
 async def _legacy_lines(server, ret):
