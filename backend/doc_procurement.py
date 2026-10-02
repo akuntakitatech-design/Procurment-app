@@ -790,6 +790,41 @@ async def _refresh_po_receipt_status(po_id):
     await db.po.update_one({"id": po_id}, {"$set": {"status": status}})
 
 
+async def resolve_do_acq_cost(po_line_id, item_id=None, doc_id=None, line_id=None):
+    """Resolve the acquisition unit cost for a DO receipt line under Moving Average.
+
+    Priority:
+      1. Referenced PO line net per unit = dpp / qty (PO net merchandise value AFTER item discount
+         and proportional final discount, EXCLUDING normal creditable VAT).
+      2. (edit/re-post only) A prior VERIFIED (non-estimated) DO valuation snapshot for this line.
+    If neither resolves, HARD-BLOCK — never estimate / use current avg / latest price.
+    """
+    if po_line_id:
+        pol = await db.po_lines.find_one({"id": po_line_id}, {"_id": 0})
+        if pol and float(pol.get("qty") or 0) > 0:
+            return float(pol.get("dpp") or 0) / float(pol.get("qty"))
+    if doc_id:
+        q = {"doc_id": doc_id, "doc_type": "DO", "qty_in": {"$gt": 0}, "valuation_estimated": {"$ne": True}}
+        if item_id:
+            q["item_id"] = item_id   # line ids are regenerated on edit; match by item within the doc
+        prev = await db.valuation_ledger.find(q, {"_id": 0}).sort("at", -1).to_list(1)
+        if prev and prev[0].get("unit_cost") not in (None, 0):
+            return float(prev[0]["unit_cost"])
+    # human-readable context (no UUIDs)
+    item = await db.items.find_one({"id": item_id}, {"_id": 0}) if item_id else None
+    po_no = None
+    if po_line_id:
+        pol = await db.po_lines.find_one({"id": po_line_id}, {"_id": 0})
+        if pol and pol.get("po_id"):
+            po = await db.po.find_one({"id": pol["po_id"]}, {"_id": 0})
+            po_no = (po or {}).get("no")
+    item_label = (item or {}).get("code") or (item or {}).get("name") or "tidak diketahui"
+    raise HTTPException(400,
+        "Penerimaan tidak dapat diposting karena sumber harga dari PO tidak ditemukan. "
+        "Periksa kembali referensi PO pada item penerimaan. "
+        f"(PO: {po_no or 'tidak diketahui'}, Item: {item_label})")
+
+
 @api.post("/do")
 async def create_do(body: dict, user=Depends(current_user)):
     require(user, "create")
@@ -816,10 +851,9 @@ async def create_do(body: dict, user=Depends(current_user)):
             "warehouse_id": wh, "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
             "spk": l.get("spk"), "condition": l.get("condition", "Baik"), "notes": l.get("notes")})
         await create_alloc("po", l["po_line_id"], l.get("po_id"), "do", lid, did, qty, l["item_id"])
-        # Acquisition cost for Moving Average = PO net per unit (after item + final discount, excl tax)
-        acq_cost = None
-        if po_line and float(po_line.get("qty") or 0) > 0:
-            acq_cost = float(po_line.get("dpp") or 0) / float(po_line.get("qty"))
+        # Acquisition cost for Moving Average = PO net per unit (after item + final discount, excl tax).
+        # Hard-block (no estimated fallback) if the PO source cannot be resolved.
+        acq_cost = await resolve_do_acq_cost(l["po_line_id"], item_id=l["item_id"])
         await post_ledger("DO", no, did, l["item_id"], wh, qty, 0,
                           project_id=l.get("project_id"), unit_id=l.get("unit_id"), user=user,
                           unit_cost_in=acq_cost, line_id=lid, uom=l.get("unit"),

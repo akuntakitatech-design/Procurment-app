@@ -333,18 +333,16 @@ async def _replace(server, module, did, body, user):
             "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
             "tax_inclusive": bool(normalized.get("tax_inclusive", False)), "status": "Draft"}})
     elif module == "do":
+        import doc_procurement as _dp
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
         for rec in new_lines:
-            acq = None
-            plid = rec.get("po_line_id")
-            if plid:
-                pol = await server.db.po_lines.find_one({"id": plid}, {"_id": 0})
-                if pol and float(pol.get("qty") or 0) > 0:
-                    acq = float(pol.get("dpp") or 0) / float(pol.get("qty"))
+            # Hard-block (no estimated fallback): resolve from PO line, else a prior verified
+            # non-estimated snapshot for this DO+item, else reject with a clear PO message.
+            acq = await _dp.resolve_do_acq_cost(rec.get("po_line_id"), item_id=rec["item_id"], doc_id=did)
             await server.post_ledger("DO", no, did, rec["item_id"], rec["warehouse_id"], rec["qty"], 0,
                                      project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user,
                                      unit_cost_in=acq, line_id=rec.get("id"), source_key=f"DO::{rec.get('id')}",
-                                     txn_at=normalized.get("date"), require_cost=bool(acq is not None))
+                                     txn_at=normalized.get("date"), require_cost=True)
     elif module == "mi":
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
         for rec in new_lines:

@@ -4,7 +4,7 @@ from pathlib import Path
 load_dotenv(Path(__file__).parent / '.env')
 
 from starlette.middleware.cors import CORSMiddleware
-import os, uuid, logging
+import os, uuid, logging, asyncio
 from datetime import datetime, timezone
 from typing import Optional, List
 from pydantic import BaseModel
@@ -127,6 +127,25 @@ class StockError(HTTPException):
     def __init__(self, detail): super().__init__(status_code=400, detail=detail)
 
 
+def _is_dup_key(exc) -> bool:
+    """True if the exception is a MySQL/MariaDB duplicate-key error (errno 1062)."""
+    args = getattr(exc, "args", ())
+    if args and args[0] == 1062:
+        return True
+    return "1062" in str(exc) or "Duplicate entry" in str(exc)
+
+
+def _is_retryable_db(exc) -> bool:
+    """Transient DB errors that warrant a pool-posting retry: duplicate key (1062),
+    deadlock (1213), lock-wait timeout (1205). These can arise from concurrent first-create
+    gap locks or row-lock contention on the same inventory pool."""
+    args = getattr(exc, "args", ())
+    if args and args[0] in (1062, 1213, 1205):
+        return True
+    s = str(exc)
+    return any(code in s for code in ("1062", "1213", "1205", "Deadlock", "Lock wait timeout", "Duplicate entry"))
+
+
 async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in, qty_out,
                         project_id=None, unit_id=None, division_id=None, user=None,
                         unit_cost_in=None, value_in=None, line_id=None, uom=None, conversion_factor=1,
@@ -230,24 +249,34 @@ async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in,
                       "total_value": float(new_val_r), "_ver": ver + 1}
         if base_uom is not None and not iw.get("base_uom"):
             set_fields["base_uom"] = base_uom
-        if iw:
-            cas = {"item_id": item_id, "warehouse_id": warehouse_id}
-            if ver == 0:
-                cas["$or"] = [{"_ver": 0}, {"_ver": {"$exists": False}}, {"_ver": None}]
+        try:
+            if iw:
+                cas = {"item_id": item_id, "warehouse_id": warehouse_id}
+                if ver == 0:
+                    cas["$or"] = [{"_ver": 0}, {"_ver": {"$exists": False}}, {"_ver": None}]
+                else:
+                    cas["_ver"] = ver
+                updated = await db.item_warehouse.find_one_and_update(cas, {"$set": set_fields}, return_document=True)
+                if updated is None:
+                    continue  # version contention -> re-read and retry
+                break
             else:
-                cas["_ver"] = ver
-            updated = await db.item_warehouse.find_one_and_update(cas, {"$set": set_fields}, return_document=True)
-            if updated is None:
-                continue  # version contention -> re-read and retry
-            break
-        else:
-            created = await db.item_warehouse.find_one_and_update(
-                {"item_id": item_id, "warehouse_id": warehouse_id},
-                {"$setOnInsert": {"id": f"iw::{item_id}::{warehouse_id}", **set_fields}},
-                upsert=True, return_document=True)
-            if created and int(created.get("_ver") or 0) == ver + 1 and abs(float(created.get("current_stock") or 0) - running) < 1e-6:
-                break  # we created the pool
-            continue  # pool already existed (created concurrently) -> retry as CAS
+                # First-ever creation of this pool. Deterministic id => deterministic primary key
+                # ({tenant}:iw::item::wh) AND a DB UNIQUE index guarantee exactly one logical pool.
+                # A concurrent creator collides on the key; we catch the transient error and retry
+                # as CAS (re-read the now-canonical pool) rather than creating a second logical row.
+                created = await db.item_warehouse.find_one_and_update(
+                    {"item_id": item_id, "warehouse_id": warehouse_id},
+                    {"$setOnInsert": {"id": f"iw::{item_id}::{warehouse_id}", **set_fields}},
+                    upsert=True, return_document=True)
+                if created and int(created.get("_ver") or 0) == ver + 1 and abs(float(created.get("current_stock") or 0) - running) < 1e-6:
+                    break  # we created the pool
+                continue  # pool already existed (created concurrently) -> retry as CAS
+        except Exception as exc:  # noqa: BLE001
+            if _is_retryable_db(exc):
+                await asyncio.sleep(0.01 * (_attempt + 1))  # brief backoff, then re-read + retry
+                continue
+            raise
     else:
         raise HTTPException(409, "Konflik pembaruan stok (terlalu banyak transaksi bersamaan pada item/gudang yang sama). Silakan coba lagi.")
 
@@ -622,6 +651,21 @@ async def startup():
         await db.allocations.create_index("target_line_id")
     except Exception as e:
         logger.warning(f"index: {e}")
+    if DB_BACKEND == "mariadb":
+        # BLOCKER 1: DB-enforced uniqueness of the inventory/valuation pool identity.
+        # One logical pool per tenant_id+item_id+warehouse_id (base_uom is functionally
+        # determined by item). Guarded: skipped (reported) if legacy duplicates exist.
+        try:
+            raw = client[os.environ.get("DB_NAME", "default")]
+            res = await raw.ensure_pool_unique_index(
+                "item_warehouse", ["tenant_id", "item_id", "warehouse_id"], "uq_item_warehouse_pool")
+            if res.get("duplicates"):
+                logger.error("UNIQUE index item_warehouse NOT created: duplicate pool keys exist -> %s",
+                             res["duplicates"])
+            else:
+                logger.info("item_warehouse pool unique index: %s", res)
+        except Exception as e:
+            logger.warning(f"pool unique index: {e}")
     try:
         S.init_storage()
     except Exception as e:
