@@ -115,77 +115,237 @@ async def stock_balance(item_id, warehouse_id):
     iw = await db.item_warehouse.find_one({"item_id": item_id, "warehouse_id": warehouse_id})
     return (iw or {}).get("current_stock", 0)
 
-async def post_ledger(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in, qty_out,
-                      project_id=None, unit_id=None, division_id=None, user=None,
-                      unit_cost_in=None, value_in=None, line_id=None, uom=None, conversion_factor=1,
-                      cost_snapshot=None):
-    """Central stock + MOVING WEIGHTED AVERAGE valuation posting.
+from decimal import Decimal as _Dec, ROUND_HALF_UP as _RHU
+_VQ4 = _Dec("0.0001"); _VQ6 = _Dec("0.000001")
+def _vd(x):
+    try: return _Dec(str(x if x is not None else 0))
+    except Exception: return _Dec(0)
+
+
+class StockError(HTTPException):
+    """400-level stock/valuation validation error (negative stock, missing cost, backdate...)."""
+    def __init__(self, detail): super().__init__(status_code=400, detail=detail)
+
+
+async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in, qty_out,
+                        project_id=None, unit_id=None, division_id=None, user=None,
+                        unit_cost_in=None, value_in=None, line_id=None, uom=None, conversion_factor=1,
+                        cost_snapshot=None, txn_at=None, source_key=None, reversal_value=None,
+                        is_reversal=False, reversal_of=None, allow_negative=False,
+                        require_cost=False, backdate_guard=True, base_uom=None):
+    """Single central stock + MOVING WEIGHTED AVERAGE valuation engine. Returns a result dict.
+
     Pool key: tenant(auto) + item + warehouse + base UOM. Qty here is ALWAYS base UOM.
-    OUT movements are valued at the average cost BEFORE posting (snapshot).
-    IN movements use unit_cost_in/value_in when provided; otherwise they default to the
-    current average (flagged valuation_estimated) so a warehouse's average is never corrupted.
-    Backward compatible: callers that omit cost still post qty correctly."""
-    from decimal import Decimal, ROUND_HALF_UP
-    def D(x):
-        try: return Decimal(str(x if x is not None else 0))
-        except Exception: return Decimal(0)
-    iw = await db.item_warehouse.find_one({"item_id": item_id, "warehouse_id": warehouse_id}) or {}
-    bal = iw.get("current_stock", 0)
-    running = bal + qty_in - qty_out
-    # ---- valuation ----
-    old_qty = D(bal); old_val = D(iw.get("total_value", 0)); old_avg = D(iw.get("avg_cost", 0))
-    if old_qty <= 0:
-        old_val = Decimal(0)  # zero-balance policy: no residual value when empty
-    estimated = False; v_in = Decimal(0); v_out = Decimal(0); unit_cost = None
-    if qty_in and qty_in > 0:
-        qin = D(qty_in)
-        if cost_snapshot is not None:
-            unit_cost = D(cost_snapshot); v_in = qin * unit_cost
-        elif value_in is not None:
-            v_in = D(value_in); unit_cost = (v_in / qin) if qin > 0 else Decimal(0)
-        elif unit_cost_in is not None:
-            unit_cost = D(unit_cost_in); v_in = qin * unit_cost
+    Guarantees (accounting-safe):
+      - Atomic per-pool update via optimistic version (`_ver`) compare-and-set over
+        find_one_and_update (SELECT ... FOR UPDATE row lock) with bounded retry.
+      - No negative physical stock (OUT blocked when insufficient unless allow_negative).
+      - Idempotent per `source_key` (duplicate retry/double-click posts once).
+      - Immutable zero-balance policy (empty pool => 0 value, no residual).
+      - IN cost resolution priority: reversal_value > cost_snapshot > value_in > unit_cost_in.
+        When require_cost and no cost source is given, posting is HARD-BLOCKED (no silent estimate).
+      - OUT valued at the average cost snapshot immediately before posting
+        (reversal_value overrides to reverse an IN at its original carrying value).
+      - Backdate guard: blocks posting dated earlier than the pool's latest movement.
+    """
+    qty_in = float(qty_in or 0); qty_out = float(qty_out or 0)
+    txn_at = txn_at or now_iso()
+    uemail = (user or {}).get("email") if user else None
+
+    # ---------- idempotency ----------
+    if source_key:
+        prev = await db.valuation_ledger.find_one({"source_key": source_key}, {"_id": 0})
+        if prev:
+            return {"idempotent": True, "running": None,
+                    "value_in": prev.get("value_in"), "value_out": prev.get("value_out"),
+                    "unit_cost": prev.get("unit_cost"), "qty_after": prev.get("qty_after"),
+                    "value_after": prev.get("value_after"), "avg_after": prev.get("avg_after"),
+                    "source_key": source_key, "estimated": prev.get("valuation_estimated")}
+
+    # ---------- backdate guard ----------
+    if backdate_guard and not is_reversal:
+        latest = await db.valuation_ledger.find(
+            {"item_id": item_id, "warehouse_id": warehouse_id}, {"_id": 0}).sort("txn_at", -1).to_list(1)
+        if latest:
+            last_at = latest[0].get("txn_at") or latest[0].get("at")
+            if last_at and txn_at and str(txn_at) < str(last_at):
+                ref = latest[0].get("doc_no") or str(last_at)[:10]
+                raise StockError(
+                    f"Transaksi tidak dapat diposting mundur karena sudah terdapat transaksi stok "
+                    f"setelah tanggal ini (transaksi terakhir: {ref}).")
+
+    # ---------- atomic pool update (optimistic version CAS) ----------
+    new_qty = new_val_r = new_avg_r = None; v_in = _Dec(0); v_out = _Dec(0)
+    unit_cost = None; estimated = False; running = None
+    old_qty_f = old_val_f = old_avg_f = 0.0
+    for _attempt in range(16):
+        iw = await db.item_warehouse.find_one({"item_id": item_id, "warehouse_id": warehouse_id}) or {}
+        ver = int(iw.get("_ver") or 0)
+        bal = _vd(iw.get("current_stock", 0))
+        old_val = _vd(iw.get("total_value", 0)); old_avg = _vd(iw.get("avg_cost", 0))
+        if bal <= 0:
+            old_val = _Dec(0)  # zero-balance policy: no residual value when empty
+        old_qty_f = float(bal); old_val_f = float(old_val.quantize(_VQ4, rounding=_RHU))
+        old_avg_f = float(old_avg.quantize(_VQ6, rounding=_RHU))
+        estimated = False; v_in = _Dec(0); v_out = _Dec(0); unit_cost = None
+        if qty_in and qty_in > 0:
+            qin = _vd(qty_in)
+            if reversal_value is not None:
+                v_in = _vd(reversal_value); unit_cost = (v_in / qin) if qin > 0 else _Dec(0)
+            elif cost_snapshot is not None:
+                unit_cost = _vd(cost_snapshot); v_in = qin * unit_cost
+            elif value_in is not None:
+                v_in = _vd(value_in); unit_cost = (v_in / qin) if qin > 0 else _Dec(0)
+            elif unit_cost_in is not None:
+                unit_cost = _vd(unit_cost_in); v_in = qin * unit_cost
+            else:
+                if require_cost:
+                    raise StockError(
+                        f"Nilai perolehan (cost) wajib untuk transaksi masuk ({doc_type}). "
+                        f"Posting tanpa dasar biaya tidak diizinkan.")
+                unit_cost = old_avg; v_in = qin * old_avg; estimated = True
+            new_qty = bal + qin; new_val = old_val + v_in
         else:
-            unit_cost = old_avg; v_in = qin * old_avg
-            estimated = True  # IN posted without explicit cost -> defaulted to current average
-        new_qty = old_qty + qin; new_val = old_val + v_in
+            qout = _vd(qty_out)
+            if not allow_negative and qout > bal + _vd("0.000001"):
+                raise StockError(
+                    f"Stok tidak cukup untuk {doc_type} (tersedia {float(bal)}, diminta {float(qout)}).")
+            if reversal_value is not None:
+                v_out = _vd(reversal_value); unit_cost = (v_out / qout) if qout > 0 else _Dec(0)
+            else:
+                avg_before = old_avg if bal > 0 else _Dec(0)
+                unit_cost = avg_before; v_out = qout * avg_before
+            new_qty = bal - qout; new_val = old_val - v_out
+            if new_qty <= 0:
+                new_qty = _Dec(0); new_val = _Dec(0)  # clean zero balance, no residual
+        new_avg = (new_val / new_qty) if new_qty > 0 else _Dec(0)
+        new_val_r = new_val.quantize(_VQ4, rounding=_RHU)
+        new_avg_r = new_avg.quantize(_VQ6, rounding=_RHU)
+        running = float(bal + _vd(qty_in) - _vd(qty_out))
+        set_fields = {"item_id": item_id, "warehouse_id": warehouse_id,
+                      "current_stock": running, "avg_cost": float(new_avg_r),
+                      "total_value": float(new_val_r), "_ver": ver + 1}
+        if base_uom is not None and not iw.get("base_uom"):
+            set_fields["base_uom"] = base_uom
+        if iw:
+            cas = {"item_id": item_id, "warehouse_id": warehouse_id}
+            if ver == 0:
+                cas["$or"] = [{"_ver": 0}, {"_ver": {"$exists": False}}, {"_ver": None}]
+            else:
+                cas["_ver"] = ver
+            updated = await db.item_warehouse.find_one_and_update(cas, {"$set": set_fields}, return_document=True)
+            if updated is None:
+                continue  # version contention -> re-read and retry
+            break
+        else:
+            created = await db.item_warehouse.find_one_and_update(
+                {"item_id": item_id, "warehouse_id": warehouse_id},
+                {"$setOnInsert": {"id": f"iw::{item_id}::{warehouse_id}", **set_fields}},
+                upsert=True, return_document=True)
+            if created and int(created.get("_ver") or 0) == ver + 1 and abs(float(created.get("current_stock") or 0) - running) < 1e-6:
+                break  # we created the pool
+            continue  # pool already existed (created concurrently) -> retry as CAS
     else:
-        qout = D(qty_out)
-        avg_before = old_avg if old_qty > 0 else Decimal(0)
-        unit_cost = avg_before; v_out = qout * avg_before
-        new_qty = old_qty - qout; new_val = old_val - v_out
-        if new_qty <= 0:
-            new_qty = Decimal(0); new_val = Decimal(0)  # clean zero balance, no residual
-    new_avg = (new_val / new_qty) if new_qty > 0 else Decimal(0)
-    q4 = Decimal("0.0001"); q6 = Decimal("0.000001")
-    new_val_r = new_val.quantize(q4, rounding=ROUND_HALF_UP)
-    new_avg_r = new_avg.quantize(q6, rounding=ROUND_HALF_UP)
+        raise HTTPException(409, "Konflik pembaruan stok (terlalu banyak transaksi bersamaan pada item/gudang yang sama). Silakan coba lagi.")
+
+    # ---------- append-only ledgers (post-commit of pool state) ----------
+    sl_id = gid(); vl_id = gid()
     await db.stock_ledger.insert_one({
-        "id": gid(), "doc_type": doc_type, "doc_no": doc_no, "doc_id": doc_id,
+        "id": sl_id, "doc_type": doc_type, "doc_no": doc_no, "doc_id": doc_id,
         "item_id": item_id, "warehouse_id": warehouse_id, "qty_in": qty_in, "qty_out": qty_out,
         "running_balance": running, "project_id": project_id, "unit_id": unit_id,
-        "division_id": division_id, "user": (user or {}).get("email") if user else None,
-        "at": now_iso()})
+        "division_id": division_id, "user": uemail, "line_id": line_id,
+        "is_reversal": is_reversal, "reversal_of_ledger_id": reversal_of,
+        "source_key": source_key, "txn_at": txn_at, "at": now_iso()})
     await db.valuation_ledger.insert_one({
-        "id": gid(), "doc_type": doc_type, "doc_no": doc_no, "doc_id": doc_id, "line_id": line_id,
-        "item_id": item_id, "warehouse_id": warehouse_id, "base_uom": iw.get("base_uom"),
+        "id": vl_id, "doc_type": doc_type, "doc_no": doc_no, "doc_id": doc_id, "line_id": line_id,
+        "item_id": item_id, "warehouse_id": warehouse_id, "base_uom": base_uom,
         "uom": uom, "conversion_factor": conversion_factor,
         "qty_in": qty_in, "qty_out": qty_out,
         "unit_cost": float(unit_cost) if unit_cost is not None else None,
-        "value_in": float(v_in.quantize(q4, rounding=ROUND_HALF_UP)),
-        "value_out": float(v_out.quantize(q4, rounding=ROUND_HALF_UP)),
-        "qty_before": float(old_qty), "value_before": float(old_val.quantize(q4, rounding=ROUND_HALF_UP)),
-        "avg_before": float(old_avg.quantize(q6, rounding=ROUND_HALF_UP)),
+        "value_in": float(v_in.quantize(_VQ4, rounding=_RHU)),
+        "value_out": float(v_out.quantize(_VQ4, rounding=_RHU)),
+        "qty_before": old_qty_f, "value_before": old_val_f, "avg_before": old_avg_f,
         "qty_after": float(new_qty), "value_after": float(new_val_r), "avg_after": float(new_avg_r),
         "valuation_method": "moving_weighted_average", "valuation_estimated": estimated,
+        "is_reversal": is_reversal, "reversal_of": reversal_of, "source_key": source_key,
         "project_id": project_id, "unit_id": unit_id,
-        "user": (user or {}).get("email") if user else None, "at": now_iso()})
-    await db.item_warehouse.update_one(
-        {"item_id": item_id, "warehouse_id": warehouse_id},
-        {"$set": {"item_id": item_id, "warehouse_id": warehouse_id, "current_stock": running,
-                  "avg_cost": float(new_avg_r), "total_value": float(new_val_r)}},
-        upsert=True)
-    return running
+        "user": uemail, "txn_at": txn_at, "at": now_iso()})
+    return {"idempotent": False, "running": running,
+            "value_in": float(v_in.quantize(_VQ4, rounding=_RHU)),
+            "value_out": float(v_out.quantize(_VQ4, rounding=_RHU)),
+            "unit_cost": float(unit_cost) if unit_cost is not None else None,
+            "qty_after": float(new_qty), "value_after": float(new_val_r), "avg_after": float(new_avg_r),
+            "estimated": estimated, "source_key": source_key,
+            "valuation_ledger_id": vl_id, "stock_ledger_id": sl_id}
+
+
+async def post_ledger(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in, qty_out,
+                      project_id=None, unit_id=None, division_id=None, user=None,
+                      unit_cost_in=None, value_in=None, line_id=None, uom=None, conversion_factor=1,
+                      cost_snapshot=None, **kwargs):
+    """Backward-compatible wrapper over post_movement; returns the running balance."""
+    res = await post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in, qty_out,
+                              project_id=project_id, unit_id=unit_id, division_id=division_id, user=user,
+                              unit_cost_in=unit_cost_in, value_in=value_in, line_id=line_id, uom=uom,
+                              conversion_factor=conversion_factor, cost_snapshot=cost_snapshot, **kwargs)
+    return res.get("running")
+
+
+async def reverse_document_valuation(doc_id, user=None, reason="reversal", block_negative=True,
+                                     doc_types=None):
+    """Central, idempotent reversal: for every original (non-reversal, un-reversed) valuation
+    ledger entry of `doc_id`, post a COMPENSATING movement through post_movement using the
+    ORIGINAL cost snapshot (value_in/value_out), then mark the original reversed.
+
+    - Reversing an IN  -> OUT at original value_in (reversal_value).
+    - Reversing an OUT -> IN  at original value_out (reversal_value).
+    - block_negative: if reversing an IN would drive stock negative (goods already consumed),
+      the whole reversal is rejected (no forced negative inventory).
+    Returns {"reversed": n, "already": bool, "entries": [...]}.
+    """
+    q = {"doc_id": doc_id, "is_reversal": {"$ne": True}, "reversed": {"$ne": True}}
+    if doc_types:
+        q["doc_type"] = {"$in": list(doc_types)}
+    originals = await db.valuation_ledger.find(q, {"_id": 0}).sort("at", 1).to_list(10000)
+    if not originals:
+        return {"reversed": 0, "already": True, "entries": []}
+    # Pre-flight: block if any IN-reversal would create negative stock.
+    if block_negative:
+        proj = {}
+        for e in originals:
+            key = (e.get("item_id"), e.get("warehouse_id"))
+            if key not in proj:
+                proj[key] = float(await stock_balance(*key) or 0)
+            proj[key] += float(e.get("qty_out") or 0) - float(e.get("qty_in") or 0)
+            if proj[key] < -1e-6:
+                raise StockError(
+                    "Pembatalan tidak dapat dilakukan karena akan membuat stok negatif "
+                    "(sebagian barang sudah terpakai/keluar). Batalkan dulu transaksi turunannya.")
+    done = []
+    for e in reversed(originals):  # LIFO to keep moving-average math sane
+        qin = float(e.get("qty_in") or 0); qout = float(e.get("qty_out") or 0)
+        skey = f"rev::{e.get('id')}"
+        if qin > 0:  # original IN -> compensate with OUT at original carrying value
+            res = await post_movement(
+                f"Reversal {e.get('doc_type') or ''}".strip(), e.get("doc_no"), doc_id,
+                e.get("item_id"), e.get("warehouse_id"), 0, qin, user=user,
+                reversal_value=float(e.get("value_in") or 0), line_id=e.get("line_id"),
+                is_reversal=True, reversal_of=e.get("id"), source_key=skey,
+                allow_negative=not block_negative, backdate_guard=False)
+        else:  # original OUT -> compensate with IN at original snapshot value
+            res = await post_movement(
+                f"Reversal {e.get('doc_type') or ''}".strip(), e.get("doc_no"), doc_id,
+                e.get("item_id"), e.get("warehouse_id"), qout, 0, user=user,
+                reversal_value=float(e.get("value_out") or 0), line_id=e.get("line_id"),
+                is_reversal=True, reversal_of=e.get("id"), source_key=skey, backdate_guard=False)
+        await db.valuation_ledger.update_one({"id": e.get("id")},
+            {"$set": {"reversed": True, "reversed_at": now_iso(), "reversal_reason": reason}})
+        await db.stock_ledger.update_many({"doc_id": doc_id, "item_id": e.get("item_id"),
+            "warehouse_id": e.get("warehouse_id"), "is_reversal": {"$ne": True}, "reversed": {"$ne": True}},
+            {"$set": {"reversed": True, "reversed_at": now_iso()}})
+        done.append({"original": e.get("id"), "result": res})
+    return {"reversed": len(done), "already": False, "entries": done}
 
 # =================================================================
 # AUTH

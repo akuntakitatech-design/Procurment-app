@@ -822,7 +822,8 @@ async def create_do(body: dict, user=Depends(current_user)):
         await post_ledger("DO", no, did, l["item_id"], wh, qty, 0,
                           project_id=l.get("project_id"), unit_id=l.get("unit_id"), user=user,
                           unit_cost_in=acq_cost, line_id=lid, uom=l.get("unit"),
-                          conversion_factor=l.get("conversion_factor", 1))
+                          conversion_factor=l.get("conversion_factor", 1),
+                          txn_at=body.get("date"), source_key=f"DO::{lid}", require_cost=True)
         if l.get("po_id"): po_ids.add(l["po_id"])
     for pid in po_ids:
         await _refresh_po_receipt_status(pid)
@@ -1100,7 +1101,8 @@ async def create_mi(body: dict, user=Depends(current_user)):
         await post_ledger("MI", no, did, l["item_id"], wh, 0, qty,
                           project_id=l.get("project_id"), unit_id=l.get("unit_id"),
                           division_id=body.get("division_id"), user=user,
-                          line_id=lid, uom=l.get("unit"), conversion_factor=l.get("conversion_factor", 1))
+                          line_id=lid, uom=l.get("unit"), conversion_factor=l.get("conversion_factor", 1),
+                          txn_at=body.get("date"), source_key=f"MI::{lid}")
     await audit(user, "create", "mi", did, no, after={"source_mode": source_mode})
     await notify("Barang dikeluarkan", f"MI {no} diposting", "mi", body.get("division_id"))
     return await get_mi(did, user)
