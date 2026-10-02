@@ -1167,22 +1167,67 @@ async def valuation_ledger(item_id: str = None, warehouse_id: str = None, doc_ty
 
 @api.get("/reports/valuation-reconcile")
 async def valuation_reconcile(user=Depends(current_user)):
-    """QA: physical stock qty (item_warehouse.current_stock) vs last valuation ledger qty_after."""
+    """QA reconciliation + invalid-balance diagnostics for moving-average valuation.
+    - stock qty (item_warehouse.current_stock) vs last valuation ledger qty_after per pool
+    - invalid pools: qty<0, value<0, qty=0 but value!=0, qty>0 but missing average
+    - duplicate valuation source_key, orphan valuation entries (no physical pool)
+    """
     _require_value(user)
     m = await maps()
-    rows = await db.item_warehouse.find({}, {"_id": 0}).to_list(5000)
-    mismatches = []
-    for r in rows:
-        last = await db.valuation_ledger.find({"item_id": r.get("item_id"), "warehouse_id": r.get("warehouse_id")},
-                                              {"_id": 0}).sort("at", -1).to_list(1)
-        val_qty = float(last[0].get("qty_after")) if last else None
+    pools = await db.item_warehouse.find({}, {"_id": 0}).to_list(10000)
+    pool_keys = {(p.get("item_id"), p.get("warehouse_id")) for p in pools}
+    mismatches = []; diagnostics = []
+
+    def nm(r):
+        return {"item_id": r.get("item_id"),
+                "item_name": m["items"].get(r.get("item_id"), {}).get("name"),
+                "warehouse_name": m["warehouses"].get(r.get("warehouse_id"), {}).get("name")}
+
+    for r in pools:
         phys = float(r.get("current_stock") or 0)
-        if last is not None and val_qty is not None and abs(val_qty - phys) > 1e-6:
-            mismatches.append({"item_id": r.get("item_id"),
-                               "item_name": m["items"].get(r.get("item_id"), {}).get("name"),
-                               "warehouse_name": m["warehouses"].get(r.get("warehouse_id"), {}).get("name"),
-                               "physical_qty": phys, "valuation_qty": val_qty, "diff": phys - val_qty})
-    return {"ok": len(mismatches) == 0, "mismatches": mismatches}
+        val = float(r.get("total_value") or 0)
+        avg = float(r.get("avg_cost") or 0)
+        last = await db.valuation_ledger.find({"item_id": r.get("item_id"), "warehouse_id": r.get("warehouse_id")},
+                                              {"_id": 0}).sort("txn_at", -1).to_list(1)
+        if last:
+            val_qty = float(last[0].get("qty_after"))
+            if abs(val_qty - phys) > 1e-6:
+                mismatches.append({**nm(r), "physical_qty": phys, "valuation_qty": val_qty, "diff": phys - val_qty})
+        if phys < -1e-6:
+            diagnostics.append({**nm(r), "type": "negative_qty", "physical_qty": phys})
+        if val < -1e-6:
+            diagnostics.append({**nm(r), "type": "negative_value", "inventory_value": val})
+        if abs(phys) < 1e-9 and abs(val) > 1e-6:
+            diagnostics.append({**nm(r), "type": "zero_qty_nonzero_value", "inventory_value": val})
+        if phys > 1e-6 and avg <= 0:
+            diagnostics.append({**nm(r), "type": "missing_average", "physical_qty": phys, "inventory_value": val})
+
+    # duplicate source_key
+    seen = {}; dups = []
+    vl = await db.valuation_ledger.find({}, {"_id": 0}).to_list(50000)
+    for e in vl:
+        sk = e.get("source_key")
+        if not sk:
+            continue
+        seen[sk] = seen.get(sk, 0) + 1
+    for sk, c in seen.items():
+        if c > 1:
+            dups.append({"type": "duplicate_source_key", "source_key": sk, "count": c})
+    diagnostics.extend(dups)
+
+    # orphan valuation entries: non-reversal movement referencing a pool that no longer exists
+    orphans = []
+    for e in vl:
+        key = (e.get("item_id"), e.get("warehouse_id"))
+        if key not in pool_keys:
+            orphans.append({"type": "orphan_valuation_entry", "doc_type": e.get("doc_type"),
+                            "doc_no": e.get("doc_no"), "item_id": e.get("item_id"),
+                            "warehouse_id": e.get("warehouse_id")})
+    diagnostics.extend(orphans[:200])
+
+    return {"ok": len(mismatches) == 0 and len(diagnostics) == 0,
+            "mismatches": mismatches, "diagnostics": diagnostics,
+            "pool_count": len(pools)}
 
 
 @api.get("/reports/mi-valuation/{mid}")

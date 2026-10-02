@@ -37,7 +37,10 @@ export function OpeningValuation() {
       .catch((e) => toast.error(apiError(e.response?.data?.detail)))
       .finally(() => setLoading(false));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [wh, status]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wh, status]);
 
   const keyOf = (r) => `${r.item_id}::${r.warehouse_id}`;
   const post = async (r) => {
