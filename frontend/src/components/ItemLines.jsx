@@ -84,10 +84,19 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
       if (patch.qty !== undefined) x.sources = patchSources(x, (Number(patch.qty) || 0) * (Number(x.conversion_factor) || 1));
       next[i] = x;
     }
+    // Keep item discount amount in sync (supports % / Rp; percent recomputes on qty/price change).
+    const row = next[i];
+    const dt = row.discount_type || "amount";
+    const dv = Number(row.discount_value != null ? row.discount_value : row.discount) || 0;
+    row.discount_type = dt; row.discount_value = dv;
+    row.discount = dt === "percent" ? (Number(row.qty) || 0) * (Number(row.price) || 0) * dv / 100 : dv;
     onChange(next);
   };
   const addRow = () => onChange([...lines, { _key: (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`), item_id: "", qty: 1, uom_id: "", conversion_factor: 1, unit: "", warehouse_id: defaults.warehouse_id || "", project_id: defaults.project_id || "", unit_id: defaults.unit_id || "", _warehouseOverride: false, _projectOverride: false, _unitOverride: false, notes: "", price: 0, discount: 0, tax_id: "", tax: 0 }]);
-  const total = (l) => { const base = (Number(l.qty) || 0) * (Number(l.price) || 0) - (Number(l.discount) || 0); return taxInclusive ? Math.max(0, base) : base + base * (Number(l.tax) || 0) / 100; };
+  const discType = (l) => l.discount_type || "amount";
+  const discVal = (l) => Number(l.discount_value != null ? l.discount_value : l.discount) || 0;
+  const discAmt = (l) => discType(l) === "percent" ? (Number(l.qty) || 0) * (Number(l.price) || 0) * discVal(l) / 100 : discVal(l);
+  const total = (l) => { const base = (Number(l.qty) || 0) * (Number(l.price) || 0) - discAmt(l); return taxInclusive ? Math.max(0, base) : base + base * (Number(l.tax) || 0) / 100; };
   const grand = lines.reduce((s, l) => s + total(l), 0);
   const stockInfo = (l) => { const it = items[l.item_id]; if (!it) return ""; const base = it.base_uom_id ? uomLabel(it.base_uom_id) : it.unit; return base ? `${num((Number(l.qty) || 0) * (Number(l.conversion_factor) || 1))} ${base}` : ""; };
   const Uom = ({ l, i }) => <div><Combobox options={itemUoms(l.item_id)} value={l.uom_id || items[l.item_id]?.base_uom_id || ""} onChange={(v) => update(i, { uom_id: v })} placeholder="Satuan" disabled={!l.item_id || itemUoms(l.item_id).length <= 1} />{l.item_id && <div className="mt-1 text-[10px] text-muted-foreground">Terhitung stok: {stockInfo(l)}</div>}</div>;
@@ -99,10 +108,11 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   if (poControl) {
     const fmtPct = (p) => `${p >= 0 ? "+" : ""}${Number(p).toFixed(2).replace(".", ",")}%`;
     const fmtRp = (v) => `${v >= 0 ? "+" : "-"}${rupiah(Math.abs(v))}`;
-    const head = [["w-[36px]", ""], ["w-[200px]", "Barang"], ["w-[190px]", "Keterangan"], ["w-[100px]", "Qty"], ["w-[110px]", "Satuan"], ["w-[260px]", "Alokasi SPK"], ["w-[140px]", "Harga Kontrak"], ["w-[180px]", "Harga Satuan"], ["w-[175px]", "Selisih"], ["w-[150px] text-right", "Total"], ["w-[130px]", "Status"], ["w-[44px]", ""]];
+    const head = [["w-[36px]", ""], ["w-[190px]", "Barang"], ["w-[170px]", "Keterangan"], ["w-[90px]", "Qty"], ["w-[100px]", "Satuan"], ["w-[130px]", "Harga Kontrak"], ["w-[190px]", "Harga Satuan"], ["w-[170px]", "Diskon Item"], ["w-[150px]", "Selisih"], ["w-[150px] text-right", "Total"], ["w-[120px]", "Status"], ["w-[44px]", ""]];
+    const lbl = "mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground";
     return <div className="space-y-3">
       <div className="overflow-x-auto rounded-md border bg-card shadow-sm">
-        <div className="min-w-[1840px]">
+        <div className="min-w-[1680px]">
           <div className="flex items-stretch gap-2 border-b bg-muted px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {head.map(([w, t], k) => <div key={k} className={w}>{t}</div>)}
           </div>
@@ -119,29 +129,30 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
             const reasonMissing = priceDiff && !String(l.price_change_reason || "").trim();
             const expanded = expandedRows[i] !== undefined ? expandedRows[i] : reasonMissing;
             const toggle = () => setExpandedRows((s) => ({ ...s, [i]: !(s[i] !== undefined ? s[i] : reasonMissing) }));
-            return <div key={i} className="border-b px-3 py-2 last:border-b-0" data-testid={`po-item-block-${i}`}>
-              {/* PRIMARY ROW */}
+            return <div key={i} className="border-b px-3 py-2.5 last:border-b-0" data-testid={`po-item-block-${i}`}>
+              {/* PRIMARY ROW — Transaction & Price */}
               <div className="flex items-center gap-2">
                 <div className="w-[36px]"><button type="button" onClick={toggle} className="flex h-7 w-7 items-center justify-center rounded hover:bg-accent" data-testid={`po-expand-${i}`} title="Detail">{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button></div>
-                <div className="w-[200px]"><Combobox options={itemOpts} value={l.item_id} onChange={(v) => update(i, { item_id: v })} placeholder="Pilih barang" disabled={l._locked} /></div>
-                <div className="w-[190px]"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9 text-sm" placeholder="Keterangan" data-testid={`po-notes-${i}`} /></div>
-                <div className="w-[100px]"><NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`po-qty-${i}`} /></div>
-                <div className="w-[110px]"><Uom l={l} i={i} /></div>
-                <div className="w-[260px]" data-testid={`po-alloc-${i}`}>{allocationColumn ? allocationColumn.render(l, i) : null}</div>
-                <div className="w-[140px] text-sm">{hasC ? <span className="font-semibold tabular-nums">{rupiah(Number(c.contract_price))}</span> : (c && c.out_of_period ? <span className="text-[11px] font-medium text-amber-700" data-testid={`po-contract-period-warn-${i}`}>Kontrak {c.contract_number || ""} di luar periode</span> : <span className="text-xs text-muted-foreground">Tidak ada kontrak</span>)}</div>
-                <div className="w-[180px]"><div className="flex items-center gap-1"><div className="flex-1"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v, _priceTouched: true, _priceAuto: false })} className="h-9 text-right" data-testid={`po-price-input-${i}`} /></div>{poControl.history && <div className="shrink-0">{poControl.history(l, i)}</div>}</div></div>
-                <div className="w-[175px] text-xs tabular-nums" data-testid={`po-variance-${i}`}>{showVar ? <span className={r.varRp > 0 ? "text-amber-700" : r.varRp < 0 ? "text-emerald-700" : "text-muted-foreground"}>{fmtRp(r.varRp)} / {fmtPct(r.varPct)}</span> : <span className="text-muted-foreground">—</span>}</div>
-                <div className="w-[150px] text-right text-sm font-medium tabular-nums">{rupiah(total(l))}</div>
-                <div className="w-[130px]">{status === "Belum dihitung" ? <span data-testid={`po-status-${i}`} className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Belum dihitung</span> : <StatusBadgePrice status={status} testid={`po-status-${i}`} />}{reasonMissing && <div className="mt-0.5 text-[10px] font-semibold text-amber-700" data-testid={`po-reason-required-${i}`}>Alasan diperlukan</div>}</div>
+                <div className="w-[190px]"><Combobox options={itemOpts} value={l.item_id} onChange={(v) => update(i, { item_id: v })} placeholder="Pilih barang" disabled={l._locked} /></div>
+                <div className="w-[170px]"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9 text-sm" placeholder="Keterangan" data-testid={`po-notes-${i}`} /></div>
+                <div className="w-[90px]"><NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`po-qty-${i}`} /></div>
+                <div className="w-[100px]"><Uom l={l} i={i} /></div>
+                <div className="w-[130px] text-sm">{hasC ? <span className="font-semibold tabular-nums">{rupiah(Number(c.contract_price))}</span> : (c && c.out_of_period ? <span className="text-[11px] font-medium text-amber-700" data-testid={`po-contract-period-warn-${i}`}>Kontrak {c.contract_number || ""} di luar periode</span> : <span className="text-xs text-muted-foreground">Tidak ada kontrak</span>)}</div>
+                <div className="w-[190px]"><div className="flex items-center gap-1"><div className="flex-1 min-w-[140px]"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v, _priceTouched: true, _priceAuto: false })} className="h-9 text-right" data-testid={`po-price-input-${i}`} /></div>{poControl.history && <div className="shrink-0">{poControl.history(l, i)}</div>}</div></div>
+                <div className="w-[170px]"><div className="flex items-center gap-1"><button type="button" onClick={() => update(i, { discount_type: discType(l) === "percent" ? "amount" : "percent", discount_value: discVal(l) })} className="h-9 w-10 shrink-0 rounded border text-xs font-semibold hover:bg-accent" data-testid={`po-discount-type-${i}`} title="Ubah metode diskon (% / Rp)">{discType(l) === "percent" ? "%" : "Rp"}</button><div className="flex-1 min-w-[110px]"><NumericInput mode={discType(l) === "percent" ? "quantity" : "money"} value={discVal(l)} onChange={(v) => update(i, { discount_value: v, discount_type: discType(l) })} className="h-9 text-right" data-testid={`po-discount-${i}`} /></div></div></div>
+                <div className="w-[150px] text-xs tabular-nums" data-testid={`po-variance-${i}`}>{showVar ? <span className={r.varRp > 0 ? "text-amber-700" : r.varRp < 0 ? "text-emerald-700" : "text-muted-foreground"}>{fmtRp(r.varRp)}<br />{fmtPct(r.varPct)}</span> : <span className="text-muted-foreground">—</span>}</div>
+                <div className="w-[150px] text-right text-sm font-semibold tabular-nums" data-testid={`po-total-${i}`}>{rupiah(total(l))}</div>
+                <div className="w-[120px]">{status === "Belum dihitung" ? <span data-testid={`po-status-${i}`} className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Belum dihitung</span> : <StatusBadgePrice status={status} testid={`po-status-${i}`} />}{reasonMissing && <div className="mt-0.5 text-[10px] font-semibold text-amber-700" data-testid={`po-reason-required-${i}`}>Alasan diperlukan</div>}</div>
                 <div className="w-[44px]"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
               </div>
-              {/* SECONDARY ROW */}
-              <div className="mt-1 flex items-center gap-2 pl-[44px] text-xs">
-                <div className="w-[260px] font-mono text-[11px] text-muted-foreground" data-testid={`po-source-${i}`}>{poControl.sourceText && poControl.sourceText(l) ? poControl.sourceText(l) : <span className="italic">—</span>}</div>
-                <div className="w-[160px]"><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></div>
-                <div className="w-[160px]"><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></div>
-                <div className="w-[160px]"><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit/Aset" /></div>
-                <div className="w-[150px]"><Combobox options={taxOpts} value={l.tax_id || ""} onChange={(v) => update(i, { tax_id: v })} /></div>
+              {/* SECONDARY ROW — Reference & Operational (labelled) */}
+              <div className="mt-2 flex items-end gap-2 pl-[44px]">
+                <div className="w-[220px]"><div className={lbl}>MRO / RO</div><div className="flex h-9 items-center truncate font-mono text-[11px] text-muted-foreground" data-testid={`po-source-${i}`}>{poControl.sourceText && poControl.sourceText(l) ? poControl.sourceText(l) : <span className="italic">—</span>}</div></div>
+                <div className="w-[260px]"><div className={lbl}>Alokasi SPK</div><div data-testid={`po-alloc-${i}`}>{allocationColumn ? allocationColumn.render(l, i) : null}</div></div>
+                <div className="w-[150px]"><div className={lbl}>Gudang</div><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></div>
+                <div className="w-[150px]"><div className={lbl}>Proyek</div><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></div>
+                <div className="w-[150px]"><div className={lbl}>Unit / Aset</div><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit/Aset" /></div>
+                <div className="w-[140px]"><div className={lbl}>Pajak</div><Combobox options={taxOpts} value={l.tax_id || ""} onChange={(v) => update(i, { tax_id: v })} /></div>
               </div>
               {/* EXPANDED DETAIL */}
               {expanded && <div className="mt-2 rounded-md border bg-muted/30 px-3 py-2 pl-[44px] text-xs" data-testid={`po-detail-${i}`}>
@@ -152,7 +163,6 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
           })}
         </div>
       </div>
-      {lines.length > 0 && <div className="flex items-center justify-end px-1 text-sm"><span className="font-semibold text-muted-foreground">Grand Total:</span><span className="ml-2 font-bold tabular-nums">{rupiah(grand)}</span></div>}
       <Button variant="outline" size="sm" onClick={addRow}><Plus className="h-4 w-4 mr-2" />Tambah Baris</Button>
     </div>;
   }

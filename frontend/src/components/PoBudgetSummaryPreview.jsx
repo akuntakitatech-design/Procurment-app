@@ -17,7 +17,7 @@ const StatusIcon = ({ st }) => (st === "ok" ? <CheckCircle2 className="h-3.5 w-3
 // which reuses the exact same _distribute + evaluate_budget logic as the eventual
 // Approved commitment. Non-SPK is excluded. Human-readable SPK numbers only.
 // ---------------------------------------------------------------------------
-export function PoBudgetSummaryPreview({ lines, allocMap, excludePoId }) {
+export function PoBudgetSummaryPreview({ lines, allocMap, excludePoId, finalDiscountType, finalDiscountValue }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -47,7 +47,7 @@ export function PoBudgetSummaryPreview({ lines, allocMap, excludePoId }) {
 
   const hasItems = payloadLines.length > 0;
   const hasAnyAlloc = payloadLines.some((x) => x.allocations.length > 0);
-  const sig = useMemo(() => JSON.stringify(payloadLines) + "|" + (excludePoId || "") + "|" + reloadKey, [payloadLines, excludePoId, reloadKey]);
+  const sig = useMemo(() => JSON.stringify(payloadLines) + "|" + (excludePoId || "") + "|" + (finalDiscountType || "") + "|" + (finalDiscountValue || 0) + "|" + reloadKey, [payloadLines, excludePoId, finalDiscountType, finalDiscountValue, reloadKey]);
 
   useEffect(() => {
     if (!hasAnyAlloc) {
@@ -61,7 +61,7 @@ export function PoBudgetSummaryPreview({ lines, allocMap, excludePoId }) {
     setLoading(true);
     const t = setTimeout(() => {
       api
-        .post("/spk-allocations/po/preview-budget", { lines: payloadLines, exclude_po_id: excludePoId || null }, { signal: ctrl.signal })
+        .post("/spk-allocations/po/preview-budget", { lines: payloadLines, exclude_po_id: excludePoId || null, final_discount_type: finalDiscountType || null, final_discount_value: Number(finalDiscountValue) || 0 }, { signal: ctrl.signal })
         .then((r) => {
           if (seq !== seqRef.current) return; // stale response — ignore
           setData(r.data);

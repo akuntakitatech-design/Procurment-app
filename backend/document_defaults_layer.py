@@ -55,32 +55,26 @@ async def _save_header(server, collection, did, body):
 
 
 async def _recalc_po(server, did, inclusive):
-    grand = 0.0
+    import doc_procurement as _dp
+    head = await server.db.po.find_one({"id": did}, {"_id": 0}) or {}
+    header = {"tax_inclusive": bool(inclusive),
+              "final_discount_type": head.get("final_discount_type"),
+              "final_discount_value": head.get("final_discount_value")}
     lines = await server.db.po_lines.find({"po_id": did}, {"_id": 0}).to_list(2000)
-    for line in lines:
-        qty = float(line.get("qty") or 0)
-        price = float(line.get("price") or 0)
-        discount = float(line.get("discount") or 0)
-        rate = float(line.get("tax") or 0)
-        gross = qty * price
-        net = max(0.0, gross - discount)
-        if inclusive and rate:
-            dpp = net / (1.0 + rate / 100.0)
-            tax_amount = net - dpp
-            total = net
-        else:
-            dpp = net
-            tax_amount = dpp * rate / 100.0
-            total = dpp + tax_amount
+    computed, totals = _dp.compute_po_totals(header, lines)
+    for line, c in zip(lines, computed):
         await server.db.po_lines.update_one({"id": line["id"]}, {"$set": {
-            "gross": gross,
-            "dpp": dpp,
-            "tax_amount": tax_amount,
-            "total": total,
-            "tax_inclusive": bool(inclusive),
+            "gross": c["gross"], "dpp": c["dpp"], "tax_amount": c["tax_amount"],
+            "total": c["total"], "tax_inclusive": bool(inclusive),
         }})
-        grand += total
-    await server.db.po.update_one({"id": did}, {"$set": {"grand_total": grand, "tax_inclusive": bool(inclusive)}})
+    await server.db.po.update_one({"id": did}, {"$set": {
+        "grand_total": totals["grand_total"], "gross_total": totals["gross_total"],
+        "item_discount_total": totals["item_discount_total"],
+        "subtotal_after_item_discount": totals["subtotal_after_item_discount"],
+        "final_discount_type": totals["final_discount_type"], "final_discount_value": totals["final_discount_value"],
+        "final_discount_amount": totals["final_discount_amount"],
+        "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
+        "tax_inclusive": bool(inclusive)}})
 
 
 def install(server):

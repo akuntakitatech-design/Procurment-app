@@ -160,15 +160,12 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
   const deliveryProject = project?.name ? `Project ${project.name}` : "";
   const deliveryAddress = company.address || "";
 
-  const subtotal = lines.reduce((a,l) => {
-    const factor = Number(l.conversion_factor) || 1;
-    const q = l.display_qty ?? ((Number(l.qty)||0)/factor);
-    const p = l.display_price ?? ((Number(l.price)||0)*factor);
-    return a + Number(q||0)*Number(p||0) - Number(l.discount||0);
-  }, 0);
-  const dpp = lines.reduce((a,l) => a + Number(l.dpp ?? ((Number(l.qty)||0)*(Number(l.price)||0)-Number(l.discount||0))), 0);
   const taxAmount = lines.reduce((a,l) => a + Number(l.tax_amount || 0), 0);
-  const grand = Number(doc.grand_total ?? (dpp + taxAmount));
+  const grand = Number(doc.grand_total ?? taxAmount);
+  const grossTotal = lines.reduce((a,l) => { const f = Number(l.conversion_factor)||1; const q = l.display_qty ?? ((Number(l.qty)||0)/f); const p = l.display_price ?? ((Number(l.price)||0)*f); return a + Number(q||0)*Number(p||0); }, 0);
+  const itemDiscTotal = lines.reduce((a,l) => a + Number(l.discount||0), 0);
+  const finalDiscAmt = Number(doc.final_discount_amount || 0);
+  const afterDisc = Number(doc.subtotal_after_discount ?? (grossTotal - itemDiscTotal - finalDiscAmt));
   const rates = [...new Set(lines.map(l => Number(l.tax || 0)).filter(x => x > 0))];
   const taxLabel = rates.length === 1 ? `PPN ${num(rates[0])}%` : (taxAmount ? "Pajak" : "PPN");
 
@@ -216,8 +213,10 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
     ? `<thead><tr><th>No</th><th>Description</th><th>Keterangan</th><th colspan="2">Qty</th><th>Alokasi SPK</th><th>Price</th><th>Discount</th><th>Amount</th></tr></thead>`
     : `<thead><tr><th>No</th><th>Description</th><th>Keterangan</th><th colspan="2">Qty</th><th>Alokasi SPK</th></tr></thead>`;
   const totals = showPrice ? `<tfoot>
-        <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Total</td><td class="sum-value">${idrPlain(subtotal)}</td></tr>
-        <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">DPP</td><td class="sum-value">${idrPlain(dpp)}</td></tr>
+        <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Total Harga Sebelum Diskon</td><td class="sum-value">${idrPlain(grossTotal)}</td></tr>
+        ${itemDiscTotal ? `<tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Diskon Item</td><td class="sum-value">- ${idrPlain(itemDiscTotal)}</td></tr>` : ""}
+        ${finalDiscAmt ? `<tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Diskon Final</td><td class="sum-value">- ${idrPlain(finalDiscAmt)}</td></tr>` : ""}
+        <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Total Setelah Diskon</td><td class="sum-value">${idrPlain(afterDisc)}</td></tr>
         <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(taxLabel)}</td><td class="sum-value">${idrPlain(taxAmount)}</td></tr>
         <tr class="grand"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Grand Total</td><td class="sum-value">${idrPlain(grand)}</td></tr>
       </tfoot>` : "";
