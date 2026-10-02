@@ -19,7 +19,8 @@ export function PoEmailDialog({ poId, open, onClose, onSent }) {
     setCtx(null);
     api.get(`/po/${poId}/email-context`).then((r) => { setCtx(r.data); setForm({ to: r.data.default_to || "", cc: "", subject: r.data.subject, message: r.data.message }); })
       .catch((e) => { toast.error(apiError(e.response?.data?.detail)); onClose(); });
-  }, [open, poId, onClose]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, poId]);
 
   const send = async () => {
     if (!form.to.includes("@")) return toast.error("Email tujuan wajib diisi");

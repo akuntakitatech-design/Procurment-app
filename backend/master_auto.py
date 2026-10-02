@@ -309,9 +309,10 @@ def install(server):
         update["code"] = code
 
         await col.update_one({"id": rid}, {"$set": update})
+        changed = [k for k, v in update.items() if existing.get(k) != v and k not in ("updated_at", "updated_by")]
         await server.audit(
             user, "edit", name, rid, code,
-            before={"code": existing.get("code")}, after={"code": code},
+            before={k: existing.get(k) for k in changed}, after={k: update[k] for k in changed},
         )
         return server.clean(await col.find_one({"id": rid}))
 

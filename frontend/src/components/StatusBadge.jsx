@@ -29,13 +29,21 @@ const MAP = {
   overstock: "bg-violet-50 text-violet-700 border-violet-200",
 };
 
+const LABEL_ID = {
+  draft: "Draft", open: "Terbuka", "waiting approval": "Menunggu Persetujuan", approved: "Disetujui", rejected: "Ditolak",
+  partial: "Sebagian", "partial ordered": "Sebagian di-PO", "fully ordered": "Penuh di-PO", "partial returned": "Kembali Sebagian",
+  "partially received": "Diterima Sebagian", "fully received": "Diterima Penuh", "over receipt": "Penerimaan Berlebih",
+  posted: "Diposting", completed: "Selesai", closed: "Ditutup", cancelled: "Dibatalkan", submitted: "Diajukan",
+  counting: "Penghitungan", review: "Review", "out of stock": "Stok Habis", "low stock": "Stok Rendah", overstock: "Stok Berlebih",
+};
+
 export function StatusBadge({ status, className }) {
   const key = String(status || "").toLowerCase();
   const cls = MAP[key] || "bg-slate-100 text-slate-700 border-slate-300";
   return (
     <span data-testid={`status-badge-${key.replace(/\s+/g, "-")}`}
       className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap", cls, className)}>
-      {status || "-"}
+      {LABEL_ID[key] || status || "-"}
     </span>
   );
 }

@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { Combobox } from "@/components/Combobox";
 import { Field } from "@/components/DatePicker";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { MasterDeleteDialog } from "@/components/MasterDeleteDialog";
 import { Input } from "@/components/ui/input";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -94,6 +96,7 @@ function showErr(e) {
 export function VendorContractList() {
   const nav = useNavigate();
   const { can } = useAuth();
+  const [sel, setSel] = useState(new Set()); const [delRows, setDelRows] = useState(null);
   const [data, setData] = useState({ items: [], total: 0, page: 1, page_size: 20 });
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
@@ -116,6 +119,7 @@ export function VendorContractList() {
     finally { setLoading(false); }
   }, [q, status, supplierId, currency, page]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  useEffect(() => { setSel(new Set()); }, [q, status, supplierId, currency, page]);
 
   const totalPages = Math.max(1, Math.ceil(data.total / (data.page_size || 20)));
 
@@ -133,21 +137,24 @@ export function VendorContractList() {
           <Input value={q} onChange={(e) => { setPage(1); setQ(e.target.value); }} placeholder="Cari No Kontrak, vendor, PIC..." className="pl-9" data-testid="vc-search" /></div>
         <div className="w-full sm:w-56"><Combobox options={[{ value: "", label: "Semua Vendor" }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]} value={supplierId} onChange={(v) => { setPage(1); setSupplierId(v); }} placeholder="Vendor" /></div>
         <div className="w-full sm:w-44"><Combobox options={STATUS_OPTS} value={status} onChange={(v) => { setPage(1); setStatus(v); }} placeholder="Status" /></div>
-        <div className="w-full sm:w-36"><Combobox options={[{ value: "", label: "Semua Mata Uang" }, ...CURRENCY_OPTS]} value={currency} onChange={(v) => { setPage(1); setCurrency(v); }} placeholder="Currency" /></div>
+        <div className="w-full sm:w-36"><Combobox options={[{ value: "", label: "Semua Mata Uang" }, ...CURRENCY_OPTS]} value={currency} onChange={(v) => { setPage(1); setCurrency(v); }} placeholder="Mata Uang" /></div>
       </div>
 
+      {sel.size>0&&<div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="vendor_contracts-selection-bar"><span className="font-semibold" data-testid="vendor_contracts-selected-count">{sel.size} dipilih</span>{sel.size===1&&can("vendor_contract:manage")&&<Button size="sm" variant="outline" data-testid="vendor_contracts-bar-edit" onClick={()=>{const r=data.items.find((x)=>sel.has(x.id));if(r)nav(`/vendor-contracts/${r.id}/edit`);}}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit</Button>}{can("delete")&&<Button size="sm" variant="outline" data-testid="vendor_contracts-bar-delete" onClick={()=>setDelRows(data.items.filter((x)=>sel.has(x.id)).map((r)=>({id:r.id,label:[r.contract_number, r.supplier_name].filter(Boolean).join(" — ")})))}><Trash2 className="mr-1.5 h-3.5 w-3.5 text-destructive" />{sel.size===1?"Hapus":"Hapus Massal"}</Button>}<Button size="sm" variant="ghost" className="ml-auto" onClick={()=>setSel(new Set())} data-testid="vendor_contracts-clear-selection">Batal pilih</Button></div>}<MasterDeleteDialog open={!!delRows} rows={delRows||[]} checkName="vendor_contracts" entityLabel="Kontrak Harga Vendor" onDeselect={(ids)=>setSel((c)=>new Set([...c].filter((x)=>!ids.includes(x))))} onClose={()=>setDelRows(null)} onDone={()=>{setDelRows(null);setSel(new Set());load();}} />
       <div className="border rounded-xl overflow-x-auto bg-card shadow-sm">
         <table className="w-full text-sm zebra">
           <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+            <th className="w-10 p-3"><Checkbox checked={data.items.length>0&&data.items.every((x)=>sel.has(x.id))} onCheckedChange={()=>setSel(data.items.every((x)=>sel.has(x.id))?new Set():new Set(data.items.map((x)=>x.id)))} aria-label="Pilih semua" data-testid="vendor_contracts-select-all" /></th>
             <th className="p-3">No Kontrak</th><th className="p-3">Vendor</th><th className="p-3">Periode</th>
-            <th className="p-3">Currency</th><th className="p-3 text-right">Jml Item</th><th className="p-3">PIC</th>
-            <th className="p-3">Last Update</th><th className="p-3">Status</th><th className="p-3 w-14"></th>
+            <th className="p-3">Mata Uang</th><th className="p-3 text-right">Jml Item</th><th className="p-3">PIC</th>
+            <th className="p-3">Terakhir Diperbarui</th><th className="p-3">Status</th><th className="p-3 w-44 text-right">Aksi</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">Memuat...</td></tr>}
             {!loading && data.items.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">Belum ada kontrak harga vendor</td></tr>}
             {!loading && data.items.map((r) => (
               <tr key={r.id} className="border-t hover:bg-accent/40 cursor-pointer transition-colors" onClick={() => nav(`/vendor-contracts/${r.id}`)} data-testid={`vc-row-${r.contract_number}`}>
+                <td className="p-3" onClick={(e)=>e.stopPropagation()}><Checkbox checked={sel.has(r.id)} onCheckedChange={()=>setSel((c)=>{const n=new Set(c);n.has(r.id)?n.delete(r.id):n.add(r.id);return n;})} data-testid={`vendor_contracts-select-${r.contract_number}`} /></td>
                 <td className="p-3 font-mono text-xs font-semibold">{r.contract_number}</td>
                 <td className="p-3">{r.supplier_name || "-"}</td>
                 <td className="p-3 text-xs text-muted-foreground">{r.start_date} s/d {r.end_date}</td>
@@ -156,7 +163,7 @@ export function VendorContractList() {
                 <td className="p-3 text-muted-foreground">{r.vendor_pic || "-"}</td>
                 <td className="p-3 text-xs text-muted-foreground">{fmtDate(r.updated_at)}</td>
                 <td className="p-3"><VcBadge status={r.derived_status} /></td>
-                <td className="p-3"><Button variant="ghost" size="icon" className="h-8 w-8"><ChevronRight className="h-4 w-4" /></Button></td>
+                <td className="p-3" onClick={(e)=>e.stopPropagation()}><div className="flex justify-end gap-1">{can("vendor_contract:manage")&&<Button variant="ghost" size="sm" className="h-8" onClick={()=>nav(`/vendor-contracts/${r.id}/edit`)} data-testid={`vendor_contracts-edit-${r.contract_number}`}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button>}{can("delete")&&<Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive" onClick={()=>setDelRows([{id:r.id,label:[ r.contract_number, r.supplier_name].filter(Boolean).join(" — ")}])} data-testid={`vendor_contracts-delete-${r.contract_number}`}><Trash2 className="mr-1 h-3.5 w-3.5" />Hapus</Button>}</div></td>
               </tr>
             ))}
           </tbody>

@@ -56,7 +56,7 @@ export function DoItemRow({ l, i, editable, upd, remove, names, allocCell }) {
         <div className="w-[44px] shrink-0">{editable && <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => remove(i)} data-testid={`do-remove-${i}`}><Trash2 className="h-4 w-4 text-destructive" /></Button>}</div>
       </div>
       {over > 0 && <div className="mt-2 flex items-center gap-2 pl-[200px]" data-testid={`do-over-row-${i}`}>
-        <span className="shrink-0 text-xs font-semibold text-orange-800">Over Receipt +{num(over)} {l.display_unit || l.unit || ""} · Alasan Penerimaan Berlebih *</span>
+        <span className="shrink-0 text-xs font-semibold text-orange-800">Penerimaan Berlebih +{num(over)} {l.display_unit || l.unit || ""} · Alasan Penerimaan Berlebih *</span>
         {editable ? <Input value={l.over_receipt_reason || ""} onChange={(e) => upd(i, { over_receipt_reason: e.target.value })} placeholder="Wajib diisi sebelum posting" className={`h-8 max-w-md text-sm ${String(l.over_receipt_reason || "").trim() ? "" : "border-destructive"}`} data-testid={`do-over-reason-${i}`} /> : <span className="text-xs">{l.over_receipt_reason || "-"}</span>}
       </div>}
     </div>

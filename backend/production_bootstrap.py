@@ -199,6 +199,9 @@ spk_layer.install(server)
 # vendor_contract_price_history) are automatically tenant-scoped by the isolation proxy.
 # NOTE: CP3 does NOT wire the resolver to PO (that is CP4).
 vendor_contract_layer.install(server)
+# Master Data standard actions: delete protection, bulk preflight, SPK/Kontrak/Stok Min-Max delete.
+import master_action_layer  # noqa: E402
+master_action_layer.install(server)
 
 # CP4 — SPK Allocation Flow (MRO->RO->PO) + Budget Commitment. Installed AFTER the
 # procurement guard/mutation layers (so it wraps their final PO route behavior) and BEFORE

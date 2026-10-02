@@ -7,6 +7,8 @@ import { Combobox } from "@/components/Combobox";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Field } from "@/components/DatePicker";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { MasterDeleteDialog } from "@/components/MasterDeleteDialog";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -28,11 +30,11 @@ const STATUS_OPTS = [
   { value: "cancelled", label: "Cancelled" },
 ];
 const POLICY_OPTS = [
-  { value: "WARNING_ONLY", label: "Warning Only" },
-  { value: "HARD_BLOCK", label: "Hard Block" },
+  { value: "WARNING_ONLY", label: "Hanya Peringatan" },
+  { value: "HARD_BLOCK", label: "Blokir Tegas" },
 ];
 const statusMap = { draft: "Draft", active: "Normal", closed: "Selesai", cancelled: "cancelled" };
-const policyLabel = (p) => (p === "HARD_BLOCK" ? "Hard Block" : p === "WARNING_ONLY" ? "Warning Only" : "-");
+const policyLabel = (p) => (p === "HARD_BLOCK" ? "Blokir Tegas" : p === "WARNING_ONLY" ? "Hanya Peringatan" : "-");
 
 function MoneyInput({ value, onChange, ...props }) {
   return <Input inputMode="numeric" value={value === "" || value == null ? "" : Number(value).toLocaleString("id-ID")}
@@ -55,6 +57,7 @@ function FormSection({ title, icon: Icon, children, desc }) {
 export function SpkList() {
   const nav = useNavigate();
   const { can } = useAuth();
+  const [sel, setSel] = useState(new Set()); const [delRows, setDelRows] = useState(null);
   const [data, setData] = useState({ items: [], total: 0, page: 1, page_size: 20 });
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
@@ -76,6 +79,7 @@ export function SpkList() {
     finally { setLoading(false); }
   }, [q, status, divisionId, sort, page]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  useEffect(() => { setSel(new Set()); }, [q, status, divisionId, sort, page]);
 
   const totalPages = Math.max(1, Math.ceil(data.total / (data.page_size || 20)));
   const toggleSort = (key) => setSort((s) => (s === key ? `-${key}` : s === `-${key}` ? key : `-${key}`));
@@ -93,26 +97,29 @@ export function SpkList() {
         <div className="w-full sm:w-56"><Combobox options={[{ value: "", label: "Semua Divisi" }, ...divisions.map((d) => ({ value: d.id, label: d.name }))]} value={divisionId} onChange={(v) => { setPage(1); setDivisionId(v); }} placeholder="Divisi" /></div>
       </div>
 
+      {sel.size>0&&<div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="spk-selection-bar"><span className="font-semibold" data-testid="spk-selected-count">{sel.size} dipilih</span>{sel.size===1&&can("spk:manage")&&<Button size="sm" variant="outline" data-testid="spk-bar-edit" onClick={()=>{const r=data.items.find((x)=>sel.has(x.id));if(r)nav(`/spk/${r.id}/edit`);}}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit</Button>}{can("delete")&&<Button size="sm" variant="outline" data-testid="spk-bar-delete" onClick={()=>setDelRows(data.items.filter((x)=>sel.has(x.id)).map((r)=>({id:r.id,label:[r.spk_number, r.project_name].filter(Boolean).join(" — ")})))}><Trash2 className="mr-1.5 h-3.5 w-3.5 text-destructive" />{sel.size===1?"Hapus":"Hapus Massal"}</Button>}<Button size="sm" variant="ghost" className="ml-auto" onClick={()=>setSel(new Set())} data-testid="spk-clear-selection">Batal pilih</Button></div>}<MasterDeleteDialog open={!!delRows} rows={delRows||[]} checkName="spk" entityLabel="SPK" onDeselect={(ids)=>setSel((c)=>new Set([...c].filter((x)=>!ids.includes(x))))} onClose={()=>setDelRows(null)} onDone={()=>{setDelRows(null);setSel(new Set());load();}} />
       <div className="border rounded-xl overflow-x-auto bg-card shadow-sm">
         <table className="w-full text-sm zebra">
           <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+            <th className="w-10 p-3"><Checkbox checked={data.items.length>0&&data.items.every((x)=>sel.has(x.id))} onCheckedChange={()=>setSel(data.items.every((x)=>sel.has(x.id))?new Set():new Set(data.items.map((x)=>x.id)))} aria-label="Pilih semua" data-testid="spk-select-all" /></th>
             <th className="p-3 cursor-pointer" onClick={() => toggleSort("spk_number")}>No SPK</th>
             <th className="p-3">Nama Pekerjaan</th>
             <th className="p-3">Customer</th>
             <th className="p-3">Divisi</th>
             <th className="p-3">PIC</th>
             <th className="p-3 text-right cursor-pointer" onClick={() => toggleSort("spk_value")}>Nilai SPK</th>
-            <th className="p-3 text-right">Budget Proc.</th>
+            <th className="p-3 text-right">Budget Pengadaan</th>
             <th className="p-3">Periode</th>
-            <th className="p-3">Policy</th>
+            <th className="p-3">Kebijakan</th>
             <th className="p-3">Status</th>
-            <th className="p-3 w-14"></th>
+            <th className="p-3 w-44 text-right">Aksi</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={11} className="p-8 text-center text-muted-foreground">Memuat...</td></tr>}
             {!loading && data.items.length === 0 && <tr><td colSpan={11} className="p-8 text-center text-muted-foreground">Belum ada SPK</td></tr>}
             {!loading && data.items.map((r) => (
               <tr key={r.id} className="border-t hover:bg-accent/40 cursor-pointer transition-colors" onClick={() => nav(`/spk/${r.id}`)} data-testid={`spk-row-${r.spk_number}`}>
+                <td className="p-3" onClick={(e)=>e.stopPropagation()}><Checkbox checked={sel.has(r.id)} onCheckedChange={()=>setSel((c)=>{const n=new Set(c);n.has(r.id)?n.delete(r.id):n.add(r.id);return n;})} data-testid={`spk-select-${r.spk_number}`} /></td>
                 <td className="p-3 font-mono text-xs font-semibold">{r.spk_number}</td>
                 <td className="p-3">{r.project_name}</td>
                 <td className="p-3 text-muted-foreground">{r.customer || "-"}</td>
@@ -121,9 +128,9 @@ export function SpkList() {
                 <td className="p-3 text-right">{rupiah(r.spk_value)}</td>
                 <td className="p-3 text-right font-semibold">{rupiah(r.procurement_budget)}</td>
                 <td className="p-3 text-xs text-muted-foreground">{r.start_date || "-"}{r.end_date ? ` s/d ${r.end_date}` : ""}</td>
-                <td className="p-3 text-xs"><span className="rounded-md bg-muted px-2 py-1">{r.effective_policy?.global === "HARD_BLOCK" ? "Hard" : "Warn"}/{r.effective_policy?.category === "HARD_BLOCK" ? "Hard" : "Warn"}</span></td>
+                <td className="p-3 text-xs"><span className="rounded-md bg-muted px-2 py-1">{r.effective_policy?.global === "HARD_BLOCK" ? "Blokir" : "Peringatan"}/{r.effective_policy?.category === "HARD_BLOCK" ? "Blokir" : "Peringatan"}</span></td>
                 <td className="p-3"><StatusBadge status={statusMap[r.status] || r.status} /></td>
-                <td className="p-3"><Button variant="ghost" size="icon" className="h-8 w-8"><ChevronRight className="h-4 w-4" /></Button></td>
+                <td className="p-3" onClick={(e)=>e.stopPropagation()}><div className="flex justify-end gap-1">{can("spk:manage")&&<Button variant="ghost" size="sm" className="h-8" onClick={()=>nav(`/spk/${r.id}/edit`)} data-testid={`spk-edit-${r.spk_number}`}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button>}{can("delete")&&<Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive" onClick={()=>setDelRows([{id:r.id,label:[ r.spk_number, r.project_name].filter(Boolean).join(" — ")}])} data-testid={`spk-delete-${r.spk_number}`}><Trash2 className="mr-1 h-3.5 w-3.5" />Hapus</Button>}</div></td>
               </tr>
             ))}
           </tbody>

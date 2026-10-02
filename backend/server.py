@@ -60,9 +60,13 @@ def has_perm(user, perm):
         return True
     return perm in user.get("permissions", [])
 
+PERM_LABELS_ID = {"view": "melihat data", "create": "menambah data", "edit": "mengubah data", "delete": "menghapus data",
+                  "submit": "mengajukan dokumen", "approve": "menyetujui dokumen", "reject": "menolak dokumen",
+                  "cancel": "membatalkan dokumen", "close": "menutup dokumen", "print": "mencetak dokumen", "export": "mengekspor data"}
+
 def require(user, perm):
     if not has_perm(user, perm):
-        raise HTTPException(status_code=403, detail=f"Tidak punya izin: {perm}")
+        raise HTTPException(status_code=403, detail=f"Anda tidak memiliki izin untuk {PERM_LABELS_ID.get(perm, perm)}")
 
 async def audit(user, action, entity, entity_id, doc_no=None, before=None, after=None, reason=None):
     await db.audit_logs.insert_one({
@@ -514,6 +518,8 @@ async def create_user(body: dict, user=Depends(current_user)):
 @api.put("/users/{uid}")
 async def update_user(uid: str, body: dict, user=Depends(current_user)):
     require(user, "edit")
+    if not await db.users.find_one({"id": uid}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
     upd = {k: v for k, v in body.items() if k in ("name","role","divisions","warehouses","permissions","scope","is_active","signature_url")}
     if body.get("password"):
         upd["password_hash"] = A.hash_password(body["password"])
@@ -524,6 +530,8 @@ async def update_user(uid: str, body: dict, user=Depends(current_user)):
 @api.delete("/users/{uid}")
 async def delete_user(uid: str, user=Depends(current_user)):
     require(user, "delete")
+    if not await db.users.find_one({"id": uid}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
     await db.users.update_one({"id": uid}, {"$set": {"is_active": False}})
     await audit(user, "delete", "user", uid)
     return {"ok": True}
