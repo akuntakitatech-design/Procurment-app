@@ -231,7 +231,8 @@ function MasterTab({ name }) {
   const [delRows, setDelRows] = useState(null);
   useEffect(() => { setSel(new Set()); }, [q, name]);
 
-  const load = useCallback(() => api.get(`/master/${name}`).then((r) => setRows(r.data)), [name]);
+  const [loaded, setLoaded] = useState(false);
+  const load = useCallback(() => api.get(`/master/${name}`).then((r) => { setRows(r.data); setLoaded(true); }), [name]);
   const loadRef = useCallback((rn) => api.get(`/master/${rn}?active_only=true`).then((r) => setRefs((s) => ({ ...s, [rn]: r.data }))), []);
 
   useEffect(() => {
@@ -309,7 +310,7 @@ function MasterTab({ name }) {
     <div className="border rounded-xl overflow-x-auto bg-card shadow-sm"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
       <th className="w-10 p-3"><Checkbox checked={allOn} onCheckedChange={() => setSel(allOn ? new Set() : new Set(filtered.map((r) => r.id)))} aria-label="Pilih semua" data-testid={`master-${name}-select-all`} /></th>
       {cfg.fields.slice(0, 5).map((f) => <th key={f.k} className="p-3">{f.l}</th>)}<th className="p-3">Status</th><th className="p-3 w-40 text-right">Aksi</th></tr></thead>
-      <tbody>{filtered.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">Belum ada data</td></tr>}
+      <tbody>{filtered.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">{loaded ? "Belum ada data" : "Memuat..."}</td></tr>}
         {filtered.map((r) => <tr key={r.id} className={`border-t hover:bg-accent/40 transition-colors ${sel.has(r.id) ? "bg-primary/5" : ""}`} data-testid={`master-${name}-row-${r.code || r.id}`}>
           <td className="p-3"><Checkbox checked={sel.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label={`Pilih ${labelOf(r)}`} data-testid={`master-${name}-select-${r.code || r.id}`} /></td>
           {cfg.fields.slice(0, 5).map((f) => <td key={f.k} className={`p-3 ${f.k === "code" ? "font-mono text-xs font-semibold" : ""}`}>{displayField(f, r)}</td>)}
@@ -363,7 +364,8 @@ function ItemWarehouseTab() {
   const [form, setForm] = useState({ item_id: "", warehouse_id: "", min_stock: 0, max_stock: 0 });
   const [sel, setSel] = useState(new Set());
   const [delRows, setDelRows] = useState(null);
-  const load = () => api.get("/item-warehouse").then((r) => setRows(r.data));
+  const [loaded, setLoaded] = useState(false);
+  const load = () => api.get("/item-warehouse").then((r) => { setRows(r.data); setLoaded(true); });
   useEffect(() => { load(); api.get("/master/items?active_only=true").then((r) => setItems(r.data)); api.get("/master/warehouses?active_only=true").then((r) => setWhs(r.data)); }, []);
   const save = async () => { try { await api.post("/item-warehouse", form); toast.success("Stok Min/Max tersimpan"); load(); } catch (e) { toast.error(apiError(e.response?.data?.detail)); } };
   const edit = (r) => { setForm({ item_id: r.item_id, warehouse_id: r.warehouse_id, min_stock: r.min_stock || 0, max_stock: r.max_stock || 0 }); window.scrollTo({ top: 0, behavior: "smooth" }); };
@@ -388,7 +390,7 @@ function ItemWarehouseTab() {
     <div className="border rounded-xl overflow-x-auto bg-card shadow-sm"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
       <th className="w-10 p-3"><Checkbox checked={allOn} onCheckedChange={() => setSel(allOn ? new Set() : new Set(rows.map(iwKey)))} aria-label="Pilih semua" data-testid="minmax-select-all" /></th>
       <th className="p-3">Barang</th><th className="p-3">Gudang</th><th className="p-3 text-right">Stok Saat Ini</th><th className="p-3 text-right">Min</th><th className="p-3 text-right">Maks</th><th className="p-3 text-right">Saran Order</th><th className="p-3">Status</th><th className="p-3 w-40 text-right">Aksi</th></tr></thead>
-      <tbody>{rows.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">Belum ada konfigurasi</td></tr>}
+      <tbody>{rows.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">{loaded ? "Belum ada konfigurasi" : "Memuat..."}</td></tr>}
         {rows.map((r, i) => <tr key={iwKey(r)} className={`border-t ${sel.has(iwKey(r)) ? "bg-primary/5" : ""}`} data-testid={`minmax-row-${i}`}>
           <td className="p-3"><Checkbox checked={sel.has(iwKey(r))} onCheckedChange={() => toggle(iwKey(r))} aria-label={`Pilih ${iwLabel(r)}`} data-testid={`minmax-select-${i}`} /></td>
           <td className="p-3">{r.item_code} — {r.item_name}</td><td className="p-3">{r.warehouse_name}</td><td className="p-3 text-right font-semibold">{num(r.current_stock)}</td><td className="p-3 text-right">{num(r.min_stock)}</td><td className="p-3 text-right">{num(r.max_stock)}</td><td className="p-3 text-right">{num(r.suggested_order)}</td><td className="p-3"><StatusBadge status={r.status} /></td>
@@ -400,7 +402,7 @@ function ItemWarehouseTab() {
 
 function MasterCard({ card, count, onClick }) {
   const Icon = card.icon;
-  return <button type="button" onClick={onClick} className="group w-full rounded-2xl border bg-card p-4 sm:p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
+  return <button type="button" onClick={onClick} data-testid={`master-card-${card.key}`} className="group w-full rounded-2xl border bg-card p-4 sm:p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
     <div className="flex items-center gap-4"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="h-6 w-6" /></div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="font-head text-base font-semibold">{card.label}</h3>{count !== undefined && <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{count} data</span>}</div><p className="mt-1 text-xs sm:text-sm text-muted-foreground line-clamp-2">{card.desc}</p></div><ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
   </button>;
 }

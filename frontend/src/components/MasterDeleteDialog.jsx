@@ -59,7 +59,7 @@ export function MasterDeleteDialog({ open, rows, checkName, entityLabel, onClose
           <Button variant="outline" onClick={onClose} disabled={busy} data-testid="master-delete-cancel">{blocked.length && !valid.length ? "Tutup" : "Batal"}</Button>
           {blocked.length > 0 && valid.length > 0 && <Button variant="outline" onClick={dropBlocked} disabled={busy} data-testid="master-delete-drop-blocked">Batalkan Pilihan yang Diblok</Button>}
           <Button variant="destructive" onClick={run} disabled={busy || !checks || valid.length === 0 || blocked.length > 0} data-testid="master-delete-confirm">
-            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{single ? "Hapus" : `Hapus ${valid.length} data`}
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{single || !checks ? "Hapus" : `Hapus ${valid.length} data`}
           </Button>
         </DialogFooter>
       </DialogContent>

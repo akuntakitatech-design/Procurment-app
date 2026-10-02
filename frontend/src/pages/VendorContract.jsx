@@ -304,7 +304,7 @@ export function VendorContractForm() {
             <Field label="Tanggal Kontrak"><Input type="date" value={form.contract_date || ""} onChange={(e) => set("contract_date", e.target.value)} /></Field>
             <Field label="Jenis Kontrak"><Input value={form.contract_type} onChange={(e) => set("contract_type", e.target.value)} placeholder="Contoh: Harga Satuan, Framework" /></Field>
             <Field label="PIC Vendor"><Input value={form.vendor_pic} onChange={(e) => set("vendor_pic", e.target.value)} /></Field>
-            <Field label="Payment Term"><Input value={form.payment_term} onChange={(e) => set("payment_term", e.target.value)} placeholder="Contoh: 30 Hari" /></Field>
+            <Field label="Termin Pembayaran"><Input value={form.payment_term} onChange={(e) => set("payment_term", e.target.value)} placeholder="Contoh: 30 Hari" /></Field>
           </div>
         </FormSection>
 
@@ -313,7 +313,7 @@ export function VendorContractForm() {
             <Field label="Tanggal Mulai Berlaku *"><Input type="date" value={form.start_date || ""} onChange={(e) => set("start_date", e.target.value)} data-testid="vc-start" /></Field>
             <Field label="Tanggal Berakhir *"><Input type="date" value={form.end_date || ""} onChange={(e) => set("end_date", e.target.value)} data-testid="vc-end" /></Field>
             <Field label="Mata Uang *"><Combobox options={CURRENCY_OPTS} value={form.currency} onChange={(v) => set("currency", v)} /></Field>
-            <Field label="Default Price Tolerance (%)"><Input type="number" min="0" max="100" step="any" value={form.default_tolerance_pct} onChange={(e) => set("default_tolerance_pct", e.target.value)} data-testid="vc-tolerance" /></Field>
+            <Field label="Toleransi Harga Default (%)"><Input type="number" min="0" max="100" step="any" value={form.default_tolerance_pct} onChange={(e) => set("default_tolerance_pct", e.target.value)} data-testid="vc-tolerance" /></Field>
           </div>
           {form.start_date && form.end_date && form.end_date < form.start_date && <p className="text-xs text-destructive">Tanggal Berakhir tidak boleh sebelum Tanggal Mulai.</p>}
         </FormSection>
@@ -572,7 +572,7 @@ export function VendorContractDetail() {
     ["Mata Uang", c.currency],
     ["Jumlah Item", String(c.item_count ?? 0)],
     ["Default Tolerance", `${c.default_tolerance_pct || 0}%`],
-    ["Payment Term", c.payment_term || "-"],
+    ["Termin Pembayaran", c.payment_term || "-"],
   ];
 
   return (
