@@ -946,40 +946,154 @@ async def get_mi(did: str, user=Depends(current_user)):
     return d
 
 
+# ---------------- MI settings (Direct mode config), stock-per-warehouse, MI trace ----------------
+def _is_admin_like(user):
+    u = user or {}
+    return u.get("role") in ("admin", "director", "purchasing") or "view_all_division" in (u.get("permissions") or [])
+
+
+async def _mi_settings():
+    s = await db.settings.find_one({"id": "mi_settings"}, {"_id": 0}) or {}
+    return {"mi_mode": s.get("mi_mode", "mro_only"),
+            "direct_authorized_roles": list(s.get("direct_authorized_roles") or []),
+            "direct_authorized_user_ids": list(s.get("direct_authorized_user_ids") or [])}
+
+
+def _can_direct_mi(user, st):
+    if st.get("mi_mode") != "mro_plus_direct":
+        return False
+    if (user or {}).get("role") == "admin":
+        return True
+    roles = st.get("direct_authorized_roles") or []
+    uids = st.get("direct_authorized_user_ids") or []
+    if not roles and not uids:
+        return has_perm(user, "direct_mi")
+    return (user.get("role") in roles) or (user.get("id") in uids) or (user.get("email") in uids)
+
+
+@api.get("/settings/mi")
+async def get_mi_settings(user=Depends(current_user)):
+    require(user, "view")
+    st = await _mi_settings()
+    return {**st, "can_direct": _can_direct_mi(user, st), "can_manage": _is_admin_like(user)}
+
+
+@api.put("/settings/mi")
+async def put_mi_settings(body: dict, user=Depends(current_user)):
+    if not _is_admin_like(user):
+        raise HTTPException(403, "Hanya admin yang dapat mengubah konfigurasi MI")
+    mode = body.get("mi_mode", "mro_only")
+    if mode not in ("mro_only", "mro_plus_direct"):
+        raise HTTPException(400, "mi_mode tidak valid")
+    doc = {"id": "mi_settings", "mi_mode": mode,
+           "direct_authorized_roles": list(body.get("direct_authorized_roles") or []),
+           "direct_authorized_user_ids": list(body.get("direct_authorized_user_ids") or [])}
+    await db.settings.update_one({"id": "mi_settings"}, {"$set": doc}, upsert=True)
+    await audit(user, "edit", "settings", "mi_settings", "MI Settings", after=doc)
+    return doc
+
+
+@api.get("/stock/by-warehouse/{item_id}")
+async def stock_by_warehouse(item_id: str, user=Depends(current_user)):
+    """Read-only on-hand per warehouse for one item (base UOM). Used by MI stock info icon."""
+    require(user, "view")
+    m = await maps()
+    rows = await db.item_warehouse.find({"item_id": item_id}, {"_id": 0}).to_list(1000)
+    seen = {}
+    for r in rows:
+        seen[r.get("warehouse_id")] = float(r.get("current_stock") or 0)
+    whs = m.get("warehouses") or {}
+    out = [{"warehouse_id": wid, "warehouse_name": w.get("name") or wid, "stock": seen.get(wid, 0.0)}
+           for wid, w in whs.items()]
+    for wid, stv in seen.items():
+        if wid not in whs:
+            out.append({"warehouse_id": wid, "warehouse_name": wid, "stock": stv})
+    out.sort(key=lambda x: (-x["stock"], x["warehouse_name"] or ""))
+    return {"item_id": item_id, "warehouses": out}
+
+
+@api.get("/reports/mi-trace/{mid}")
+async def mi_trace_report(mid: str, user=Depends(current_user)):
+    """Non-monetary MI traceability (MI -> MRO; dimensions for reporting). NOTE: no inventory
+    valuation basis exists for MI in current architecture, so monetary value is intentionally
+    NOT derived here and is reported as a gap (valuation_basis=null)."""
+    require(user, "view")
+    d = await db.mi.find_one({"id": mid}, {"_id": 0})
+    if not d:
+        raise HTTPException(404, "MI tidak ditemukan")
+    m = await maps()
+    lines = await db.mi_lines.find({"mi_id": mid}, {"_id": 0}).to_list(500)
+    out = []
+    for l in lines:
+        mline = await db.mro_lines.find_one({"id": l.get("mro_line_id")}, {"_id": 0}) if l.get("mro_line_id") else None
+        mro = await db.mro.find_one({"id": l.get("mro_id") or (mline or {}).get("mro_id")}, {"_id": 0}) if (l.get("mro_id") or mline) else None
+        out.append({"mi_line_id": l.get("id"), "item_id": l.get("item_id"),
+                    "item_name": m["items"].get(l.get("item_id"), {}).get("name"),
+                    "qty_issue": float(l.get("qty") or 0), "unit": l.get("unit"),
+                    "warehouse_id": l.get("warehouse_id"),
+                    "warehouse_name": m["warehouses"].get(l.get("warehouse_id"), {}).get("name"),
+                    "project_id": l.get("project_id"), "unit_id": l.get("unit_id"), "spk": l.get("spk"),
+                    "mro_id": l.get("mro_id") or (mline or {}).get("mro_id"), "mro_no": (mro or {}).get("no"),
+                    "mro_line_id": l.get("mro_line_id"),
+                    "pemohon": (mro or {}).get("requester") or (mro or {}).get("pemohon")})
+    return {"mi_id": mid, "mi_no": d.get("no"),
+            "source_mode": d.get("source_mode") or ("direct" if d.get("source_type") == "Direct" else "mro"),
+            "receiver": d.get("receiver"), "requester": d.get("requester"), "date": d.get("date"),
+            "division_id": d.get("division_id"), "lines": out,
+            "valuation_basis": None,
+            "valuation_note": "MI inventory valuation basis not defined (no moving-average or PO-cost on stock). Monetary value intentionally not derived."}
+
+
+
 @api.post("/mi")
 async def create_mi(body: dict, user=Depends(current_user)):
     require(user, "create")
     source_type = body.get("source_type", "MRO")
-    if source_type == "Direct":
-        require(user, "direct_mi")
+    st = await _mi_settings()
+    if source_type == "Direct" and not _can_direct_mi(user, st):
+        raise HTTPException(403, "Direct MI tidak diizinkan untuk tenant/pengguna ini")
+    source_mode = "direct" if source_type == "Direct" else "mro"
     did = gid(); no = await next_number("MI")
     await db.mi.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
         "division_id": body.get("division_id"), "default_warehouse_id": body.get("default_warehouse_id"),
         "default_project_id": body.get("default_project_id"), "receiver": body.get("receiver"),
-        "department": body.get("department"), "source_type": source_type, "notes": body.get("notes"),
+        "requester": body.get("requester"), "department": body.get("department"),
+        "source_type": source_type, "source_mode": source_mode, "spk": body.get("spk"),
+        "notes": body.get("notes"),
         "status": "Posted", "created_by": user.get("email"), "created_at": now_iso()})
     for l in body.get("lines", []):
         qty = float(l.get("qty", 0))
         if qty <= 0: continue
-        wh = l.get("warehouse_id") or body.get("default_warehouse_id")
+        mline = None
+        if source_type == "MRO":
+            # STRICT: MRO-mode line must originate from a valid MRO line with a matching item.
+            if not l.get("mro_line_id"):
+                raise HTTPException(400, "MI Dari MRO wajib bersumber dari baris MRO")
+            mline = await db.mro_lines.find_one({"id": l["mro_line_id"]})
+            if not mline:
+                raise HTTPException(400, "Baris MRO sumber tidak ditemukan")
+            if str(mline.get("item_id")) != str(l.get("item_id")):
+                raise HTTPException(400, "Barang MI tidak sesuai dengan barang MRO sumber")
+        # Warehouse LOCKED to the MRO line's warehouse in MRO mode (client override ignored).
+        wh = (mline.get("warehouse_id") if (source_type == "MRO" and mline) else None) or l.get("warehouse_id") or body.get("default_warehouse_id")
         avail = await stock_balance(l["item_id"], wh)
         if qty > avail + 1e-6 and not has_perm(user, "override_qty"):
             raise HTTPException(400, f"Stok tidak cukup (tersedia {avail})")
-        if l.get("mro_line_id"):
-            mline = await db.mro_lines.find_one({"id": l["mro_line_id"]})
-            if mline and not has_perm(user, "override_qty"):
-                rem = mline.get("qty", 0) - await alloc_out(l["mro_line_id"], "mi")
-                if qty > rem + 1e-6:
-                    raise HTTPException(400, "Qty MI melebihi kebutuhan MRO")
+        if mline and not has_perm(user, "override_qty"):
+            rem = mline.get("qty", 0) - await alloc_out(l["mro_line_id"], "mi")
+            if qty > rem + 1e-6:
+                raise HTTPException(400, "Qty MI melebihi kebutuhan MRO")
         lid = gid()
-        await db.mi_lines.insert_one({"id": lid, "mi_id": did, "mro_line_id": l.get("mro_line_id"),
+        await db.mi_lines.insert_one({"id": lid, "mi_id": did, "mro_id": l.get("mro_id"),
+            "mro_line_id": l.get("mro_line_id"),
             "item_id": l["item_id"], "qty": qty, "unit": l.get("unit"), "warehouse_id": wh,
-            "project_id": l.get("project_id"), "unit_id": l.get("unit_id"), "notes": l.get("notes")})
+            "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
+            "spk": l.get("spk"), "notes": l.get("notes")})
         if l.get("mro_line_id"):
             await create_alloc("mro", l["mro_line_id"], l.get("mro_id"), "mi", lid, did, qty, l["item_id"])
         await post_ledger("MI", no, did, l["item_id"], wh, 0, qty,
                           project_id=l.get("project_id"), unit_id=l.get("unit_id"),
                           division_id=body.get("division_id"), user=user)
-    await audit(user, "create", "mi", did, no)
+    await audit(user, "create", "mi", did, no, after={"source_mode": source_mode})
     await notify("Barang dikeluarkan", f"MI {no} diposting", "mi", body.get("division_id"))
     return await get_mi(did, user)
