@@ -69,7 +69,7 @@ class ValuationTester:
                 self.log(f"✅ {name} - Status: {response.status_code}")
                 try:
                     return True, response.json()
-                except:
+                except Exception:
                     return True, {}
             else:
                 self.log(f"❌ {name} - Expected {expected_status}, got {response.status_code}")
