@@ -9,7 +9,8 @@ const cache = new Map();
 const TTL = 20000;
 export function loadStock(itemId, force = false) {
   const hit = cache.get(itemId);
-  if (!force && hit && Date.now() - hit.at < TTL) return hit.p;
+  const ttl = force === "fresh" ? 3000 : TTL;
+  if (force !== true && hit && Date.now() - hit.at < ttl) return hit.p;
   const p = api.get(`/stock/by-warehouse/${itemId}`).then((r) => r.data).catch((e) => ({ error: e.response?.status || true, warehouses: [] }));
   cache.set(itemId, { at: Date.now(), p });
   return p;
@@ -17,7 +18,7 @@ export function loadStock(itemId, force = false) {
 
 export function StockPopup({ itemId, itemName, warehouseId, open, onClose }) {
   const [d, setD] = useState(null);
-  useEffect(() => { if (open && itemId) loadStock(itemId, true).then(setD); }, [open, itemId]);
+  useEffect(() => { if (open && itemId) loadStock(itemId, "fresh").then(setD); }, [open, itemId]);
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg" data-testid="stock-popup">
@@ -36,20 +37,31 @@ export function StockPopup({ itemId, itemName, warehouseId, open, onClose }) {
   );
 }
 
-export function StockInfo({ itemId, warehouseId, itemName, label = "Stok tersedia", value, testid }) {
+// Badge stok tunggal di pojok kanan atas field Quantity (klik -> Stok per Gudang).
+export function StockBadge({ itemId, warehouseId, itemName, value, testid, className = "" }) {
   const [d, setD] = useState(null);
   const [open, setOpen] = useState(false);
-  useEffect(() => { setD(null); if (itemId) loadStock(itemId).then(setD); }, [itemId]);
-  if (!itemId) return null;
+  useEffect(() => {
+    let live = true;
+    setD(null);
+    if (itemId && warehouseId) loadStock(itemId, "fresh").then((r) => live && setD(r));
+    return () => { live = false; };
+  }, [itemId, warehouseId]);
+  if (!itemId || !warehouseId) return null;
   const row = d && !d.error ? d.warehouses.find((w) => w.warehouse_id === warehouseId) : null;
-  const shown = value !== undefined ? value : row ? row.stock : d && !d.error && warehouseId ? 0 : null;
-  const text = !warehouseId ? "pilih gudang" : d?.error ? "di luar cakupan" : shown === null ? "memuat…" : `${num(shown)} ${d?.unit || ""}`.trim();
+  const stock = value !== undefined && value !== null ? Number(value) : d && !d.error ? Number(row?.stock) || 0 : null;
+  const tone = d?.error && value == null ? "border-slate-200 bg-slate-100 text-slate-500" : stock === null ? "border-slate-200 bg-slate-100 text-slate-500" : stock > 0 ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-50 text-red-600";
+  const text = d?.error && value == null ? "—" : stock === null ? "..." : num(stock);
+  const title = d?.error && value == null ? "Stok di luar cakupan Anda" : `Stok tersedia${d?.unit ? ` (${d.unit})` : ""} — klik untuk Stok per Gudang`;
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="mb-0.5 block w-full truncate text-left text-[10px] font-medium text-muted-foreground transition-colors hover:text-primary hover:underline" data-testid={testid || "stock-info"} title="Klik untuk melihat Stok per Gudang">
-        {label}: <span className="tabular-nums text-foreground" data-testid={`${testid || "stock-info"}-value`}>{text}</span>
-      </button>
+      <button type="button" onClick={() => setOpen(true)} title={title} data-testid={testid || "stock-badge"}
+        className={`absolute -top-2 right-1 z-10 h-4 min-w-[18px] rounded-full border px-1 text-[10px] font-semibold leading-[14px] tabular-nums shadow-sm transition-transform hover:scale-110 ${tone} ${className}`}>{text}</button>
       {open && <StockPopup itemId={itemId} itemName={itemName} warehouseId={warehouseId} open onClose={() => setOpen(false)} />}
     </>
   );
+}
+
+export function QtyStock({ children, badgeClass, ...badge }) {
+  return <div className="relative">{children}<StockBadge {...badge} className={badgeClass} /></div>;
 }

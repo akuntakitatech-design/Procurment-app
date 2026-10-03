@@ -7,7 +7,7 @@ import { rupiah, num } from "@/lib/format";
 import { computePriceStatus, StatusBadgePrice } from "@/components/PoPriceControl";
 import { NumericInput } from "@/components/NumericInput";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { StockInfo } from "@/components/StockInfo";
+import { QtyStock } from "@/components/StockInfo";
 import { ItemPicker } from "@/components/ItemPicker";
 
 export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null, stockWarehouse = null, itemCreate = null, testidPrefix = "line" }) {
@@ -102,7 +102,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const total = (l) => { const base = (Number(l.qty) || 0) * (Number(l.price) || 0) - discAmt(l); return taxInclusive ? Math.max(0, base) : base + base * (Number(l.tax) || 0) / 100; };
   const grand = lines.reduce((s, l) => s + total(l), 0);
   const whOf = (l) => (stockWarehouse ? stockWarehouse(l) : l.warehouse_id || defaults.warehouse_id || "");
-  const Stock = ({ l, i }) => <StockInfo itemId={l.item_id} warehouseId={whOf(l)} itemName={items[l.item_id]?.name} testid={`${testidPrefix}-stock-${i}`} />;
+  const Stock = ({ l, i }, input) => <QtyStock itemId={l.item_id} warehouseId={whOf(l)} itemName={items[l.item_id]?.name} testid={`${testidPrefix}-stock-${i}`}>{input}</QtyStock>;
   const footer = itemCreate ? (i) => ({ label: "Tambah Barang", testid: `${testidPrefix}-add-item-${i}`, onClick: () => itemCreate((id) => setPick({ i, id })) }) : () => null;
   const Picker = ({ l, i }) => <ItemPicker items={masters.data.items || []} uoms={uoms} value={l.item_id} onChange={(v) => update(i, { item_id: v })} warehouseId={whOf(l)} disabled={l._locked} onCreate={footer(i)} testid={`${testidPrefix}-item-${i}`} />;
   const updateRef = useRef(update);
@@ -146,7 +146,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
                 <div className="w-[36px] shrink-0"><button type="button" onClick={toggle} className="flex h-7 w-7 items-center justify-center rounded hover:bg-accent" data-testid={`po-expand-${i}`} title="Detail">{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button></div>
                 <div className="w-[180px] shrink-0">{Picker({ l, i })}</div>
                 <div className="w-[170px] shrink-0"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9 text-sm" placeholder="Keterangan" data-testid={`po-notes-${i}`} /></div>
-                <div className="w-[80px] shrink-0">{Stock({ l, i })}<NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`po-qty-${i}`} /></div>
+                <div className="w-[80px] shrink-0">{Stock({ l, i }, <NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`po-qty-${i}`} />)}</div>
                 <div className="w-[110px] shrink-0"><Uom l={l} i={i} /></div>
                 <div className="w-[130px] shrink-0 text-sm">{hasC ? <span className="font-semibold tabular-nums">{rupiah(Number(c.contract_price))}</span> : (c && c.out_of_period ? <span className="text-[11px] font-medium text-amber-700" data-testid={`po-contract-period-warn-${i}`}>Kontrak {c.contract_number || ""} di luar periode</span> : <span className="text-xs text-muted-foreground">Tidak ada kontrak</span>)}</div>
                 <div className="w-[170px] shrink-0"><div className="flex items-center gap-1"><div className="min-w-0 flex-1"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v, _priceTouched: true, _priceAuto: false })} className="h-9 text-right" data-testid={`po-price-input-${i}`} /></div>{poControl.history && <div className="shrink-0">{poControl.history(l, i)}</div>}</div></div>
@@ -192,7 +192,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
           {lines.map((l, i) => <tr key={i} className="border-t align-top">
             <td className="p-1.5">{l._sourceLabel && <div className="mb-1 text-[10px] font-mono text-muted-foreground">{l._sourceLabel}</div>}{Picker({ l, i })}</td>
             <td className="p-1.5"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9" placeholder="Keterangan item" /></td>
-            <td className="p-1.5">{Stock({ l, i })}<NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`${testidPrefix}-qty-${i}`} /></td>
+            <td className="p-1.5">{Stock({ l, i }, <NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`${testidPrefix}-qty-${i}`} />)}</td>
             <td className="p-1.5"><Uom l={l} i={i} /></td>
             {allocationColumn && <td className="p-1.5 align-middle">{allocationColumn.render(l, i)}</td>}
             {fields.warehouse && <td className="p-1.5"><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></td>}

@@ -14,7 +14,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { DatePicker, Field } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
 import { ItemPicker } from "@/components/ItemPicker";
-import { StockInfo } from "@/components/StockInfo";
+import { QtyStock } from "@/components/StockInfo";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PullDialog } from "@/components/PullDialog";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,12 +28,17 @@ import { inheritSourceHeader } from "@/lib/sourceInheritance";
 import { Save, Printer, ArrowLeft, Download, X, Info, Trash2, Plus, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 import { printDoc } from "@/lib/print";
-import { useDocAllocations, formatAllocText } from "@/components/SpkAllocationModal";
+import { useDocAllocations } from "@/components/SpkAllocationModal";
 import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
 export function MiList(){const[rows,setRows]=useState([]);const load=()=>api.get("/mi").then(r=>setRows(r.data));useEffect(()=>{load();},[]);return <DocList title="MI — Material Issued" subtitle="Pengeluaran barang dari gudang" createPath="/mi/new" basePath="/mi" module="mi" printType="MI" printOpts={{title:"MATERIAL ISSUED"}} onReload={load} testidPrefix="mi" rows={rows} minWidth={1300} columns={[noCol("No. MI"),dateCol(fmtDate),traceCol("mro"),traceCol("project"),traceCol("division"),traceCol("spk"),traceCol("requester"),{key:"receiver",label:"Penerima"},{key:"source_type",label:"Sumber",value:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO",render:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
 
+// Alokasi SPK MI (read-only, sumber MRO): "SPK-001" | "SPK-001 (6), SPK-002 (4)" | "Non-SPK".
+const baseQty=l=>(Number(l.qty)||0)*(Number(l.conversion_factor)||1);
+const spkKey=l=>l.mro_line_id&&baseQty(l)>0?`${l.mro_line_id}|${baseQty(l)}`:null;
+const fmtMiAlloc=s=>{const a=(s?.allocations||[]).filter(x=>Number(x.allocated_qty)>1e-9);if(!a.length)return "Non-SPK";const non=Number(s.non_spk_qty)||0;if(a.length===1&&non<=1e-9)return a[0].spk_number||"SPK";const parts=a.map(x=>`${x.spk_number||"SPK"} (${num(x.allocated_qty)})`);if(non>1e-9)parts.push(`Non-SPK (${num(non)})`);return parts.join(", ");};
+const miAllocCell=(l,saved,prev)=>{if(l.id)return fmtMiAlloc(saved[l.id]);const k=spkKey(l);if(!k)return l.mro_line_id?"—":"Non-SPK";const v=prev[k];if(v===undefined||v===null)return <span className="italic">memuat...</span>;if(v===false)return <span className="italic">Diwarisi saat simpan</span>;return fmtMiAlloc(v);};
 
 export function MiForm(){
   const{id}=useParams();const nav=useNavigate();const{can}=useAuth();const masters=useMasters(STOCK_REFS);
@@ -41,6 +46,7 @@ export function MiForm(){
   const[lines,setLines]=useState([]);const[doc,setDoc]=useState(null);const[pull,setPull]=useState(false);const[editing,setEditing]=useState(false);const isNew=!id;const editable=isNew||editing;
   const[pending,setPending]=useState([]);
   const[cfg,setCfg]=useState({mi_mode:"mro_only",can_direct:false});
+  const[spkPrev,setSpkPrev]=useState({}); // preview alokasi SPK (sumber MRO) sebelum simpan
   const[stockMap,setStockMap]=useState({}); // item_id -> [{warehouse_id,warehouse_name,stock}]
   const alloc=useDocAllocations("mi",id);
   const { confirm, dialog } = useCompletenessWarning();
@@ -54,6 +60,7 @@ export function MiForm(){
   const load=useCallback(()=>api.get(`/mi/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>({...l,_readonly:true})));setEditing(false);}),[id]);
   useEffect(()=>{if(id)load();},[id,load]);
   useEffect(()=>{lines.forEach(l=>l.item_id&&loadStock(l.item_id));},[lines,loadStock]);
+  useEffect(()=>{const t=setTimeout(()=>lines.forEach(l=>{const k=!l.id&&spkKey(l);if(!k||spkPrev[k]!==undefined)return;setSpkPrev(m=>({...m,[k]:null}));api.post("/spk-allocations/preview-inherit",{target_type:"mi",sources:[{source_line_id:l.mro_line_id,qty:baseQty(l)}]}).then(r=>setSpkPrev(m=>({...m,[k]:r.data}))).catch(()=>setSpkPrev(m=>({...m,[k]:false})));}),300);return()=>clearTimeout(t);},[lines,spkPrev]);
   const beginEdit=()=>{setEditing(true);setLines(cur=>cur.map(l=>({...l,_readonly:false})));};
   const direct=h.source_type==="Direct";
   const onPull=picked=>{const add=picked.map(p=>({item_id:p.item_id,item_code:p.item_code,item_name:p.item_name,qty:p._qty,unit:p.unit,uom_id:p.uom_id,conversion_factor:p.conversion_factor||1,warehouse_id:p.warehouse_id,project_id:p.project_id||h.default_project_id,unit_id:p.unit_id||h.default_unit_id,_warehouseOverride:false,_projectOverride:!!p.project_id,_unitOverride:!!p.unit_id,notes:p.notes||"",_locked:true,_sourceHeader:p.source_header||null,mro_id:p.mro_id,mro_no:p.mro_no,mro_line_id:p.line_id,qty_mro:p.requested,issued_before:p.issued,outstanding:p.outstanding,_available:p.available,sources:[{mro_id:p.mro_id,line_id:p.line_id,qty:p._qty,base_qty:p._qty*(p.conversion_factor||1)}]}));const combined=[...lines,...add];setLines(combined);setH(cur=>{const nx=inheritSourceHeader(cur,combined);const sh=picked[0]?.source_header||{};return {...nx,requester:nx.requester||sh.requester||sh.pemohon||cur.requester||""};});picked.forEach(p=>loadStock(p.item_id));};
@@ -67,7 +74,7 @@ export function MiForm(){
 
   const UomCell=({l,i})=>(<div className="flex items-center gap-1"><div className="min-w-0 flex-1"><Combobox dense options={uomOptions(l.item_id)} value={l.uom_id||items[l.item_id]?.base_uom_id||""} onChange={v=>upd(i,{uom_id:v})} disabled={!l.item_id||uomOptions(l.item_id).length<=1}/></div>{l.item_id&&<Popover><PopoverTrigger asChild><button type="button" className="shrink-0 text-muted-foreground hover:text-primary" title="Konversi Stok" data-testid={`mi-uom-info-${i}`}><Info className="h-4 w-4"/></button></PopoverTrigger><PopoverContent align="end" className="w-60 text-xs"><div className="space-y-1"><div className="font-semibold">Konversi Stok</div><div className="flex justify-between gap-3"><span className="text-muted-foreground">Satuan transaksi</span><span className="font-medium">{num(l.qty)} {l.unit||""}</span></div>{(Number(l.conversion_factor)||1)!==1&&<div className="flex justify-between gap-3"><span className="text-muted-foreground">Faktor konversi</span><span>1 {l.unit||""} = {num(l.conversion_factor)} {uomLabel(items[l.item_id]?.base_uom_id)}</span></div>}<div className="flex justify-between gap-3 border-t pt-1"><span className="text-muted-foreground">Terhitung stok</span><span className="font-semibold">{num((Number(l.qty)||0)*(Number(l.conversion_factor)||1))} {uomLabel(items[l.item_id]?.base_uom_id)}</span></div></div></PopoverContent></Popover>}</div>);
 
-  const head=[["w-[190px]","Barang"],["w-[140px]","Keterangan"],["w-[130px]","MRO"],["w-[170px]","Alokasi SPK"],["w-[140px]","Gudang"],["w-[140px]","Proyek"],["w-[130px]","Unit/Aset"],["w-[75px]","Qty MRO"],["w-[80px]","Sudah Issue"],["w-[85px]","Sisa Qty Issue"],["w-[100px]","Qty Issue"],["w-[110px]","Satuan"],["w-[120px]","Stok Tersedia"],["w-[120px]","Stok Setelah Issue"],["w-[44px]","Hapus"]];
+  const head=[["w-[190px]","Barang"],["w-[140px]","Keterangan"],["w-[130px]","MRO"],["w-[170px]","Alokasi SPK"],["w-[140px]","Gudang"],["w-[140px]","Proyek"],["w-[130px]","Unit/Aset"],["w-[75px]","Qty MRO"],["w-[80px]","Sudah Issue"],["w-[85px]","Sisa Qty Issue"],["w-[100px]","Qty Issue"],["w-[110px]","Satuan"],["w-[120px]","Stok Setelah Issue"],["w-[44px]","Hapus"]];
 
   return <div><PageHeader title={isNew?"MI Baru":doc?.no} subtitle={doc&&<span className="flex items-center gap-2"><StatusBadge status={doc.status}/>{(doc.source_mode==="direct"||doc.source_type==="Direct")&&<span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700" data-testid="mi-direct-badge">Direct</span>}</span>}><Button variant="outline" onClick={()=>nav("/mi")}><ArrowLeft className="h-4 w-4 mr-2"/>Kembali</Button>{editable&&!direct&&<Button variant="outline" onClick={()=>setPull(true)} data-testid="mi-pull-btn"><Download className="h-4 w-4 mr-2"/>Tarik MRO</Button>}{editable&&direct&&<Button variant="outline" onClick={addRow} data-testid="mi-add-row"><Plus className="h-4 w-4 mr-2"/>Tambah Baris</Button>}{!isNew&&!editing&&<TransactionMutationActions module="mi" id={id} ready={!!doc} onEdit={beginEdit} onDeleted={()=>nav("/mi")}/>} {editing&&<Button variant="outline" onClick={load}><X className="h-4 w-4 mr-2"/>Batal Edit</Button>}{editable&&can(isNew?"create":"edit")&&<Button onClick={save} disabled={lines.length===0}><Save className="h-4 w-4 mr-2"/>{editing?"Simpan Perubahan":"Posting Pengeluaran"}</Button>}{!isNew&&!editing&&<Button variant="outline" onClick={()=>printDoc("MI",doc,{title:"MATERIAL ISSUED"})}><Printer className="h-4 w-4 mr-2"/>Print</Button>}</PageHeader>
     <PullDialog open={pull} onClose={()=>setPull(false)} url="/pull/mro-for-mi" title="Tarik MRO — Pilih Item Dikeluarkan" onConfirm={onPull} columns={[{key:"mro_no",label:"MRO",mono:true},{key:"item_name",label:"Barang"},{key:"warehouse_name",label:"Gudang"},{key:"unit",label:"Satuan"},{key:"requested",label:"Qty Request",num:true},{key:"issued",label:"Sudah MI",num:true},{key:"outstanding",label:"Remaining",num:true},{key:"available",label:"Stok",num:true}]}/>
@@ -83,7 +90,7 @@ export function MiForm(){
 
       {/* ITEM TABLE */}
       <h3 className="font-head text-sm font-semibold">Item Dikeluarkan {direct&&<span className="ml-2 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Direct</span>}</h3>
-      <div className="overflow-x-auto rounded-md border bg-card shadow-sm"><div className="min-w-[1880px]">
+      <div className="overflow-x-auto rounded-md border bg-card shadow-sm"><div className="min-w-[1760px]">
         <div className="flex items-stretch gap-1.5 border-b bg-muted px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{head.map(([w,t],k)=><div key={k} className={w+" shrink-0"+((t==="Qty MRO"||t==="Sudah Issue"||t==="Sisa Qty Issue"||t==="Stok Setelah Issue")?" text-right":"")}>{t}</div>)}</div>
         {lines.length===0&&<div className="p-6 text-center text-sm text-muted-foreground">{direct?"Klik Tambah Baris untuk menambah item":"Tarik MRO untuk menambah item"}</div>}
         {lines.map((l,i)=><div key={i} className="border-b px-3 py-2.5 last:border-b-0" data-testid={`mi-item-block-${i}`}>
@@ -91,16 +98,15 @@ export function MiForm(){
             <div className="w-[190px] shrink-0">{(editable&&direct)?<ItemPicker items={masters.data.items||[]} uoms={masters.map("uoms")} value={l.item_id} onChange={v=>upd(i,{item_id:v})} warehouseId={l.warehouse_id} testid={`mi-item-${i}`}/>:<span className="text-sm font-medium">{l.item_name||l.item_code||"-"}</span>}</div>
             <div className="w-[140px] shrink-0">{editable?<Input value={l.notes||""} onChange={e=>upd(i,{notes:e.target.value})} className="h-9 text-sm" placeholder="Keterangan"/>:<span className="text-sm text-muted-foreground">{l.notes||"-"}</span>}</div>
             <div className="w-[130px] shrink-0 truncate font-mono text-[11px] text-muted-foreground" data-testid={`mi-mro-ref-${i}`} title={l.mro_no||""}>{l.mro_no||<span className="italic">—</span>}</div>
-            <div className="w-[170px] shrink-0 truncate text-xs text-muted-foreground" data-testid={`mi-alloc-${i}`}>{!l.id?<span className="italic">Diwarisi saat simpan</span>:formatAllocText(alloc.map[l.id])}</div>
+            <div className="w-[170px] shrink-0 truncate text-xs text-muted-foreground" data-testid={`mi-alloc-${i}`} title={l.id?fmtMiAlloc(alloc.map[l.id]):(spkPrev[spkKey(l)]?fmtMiAlloc(spkPrev[spkKey(l)]):undefined)}>{miAllocCell(l,alloc.map,spkPrev)}</div>
             <div className="w-[140px] shrink-0">{(editable&&direct)?<Combobox options={whOpts} value={l.warehouse_id||""} onChange={v=>upd(i,{warehouse_id:v})} placeholder="Gudang"/>:<div className="truncate text-sm text-muted-foreground" data-testid={`mi-wh-${i}`} title={!direct?"Terkunci sesuai MRO":""}>{masters.map("warehouses")[l.warehouse_id]?.name||l.warehouse_name||"-"}{!direct&&<div className="text-[10px]">(terkunci MRO)</div>}</div>}</div>
             <div className="w-[140px] shrink-0">{(editable&&direct)?<Combobox options={projOpts} value={l.project_id||""} onChange={v=>upd(i,{project_id:v})} placeholder="Proyek"/>:<div className="truncate text-sm text-muted-foreground">{masters.map("projects")[l.project_id]?.name||l.project_name||"-"}</div>}</div>
             <div className="w-[130px] shrink-0">{(editable&&direct)?<Combobox options={unitOpts} value={l.unit_id||""} onChange={v=>upd(i,{unit_id:v})} placeholder="Unit/Aset"/>:<div className="truncate text-sm text-muted-foreground">{masters.map("units")[l.unit_id]?.name||l.unit_name||"-"}</div>}</div>
             <div className="w-[75px] shrink-0 text-right text-sm tabular-nums">{direct?"—":numOrDash(l.qty_mro)}</div>
             <div className="w-[80px] shrink-0 text-right text-sm tabular-nums">{direct?"—":numOrDash(l.issued_before)}</div>
             <div className="w-[85px] shrink-0 text-right text-sm font-medium tabular-nums">{direct?"—":numOrDash(l.outstanding)}</div>
-            <div className="w-[100px] shrink-0">{editable?<NumericInput mode="quantity" value={l.qty} onChange={v=>upd(i,{qty:v})} className="h-9 text-right" data-testid={`mi-qty-${i}`}/>:<div className="text-right text-sm tabular-nums">{num(l.qty)}</div>}</div>
+            <div className="w-[100px] shrink-0"><QtyStock itemId={l.item_id} warehouseId={l.warehouse_id} itemName={items[l.item_id]?.name||l.item_name} value={availOf(l)} testid={`mi-stock-${i}`}>{editable?<NumericInput mode="quantity" value={l.qty} onChange={v=>upd(i,{qty:v})} className="h-9 text-right" data-testid={`mi-qty-${i}`}/>:<div className="h-9 pt-2 text-right text-sm tabular-nums">{num(l.qty)}</div>}</QtyStock></div>
             <div className="w-[110px] shrink-0">{editable?<UomCell l={l} i={i}/>:<span className="text-sm">{l.unit||""}</span>}</div>
-            <div className="w-[120px] shrink-0">{l.item_id?<StockInfo itemId={l.item_id} warehouseId={l.warehouse_id} itemName={items[l.item_id]?.name||l.item_name} value={availOf(l)} testid={`mi-stock-${i}`}/>:<span className="text-sm text-muted-foreground">—</span>}</div>
             <div className="w-[120px] shrink-0 text-right text-sm tabular-nums" data-testid={`mi-after-${i}`}>{afterIssue(l)===undefined?"—":<span className={afterIssue(l)<0?"text-destructive font-semibold":""}>{num(afterIssue(l))} {uomLabel(items[l.item_id]?.base_uom_id)}</span>}</div>
             <div className="w-[44px] shrink-0">{editable&&<Button variant="ghost" size="icon" className="h-9 w-9" onClick={()=>setLines(lines.filter((_,x)=>x!==i))} data-testid={`mi-remove-${i}`} aria-label="Hapus"><Trash2 className="h-4 w-4 text-destructive"/></Button>}</div>
           </div>
