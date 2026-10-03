@@ -25,11 +25,11 @@ import { QtyStock } from "@/components/StockInfo";
 const EMPTY = () => ({ date: todayISO(), warehouse_id: "", division_id: "", mode: "live", scope: "all", notes: "", document_message: null });
 
 export default function Opname() {
-  const masters = useMasters(STOCK_REFS); const { can } = useAuth();
+  const [createOpen, setCreateOpen] = useState(false); const [detail, setDetail] = useState(null); const masters = useMasters(createOpen || detail ? STOCK_REFS : []); const { can } = useAuth();
   const canPrice = can("view_purchase_price");
-  const list = useServerList("/opname"); const [createOpen, setCreateOpen] = useState(false);
+  const list = useServerList("/opname"); 
   const [h, setH] = useState(EMPTY());
-  const [detail, setDetail] = useState(null); const [counts, setCounts] = useState({}); const [countUoms, setCountUoms] = useState({}); const [forceEditing,setForceEditing]=useState(false);
+   const [counts, setCounts] = useState({}); const [countUoms, setCountUoms] = useState({}); const [forceEditing,setForceEditing]=useState(false);
   const [surplusCost, setSurplusCost] = useState({}); const [surplusReason, setSurplusReason] = useState({});
   const itemsMap = masters.map("items"); const uomsMap = masters.map("uoms");
   const uomLabel = (id) => { const u = uomsMap[id]; return u ? (u.symbol || u.name || u.code) : ""; };

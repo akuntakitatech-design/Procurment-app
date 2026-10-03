@@ -25,8 +25,8 @@ import { traceCol, noCol, dateCol } from "@/lib/txnList";
 const EMPTY = () => ({ date: todayISO(), from_warehouse_id: "", to_warehouse_id: "", due_date: null, project_id: "", requester: "", notes: "", document_message: null });
 
 export default function Loan() {
-  const masters = useMasters(STOCK_REFS); const { can } = useAuth();
-  const list = useServerList("/loans"); const [mode, setMode] = useState("list");
+  const [mode, setMode] = useState("list"); const masters = useMasters(mode === "list" ? [] : STOCK_REFS); const { can } = useAuth();
+  const list = useServerList("/loans"); 
   const [h, setH] = useState(EMPTY());
   const [lines, setLines] = useState([]); const [detail, setDetail] = useState(null); const [ret, setRet] = useState(false); const [editingId,setEditingId]=useState(null);
   const [returns,setReturns]=useState([]); const [returnEdit,setReturnEdit]=useState(null); const [returnLines,setReturnLines]=useState([]);

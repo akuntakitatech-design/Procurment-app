@@ -24,10 +24,10 @@ import { traceCol, noCol, dateCol } from "@/lib/txnList";
 const EMPTY = () => ({ date: todayISO(), from_warehouse_id: "", to_warehouse_id: "", project_id: "", notes: "", document_message: null });
 
 export default function Transfer() {
-  const masters = useMasters(STOCK_REFS);
+  const [mode, setMode] = useState("list"); const masters = useMasters(mode === "list" ? [] : STOCK_REFS);
   const { can } = useAuth();
   const list = useServerList("/transfers");
-  const [mode, setMode] = useState("list");
+  
   const [h, setH] = useState(EMPTY());
   const [lines, setLines] = useState([]);
   const [selected, setSelected] = useState(null);

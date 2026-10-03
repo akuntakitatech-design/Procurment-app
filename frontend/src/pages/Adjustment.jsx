@@ -26,9 +26,9 @@ const TYPES = ["Rusak", "Hilang", "Expired", "Koreksi", "Selisih", "Ditemukan", 
 const EMPTY = () => ({ date: todayISO(), warehouse_id: "", division_id: "", adj_type: "Koreksi", reason: "", notes: "", document_message: null });
 
 export default function Adjustment() {
-  const masters = useMasters(STOCK_REFS); const { can } = useAuth();
+  const [mode, setMode] = useState("list"); const masters = useMasters(mode === "list" ? [] : STOCK_REFS); const { can } = useAuth();
   const canPrice = can("view_purchase_price");
-  const list = useServerList("/adjustments"); const [mode, setMode] = useState("list");
+  const list = useServerList("/adjustments"); 
   const [h, setH] = useState(EMPTY());
   const [lines, setLines] = useState([]); const [selected, setSelected] = useState(null); const [editingId,setEditingId]=useState(null);
   const itemsMap = masters.map("items"); const uomsMap = masters.map("uoms");

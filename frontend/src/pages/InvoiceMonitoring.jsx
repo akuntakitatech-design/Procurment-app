@@ -44,6 +44,9 @@ const DO_COLS = [
 ];
 const F = ({ children }) => <div className="w-44">{children}</div>;
 
+const INV_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["trace_division", 0, "Semua Divisi"], ["trace_project", 0, "Semua Proyek"], ["trace_spk", 0, "Semua SPK"], ["trace_po", 0, "Semua PO"], ["do_nos", 0, "Semua DO"], ["status", 0, "Semua Status Invoice"], ["payment_status", 0, "Semua Status Pembayaran"], ["due_state", 0, "Semua Jatuh Tempo"]];
+const DO_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["division", 0, "Semua Divisi"], ["project", 0, "Semua Proyek"], ["spk", 0, "Semua SPK"], ["billing_status", 0, "Semua Status Penagihan"]];
+
 function useFilterUI(defs, facets) {
   const [f, setF] = useState({});
   const ui = defs.map(([k, , all]) => <F key={k}><Combobox options={optsOf(facets[k] || [], all)} value={f[k] || ""} onChange={(v) => setF((c) => ({ ...c, [k]: v }))} placeholder={all} testid={`filter-${k}`} dense /></F>);
@@ -59,7 +62,7 @@ function RangeUI({ from, to, setFrom, setTo }) {
 
 // Satu tab = satu list server-side (search/filter/sort/pagination di backend). Tab DO baru dimuat saat dibuka.
 function ServerTable({ url, defs, cols, from, to, setFrom, setTo, ...rest }) {
-  const [fParams, setFParams] = useState({});
+  const [fParams, setFParams] = useState(() => Object.fromEntries(defs.map(([k]) => [`f_${k}`, ""])));
   const list = useServerList(url, { ...fParams, date_from: from, date_to: to }, { facets: defs.map(([k]) => k).join(",") });
   const fx = useFilterUI(defs, list.facets);
   const key = JSON.stringify(fx.params);
