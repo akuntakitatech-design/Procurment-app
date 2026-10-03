@@ -7,14 +7,14 @@ export const STOCK_REFS = ["divisions", "contacts", "warehouses", "projects", "u
 export function useMasters(names = ["divisions", "contacts", "warehouses", "projects", "units", "suppliers", "supplier_categories", "items", "uoms", "item_categories", "taxes"]) {
   const [data, setData] = useState({});
   const namesKey = names.join(",");
-  const load = useCallback(async () => {
+  const load = useCallback(async (only) => {
     const out = {};
-    const list = namesKey ? namesKey.split(",") : [];
+    const list = typeof only === "string" ? [only] : namesKey ? namesKey.split(",") : [];
     await Promise.all(list.map(async (n) => {
       const r = await api.get(`/lookup/${n}`).catch(() => ({ data: [] }));
       out[n] = r.data;
     }));
-    setData(out);
+    setData((prev) => ({ ...prev, ...out }));
   }, [namesKey]);
   useEffect(() => { load(); }, [load]);
 
