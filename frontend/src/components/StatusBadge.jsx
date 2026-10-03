@@ -27,6 +27,20 @@ const MAP = {
   "low stock": "bg-amber-50 text-amber-700 border-amber-200",
   normal: "bg-emerald-50 text-emerald-700 border-emerald-200",
   overstock: "bg-violet-50 text-violet-700 border-violet-200",
+  diterima: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  "belum dibayar": "bg-rose-50 text-rose-700 border-rose-200",
+  "dibayar sebagian": "bg-amber-50 text-amber-700 border-amber-200",
+  lunas: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "belum ditagihkan": "bg-slate-100 text-slate-700 border-slate-300",
+  "ditagihkan sebagian": "bg-sky-50 text-sky-700 border-sky-200",
+  "sudah ditagihkan penuh": "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "lewat jatuh tempo": "bg-rose-100 text-rose-800 border-rose-300",
+  "jatuh tempo": "bg-amber-50 text-amber-700 border-amber-300",
+  "belum jatuh tempo": "bg-slate-100 text-slate-700 border-slate-300",
+  aktif: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  dibatalkan: "bg-slate-200 text-slate-500 line-through border-slate-300",
+  sesuai: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "ada selisih": "bg-orange-50 text-orange-700 border-orange-300",
 };
 
 const LABEL_ID = {

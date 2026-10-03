@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import {
   FileText, ClipboardList, PackageCheck, PackageMinus, ShoppingCart, ArrowLeftRight,
   Handshake, SlidersHorizontal, ClipboardCheck, Boxes, GitBranch, BarChart3, Settings,
-  Users, ArrowUpRight, Activity, FileSpreadsheet
+  Users, ArrowUpRight, Activity, FileSpreadsheet, Receipt
 } from "lucide-react";
 
 const HUBS = {
@@ -24,6 +24,7 @@ const HUBS = {
     subtitle: "Kelola purchase order, supplier, nilai pembelian, dan proses penerimaan.",
     cards: [
       { to: "/po", code: "PO", title: "Pesanan Pembelian", desc: "Purchase Order lengkap dengan supplier, pajak, harga, approval, dan penerimaan.", icon: ShoppingCart },
+      { to: "/invoice", code: "INV", title: "Invoice Vendor", desc: "Catat invoice vendor dari DO, pembayaran bertahap, dan monitoring jatuh tempo hutang vendor.", icon: Receipt },
     ],
   },
   inventory: {

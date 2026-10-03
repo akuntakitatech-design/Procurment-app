@@ -240,6 +240,8 @@ tenant_security_hardening_layer.install(server)
 # Tahap 2 — Hak Akses per Modul/Aksi + Cakupan Divisi. Wraps final business routes; must stay before tenant isolation.
 import access_control_layer  # noqa: E402
 access_control_layer.install(server)
+import vendor_invoice_layer  # noqa: E402
+vendor_invoice_layer.install(server)
 tenant_isolation_layer.install(server)
 
 # The subscription gate runs after isolation so it can enforce lifecycle access on every tenant

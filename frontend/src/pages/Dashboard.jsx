@@ -10,6 +10,8 @@ import {
   Boxes, Building2, Layers3, Plus
 } from "lucide-react";
 import { rupiah, num } from "@/lib/format";
+import { useAuth } from "@/context/AuthContext";
+import { InvoiceSummary } from "@/components/invoice/InvoiceSummary";
 
 const money = (v, allowed = true) => allowed && v != null ? rupiah(v) : "***";
 
@@ -120,6 +122,8 @@ export default function Dashboard() {
 
     <SubscriptionBanner subscription={subscription} />
 
+    <InvoiceDashboardSection />
+
     <section className="space-y-4">
       <SectionTitle title="Ringkasan Pembelian" subtitle={`Kinerja Purchase Order tahun ${p.year}. Nilai menggunakan basis DPP / sebelum pajak.`} />
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -205,4 +209,15 @@ function MonthRows({ row, open, toggle }) {
       <td></td><td className="p-3 pl-8 text-xs text-muted-foreground">↳ {c.category}</td><td className="p-3 text-right text-xs">{rupiah(c.po_value)}</td><td className="p-3 text-right text-xs">{rupiah(c.received_value)}</td><td className="p-3 text-right text-xs font-medium">{rupiah(c.outstanding)}</td>
     </tr>)}
   </>;
+}
+
+function InvoiceDashboardSection() {
+  const { can } = useAuth();
+  const nav = useNavigate();
+  if (!can("invoice.view")) return null;
+  return <section className="space-y-4" data-testid="dashboard-invoice-section">
+    <div className="flex items-end justify-between"><SectionTitle title="Invoice Vendor" subtitle="Ringkasan penerimaan invoice, pembayaran, dan jatuh tempo hutang vendor." />
+      <Button variant="outline" size="sm" onClick={() => nav("/invoice")} data-testid="dashboard-invoice-open">Buka Monitoring</Button></div>
+    <InvoiceSummary compact />
+  </section>;
 }

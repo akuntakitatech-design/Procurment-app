@@ -21,10 +21,10 @@ CRUD = [A_VIEW, A_CREATE, A_EDIT, A_DELETE]
 TXN_ACTIONS = CRUD + ["post", "cancel", "print"]
 ACTION_LABELS = {"view": "Lihat", "create": "Tambah", "edit": "Edit", "delete": "Hapus", "post": "Posting",
                  "cancel": "Batalkan / Reversal", "print": "Cetak", "approve": "Setujui", "reject": "Tolak",
-                 "send_email": "Kirim Email", "direct": "MI Langsung (Direct)"}
+                 "send_email": "Kirim Email", "direct": "MI Langsung (Direct)", "pay": "Catat Pembayaran"}
 ACTION_VERB = {"view": "melihat", "create": "menambah", "edit": "mengubah", "delete": "menghapus", "post": "memposting",
                "cancel": "membatalkan / reversal", "print": "mencetak", "approve": "menyetujui", "reject": "menolak",
-               "send_email": "mengirim email", "direct": "membuat MI Langsung"}
+               "send_email": "mengirim email", "direct": "membuat MI Langsung", "pay": "mencatat pembayaran"}
 
 GROUPS = [
     ("transaksi", "Transaksi", [
@@ -33,6 +33,7 @@ GROUPS = [
         ("mi", "MI", TXN_ACTIONS + ["direct"]), ("transfer", "Transfer Antar Gudang", TXN_ACTIONS),
         ("loan", "Pinjam Antar Gudang", TXN_ACTIONS), ("adjustment", "Penyesuaian Stok", TXN_ACTIONS),
         ("opname", "Stock Opname", TXN_ACTIONS)]),
+    ("keuangan", "Keuangan", [("invoice", "Invoice Vendor", CRUD + ["pay", "print"])]),
     ("procurement", "Master Procurement", [("spk", "SPK", CRUD), ("vendor_contracts", "Kontrak Harga Vendor", CRUD)]),
     ("barang", "Master Barang & Persediaan", [("items", "Barang", CRUD), ("item_categories", "Kategori Barang", CRUD),
                                              ("uoms", "Satuan", CRUD), ("stock_minmax", "Stok Min/Max", CRUD)]),
@@ -108,6 +109,10 @@ def legacy_to_granular(perms, role=None) -> set:
     if role == "director":
         out |= {f"users.{a}" for a in ("create", "edit", "delete") if a in p}
     out |= {k for k, _ in SPECIALS if k in p}
+    if role in ("director", "purchasing"):
+        out |= {f"invoice.{a}" for a in ("view", "create", "edit", "pay", "print")} | ({"invoice.delete"} if "delete" in p else set())
+    elif role == "manager":
+        out |= {"invoice.view", "invoice.print"}
     return out & ALL_KEYS
 
 
@@ -213,6 +218,16 @@ def install(server):
             return "users", ["view" if method == "GET" else "edit"], []
         if head == "lookup":
             return None, [], []  # authorised inside the lookup endpoint (functional reason)
+        if head == "vendor-invoices":
+            sub = seg[1] if len(seg) > 1 else None
+            if sub == "eligible-dos":
+                return None, [], []  # create OR edit, checked inside the endpoint
+            if len(seg) == 1:
+                return "invoice", ["view" if method == "GET" else "create"], []
+            if len(seg) == 2 or sub == "do":
+                return "invoice", [{"PUT": "edit", "DELETE": "delete"}.get(method, "view")], []
+            act = {"payments": "pay", "print": "print"}.get(seg[2], "view")
+            return "invoice", [act], []
         if head == "verify" and method == "POST":
             mod = str((body or {}).get("doc_type") or "").lower()
             mod = TXN_ALIAS.get(mod, mod)
@@ -818,7 +833,7 @@ LOOKUP_REASONS = {
     "warehouses": (_TX + ["stock_minmax", "users"], STOCK_MODS + ["stock_minmax", "users"]),
     "projects": (["mro", "ro", "po", "do", "mi", "loan", "units", "spk"], ["units", "spk"]),
     "units": (["mro", "ro", "po", "mi", "loan"], []),
-    "suppliers": (["po", "do", "ro", "vendor_contracts"], ["vendor_contracts"]),
+    "suppliers": (["po", "do", "ro", "vendor_contracts", "invoice"], ["vendor_contracts", "invoice"]),
     "contacts": (["mro", "ro", "po", "projects", "divisions", "spk"], ["projects", "divisions", "spk"]),
     "divisions": (_TX + ["items", "warehouses", "projects", "units", "contacts", "spk", "users"],
                   _TX + ["items", "warehouses", "projects", "units", "contacts", "spk", "users"]),

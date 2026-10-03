@@ -2,7 +2,7 @@
 const PATH_MODULE = [
   ["/mro", "mro"], ["/ro", "ro"], ["/po", "po"], ["/do", "do"], ["/mi", "mi"], ["/transfer", "transfer"],
   ["/loan", "loan"], ["/adjustment", "adjustment"], ["/opname", "opname"], ["/spk", "spk"],
-  ["/vendor-contracts", "vendor_contracts"], ["/users", "users"],
+  ["/vendor-contracts", "vendor_contracts"], ["/users", "users"], ["/invoice", "invoice"],
 ];
 const LEGACY_ACTION = { view: "view", create: "create", edit: "edit", delete: "delete", submit: "post", cancel: "cancel", approve: "approve", reject: "reject", print: "print" };
 const TRANSLATE = {
