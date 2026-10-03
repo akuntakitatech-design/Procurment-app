@@ -7,8 +7,10 @@ import { rupiah, num } from "@/lib/format";
 import { computePriceStatus, StatusBadgePrice } from "@/components/PoPriceControl";
 import { NumericInput } from "@/components/NumericInput";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { StockInfo } from "@/components/StockInfo";
+import { ItemPicker } from "@/components/ItemPicker";
 
-export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null }) {
+export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null, stockWarehouse = null, itemCreate = null, testidPrefix = "line" }) {
   const items = masters.map("items");
   const uoms = masters.map("uoms");
   const taxes = masters.map("taxes");
@@ -18,6 +20,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   linesRef.current = lines;
   onChangeRef.current = onChange;
   const [expandedRows, setExpandedRows] = useState({});
+  const [pick, setPick] = useState(null);
 
   useEffect(() => {
     const lines = linesRef.current;
@@ -44,7 +47,6 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
     prev.current = now;
   }, [defaults.warehouse_id, defaults.project_id, defaults.unit_id]);
 
-  const itemOpts = (masters.data.items || []).map((d) => ({ value: d.id, label: `${d.code ? d.code + " — " : ""}${d.name}${d.brand ? ` · ${d.brand}` : ""}${d.part_number ? ` · PN ${d.part_number}` : ""}`, selectedLabel: d.name }));
   const whOpts = (masters.data.warehouses || []).map((d) => ({ value: d.id, label: `${d.code ? d.code + " — " : ""}${d.name}${d.location ? ` · ${d.location}` : ""}`, selectedLabel: d.name }));
   const projOpts = (masters.data.projects || []).map((d) => ({ value: d.id, label: `${d.code ? d.code + " — " : ""}${d.name}${d.pic ? ` · PIC ${d.pic}` : ""}`, selectedLabel: d.name }));
   const unitOpts = (masters.data.units || []).map((d) => ({ value: d.id, label: `${d.code ? d.code + " — " : ""}${d.name}${d.plate_no ? ` (${d.plate_no})` : ""}${d.asset_no ? ` · Asset ${d.asset_no}` : ""}`, selectedLabel: d.plate_no || d.name }));
@@ -99,6 +101,13 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const discAmt = (l) => discType(l) === "percent" ? (Number(l.qty) || 0) * (Number(l.price) || 0) * discVal(l) / 100 : discVal(l);
   const total = (l) => { const base = (Number(l.qty) || 0) * (Number(l.price) || 0) - discAmt(l); return taxInclusive ? Math.max(0, base) : base + base * (Number(l.tax) || 0) / 100; };
   const grand = lines.reduce((s, l) => s + total(l), 0);
+  const whOf = (l) => (stockWarehouse ? stockWarehouse(l) : l.warehouse_id || defaults.warehouse_id || "");
+  const Stock = ({ l, i }) => <StockInfo itemId={l.item_id} warehouseId={whOf(l)} itemName={items[l.item_id]?.name} testid={`${testidPrefix}-stock-${i}`} />;
+  const footer = itemCreate ? (i) => ({ label: "Tambah Barang", testid: `${testidPrefix}-add-item-${i}`, onClick: () => itemCreate((id) => setPick({ i, id })) }) : () => null;
+  const Picker = ({ l, i }) => <ItemPicker items={masters.data.items || []} uoms={uoms} value={l.item_id} onChange={(v) => update(i, { item_id: v })} warehouseId={whOf(l)} disabled={l._locked} onCreate={footer(i)} testid={`${testidPrefix}-item-${i}`} />;
+  const updateRef = useRef(update);
+  updateRef.current = update;
+  useEffect(() => { if (pick && items[pick.id] && linesRef.current[pick.i]) { setPick(null); updateRef.current(pick.i, { item_id: pick.id }); } }, [pick, items]);
   const stockInfo = (l) => { const it = items[l.item_id]; if (!it) return ""; const base = it.base_uom_id ? uomLabel(it.base_uom_id) : it.unit; return base ? `${num((Number(l.qty) || 0) * (Number(l.conversion_factor) || 1))} ${base}` : ""; };
   const Uom = ({ l, i }) => <div className="flex items-center gap-1"><div className="min-w-0 flex-1"><Combobox dense options={itemUoms(l.item_id)} value={l.uom_id || items[l.item_id]?.base_uom_id || ""} onChange={(v) => update(i, { uom_id: v })} placeholder="Satuan" disabled={!l.item_id || itemUoms(l.item_id).length <= 1} /></div>{l.item_id && <Popover><PopoverTrigger asChild><button type="button" className="shrink-0 text-muted-foreground transition-colors hover:text-primary" title="Konversi Stok" data-testid={`po-uom-info-${i}`}><Info className="h-4 w-4" /></button></PopoverTrigger><PopoverContent align="end" className="w-60 text-xs"><div className="space-y-1"><div className="font-semibold">Konversi Stok</div><div className="flex justify-between gap-3"><span className="text-muted-foreground">Satuan transaksi</span><span className="font-medium">{num(l.qty)} {l.unit || ""}</span></div>{(Number(l.conversion_factor) || 1) !== 1 && <div className="flex justify-between gap-3"><span className="text-muted-foreground">Konversi</span><span>1 {l.unit || ""} = {num(l.conversion_factor)} {items[l.item_id]?.unit || ""}</span></div>}<div className="flex justify-between gap-3 border-t pt-1"><span className="text-muted-foreground">Terhitung stok</span><span className="font-semibold">{stockInfo(l)}</span></div></div></PopoverContent></Popover>}</div>;
 
@@ -135,9 +144,9 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
               {/* PRIMARY ROW — Transaction & Price */}
               <div className="flex items-center gap-1.5">
                 <div className="w-[36px] shrink-0"><button type="button" onClick={toggle} className="flex h-7 w-7 items-center justify-center rounded hover:bg-accent" data-testid={`po-expand-${i}`} title="Detail">{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button></div>
-                <div className="w-[180px] shrink-0"><Combobox options={itemOpts} value={l.item_id} onChange={(v) => update(i, { item_id: v })} placeholder="Pilih barang" disabled={l._locked} /></div>
+                <div className="w-[180px] shrink-0">{Picker({ l, i })}</div>
                 <div className="w-[170px] shrink-0"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9 text-sm" placeholder="Keterangan" data-testid={`po-notes-${i}`} /></div>
-                <div className="w-[80px] shrink-0"><NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`po-qty-${i}`} /></div>
+                <div className="w-[80px] shrink-0">{Stock({ l, i })}<NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`po-qty-${i}`} /></div>
                 <div className="w-[110px] shrink-0"><Uom l={l} i={i} /></div>
                 <div className="w-[130px] shrink-0 text-sm">{hasC ? <span className="font-semibold tabular-nums">{rupiah(Number(c.contract_price))}</span> : (c && c.out_of_period ? <span className="text-[11px] font-medium text-amber-700" data-testid={`po-contract-period-warn-${i}`}>Kontrak {c.contract_number || ""} di luar periode</span> : <span className="text-xs text-muted-foreground">Tidak ada kontrak</span>)}</div>
                 <div className="w-[170px] shrink-0"><div className="flex items-center gap-1"><div className="min-w-0 flex-1"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v, _priceTouched: true, _priceAuto: false })} className="h-9 text-right" data-testid={`po-price-input-${i}`} /></div>{poControl.history && <div className="shrink-0">{poControl.history(l, i)}</div>}</div></div>
@@ -173,7 +182,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
     <div className="border rounded-md overflow-x-auto bg-card shadow-sm">
       <table className="w-full text-sm min-w-[980px]">
         <thead className="bg-muted"><tr className="text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          <th className="p-2 min-w-[210px]">Barang</th><th className="p-2 min-w-[150px]">Keterangan</th><th className="p-2 w-24">Qty</th><th className="p-2 min-w-[145px]">Satuan</th>
+          <th className="p-2 min-w-[210px]">Barang</th><th className="p-2 min-w-[150px]">Keterangan</th><th className="p-2 w-32">Qty</th><th className="p-2 min-w-[145px]">Satuan</th>
           {allocationColumn && <th className="p-2 min-w-[160px]">{allocationColumn.header || "Alokasi SPK"}</th>}
           {fields.warehouse && <th className="p-2 min-w-[140px]">Gudang</th>}{fields.project && <th className="p-2 min-w-[140px]">Proyek</th>}{fields.unit && <th className="p-2 min-w-[140px]">Unit/Aset</th>}
           {showPrice && <><th className="p-2 w-32">Harga / Satuan</th><th className="p-2 w-24">Diskon</th><th className="p-2 min-w-[150px]">Pajak</th><th className="p-2 w-32 text-right">Total</th></>}
@@ -181,9 +190,9 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
         </tr></thead>
         <tbody>{lines.length === 0 && <tr><td colSpan={colCount} className="p-6 text-center text-muted-foreground">Belum ada item</td></tr>}
           {lines.map((l, i) => <tr key={i} className="border-t align-top">
-            <td className="p-1.5">{l._sourceLabel && <div className="mb-1 text-[10px] font-mono text-muted-foreground">{l._sourceLabel}</div>}<Combobox options={itemOpts} value={l.item_id} onChange={(v) => update(i, { item_id: v })} placeholder="Pilih barang" disabled={l._locked} /></td>
+            <td className="p-1.5">{l._sourceLabel && <div className="mb-1 text-[10px] font-mono text-muted-foreground">{l._sourceLabel}</div>}{Picker({ l, i })}</td>
             <td className="p-1.5"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9" placeholder="Keterangan item" /></td>
-            <td className="p-1.5"><NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" /></td>
+            <td className="p-1.5">{Stock({ l, i })}<NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`${testidPrefix}-qty-${i}`} /></td>
             <td className="p-1.5"><Uom l={l} i={i} /></td>
             {allocationColumn && <td className="p-1.5 align-middle">{allocationColumn.render(l, i)}</td>}
             {fields.warehouse && <td className="p-1.5"><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></td>}

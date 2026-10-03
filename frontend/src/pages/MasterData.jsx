@@ -220,6 +220,81 @@ function SupplierEditor({ form, setForm, refs }) {
   </div>;
 }
 
+export const masterRefNames = (name) => {
+  const needed = [...new Set((CONFIGS[name]?.fields || []).filter((f) => f.ref).map((f) => f.ref))];
+  if (name === "items" && !needed.includes("uoms")) needed.push("uoms");
+  if (name === "suppliers") ["supplier_categories", "taxes", "item_categories"].forEach((x) => { if (!needed.includes(x)) needed.push(x); });
+  return needed;
+};
+
+export async function newMasterForm(name) {
+  let code = "";
+  try { const res = await api.get(`/master-code/${name}/preview`); code = res.data.code || ""; } catch {}
+  const defaults = name === "items" ? { uoms: [] } : name === "taxes" ? { rate: 0 } : name === "suppliers" ? {
+    contacts: [], banks: [], supplied_category_ids: [], country: "Indonesia", currency: "IDR", supplier_type: "Lokal", lead_time_days: 0, min_order: 0,
+  } : {};
+  return { code, ...defaults };
+}
+
+// Form Master existing (field, validasi, endpoint sama) — dipakai Master Data dan shortcut "+ Tambah" di transaksi.
+export function MasterFormDialog({ name, open, onOpenChange, form, setForm, refs, onSaved }) {
+  const cfg = CONFIGS[name];
+  const refName = (rn, id) => (refs[rn] || []).find((x) => x.id === id)?.name || "-";
+  const refOptions = (rn) => (refs[rn] || []).map((x) => ({ value: x.id, label: x.name }));
+  const uomOptions = refOptions("uoms");
+  const addUom = () => setForm((s) => ({ ...s, uoms: [...(s.uoms || []), { uom_id: "", factor: 1 }] }));
+  const updUom = (i, patch) => setForm((s) => ({ ...s, uoms: (s.uoms || []).map((u, x) => x === i ? { ...u, ...patch } : u) }));
+  const delUom = (i) => setForm((s) => ({ ...s, uoms: (s.uoms || []).filter((_, x) => x !== i) }));
+  const save = async () => {
+    try {
+      const editing = !!form.id;
+      const res = editing ? await api.put(`/master/${name}/${form.id}`, form) : await api.post(`/master/${name}`, form);
+      toast.success(editing ? `Perubahan tersimpan — ${res.data.code}` : `${cfg.label} tersimpan — ${res.data.code}`);
+      onSaved(res.data);
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={`${name === "suppliers" ? "max-w-6xl" : "max-w-3xl"} max-h-[92vh] overflow-y-auto`} data-testid={`master-${name}-form`}>
+        <DialogHeader><DialogTitle className="font-head">{form.id ? "Edit" : "Tambah"} {cfg.label}</DialogTitle></DialogHeader>
+        {name === "suppliers" ? <SupplierEditor form={form} setForm={setForm} refs={refs} /> : <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
+            {cfg.fields.map((f) => <Field key={f.k} label={f.l + (f.auto ? " (Otomatis, bisa diedit)" : f.req ? " *" : "")}>
+              {f.ref ? <Combobox options={refOptions(f.ref)} value={form[f.k] || ""} onChange={(v) => setForm({ ...form, [f.k]: v })} /> :
+                <Input data-testid={`master-${name}-field-${f.k}`} type={f.type || "text"} step={f.step} min={f.type === "number" ? "0" : undefined} value={form[f.k] ?? ""} onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} placeholder={f.auto ? "Kode otomatis" : undefined} className={f.auto ? "font-mono font-semibold" : ""} />}
+            </Field>)}
+          </div>
+
+          {name === "items" && <div className="mt-2 rounded-xl border bg-muted/20 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3"><div><h3 className="font-head font-semibold">Multi Satuan Barang</h3><p className="text-xs text-muted-foreground mt-1">Satuan dasar selalu bernilai 1. Tambahkan satuan transaksi dan isi berapa satuan dasar di dalam 1 satuan tersebut.</p></div><Button type="button" variant="outline" size="sm" onClick={addUom}><Plus className="h-4 w-4 mr-2" />Tambah Satuan</Button></div>
+            <div className="rounded-lg border bg-background p-3 text-sm"><span className="text-muted-foreground">Satuan dasar:</span> <span className="font-semibold">{refName("uoms", form.base_uom_id)}</span><span className="ml-2 text-xs text-muted-foreground">= 1</span></div>
+            {(form.uoms || []).length === 0 && <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Belum ada satuan tambahan. Barang tetap bisa ditransaksikan dengan satuan dasar.</div>}
+            {(form.uoms || []).map((row, i) => <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_180px_44px] gap-2 items-end rounded-lg border bg-background p-3">
+              <Field label="Satuan Tambahan"><Combobox options={uomOptions.filter((x) => x.value !== form.base_uom_id)} value={row.uom_id || ""} onChange={(v) => updUom(i, { uom_id: v })} placeholder="Pilih satuan" /></Field>
+              <Field label={`1 satuan = ... ${refName("uoms", form.base_uom_id)}`}><Input type="number" min="0.000001" step="any" value={row.factor ?? 1} onChange={(e) => updUom(i, { factor: e.target.value })} /></Field>
+              <Button type="button" variant="ghost" size="icon" onClick={() => delUom(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+            </div>)}
+            <div className="text-xs text-muted-foreground">Contoh: satuan dasar PCS, BOX = 12. Saat transaksi 2 BOX, sistem mencatat stok 24 PCS tetapi dokumen tetap mengingat bahwa user memilih 2 BOX.</div>
+          </div>}
+        </>}
+
+        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)} data-testid={`master-${name}-form-cancel`}>Batal</Button><Button onClick={save} data-testid={`master-${name}-form-save`}>Simpan</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function MasterQuickCreate({ name, open, onClose, onCreated }) {
+  const [form, setForm] = useState({});
+  const [refs, setRefs] = useState({});
+  useEffect(() => {
+    if (!open) return;
+    newMasterForm(name).then(setForm);
+    masterRefNames(name).forEach((rn) => api.get(`/lookup/${rn}`).then((r) => setRefs((s) => ({ ...s, [rn]: r.data }))).catch(() => {}));
+  }, [open, name]);
+  return <MasterFormDialog name={name} open={open} onOpenChange={(o) => !o && onClose()} form={form} setForm={setForm} refs={refs} onSaved={(doc) => { onClose(); onCreated(doc); }} />;
+}
+
 function MasterTab({ name }) {
   const cfg = CONFIGS[name];
   const { can } = useAuth();
@@ -239,20 +314,10 @@ function MasterTab({ name }) {
 
   useEffect(() => {
     load();
-    const needed = [...new Set((CONFIGS[name]?.fields || []).filter((f) => f.ref).map((f) => f.ref))];
-    if (name === "items" && !needed.includes("uoms")) needed.push("uoms");
-    if (name === "suppliers") ["supplier_categories", "taxes", "item_categories"].forEach((x) => { if (!needed.includes(x)) needed.push(x); });
-    needed.forEach(loadRef);
+    masterRefNames(name).forEach(loadRef);
   }, [name, load, loadRef]);
 
-  const openAdd = async () => {
-    let code = "";
-    try { const res = await api.get(`/master-code/${name}/preview`); code = res.data.code || ""; } catch {}
-    const defaults = name === "items" ? { uoms: [] } : name === "taxes" ? { rate: 0 } : name === "suppliers" ? {
-      contacts: [], banks: [], supplied_category_ids: [], country: "Indonesia", currency: "IDR", supplier_type: "Lokal", lead_time_days: 0, min_order: 0,
-    } : {};
-    setForm({ code, ...defaults }); setOpen(true);
-  };
+  const openAdd = async () => { setForm(await newMasterForm(name)); setOpen(true); };
 
   const openEdit = (row) => {
     const copy = { ...row };
@@ -268,14 +333,6 @@ function MasterTab({ name }) {
     setForm(copy); setOpen(true);
   };
 
-  const save = async () => {
-    try {
-      const editing = !!form.id;
-      const res = editing ? await api.put(`/master/${name}/${form.id}`, form) : await api.post(`/master/${name}`, form);
-      toast.success(editing ? `Perubahan tersimpan — ${res.data.code}` : `${cfg.label} tersimpan — ${res.data.code}`);
-      setOpen(false); setForm({}); load();
-    } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
-  };
 
   const filtered = rows.filter((r) => !q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase()));
   const labelOf = (r) => [r.code, r.name].filter(Boolean).join(" — ") || "-";
@@ -284,18 +341,12 @@ function MasterTab({ name }) {
   const toggle = (id) => setSel((cur) => { const n = new Set(cur); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const askDelete = (list) => setDelRows(list.map((r) => ({ id: r.id, label: labelOf(r) })));
   const refName = (rn, id) => (refs[rn] || []).find((x) => x.id === id)?.name || "-";
-  const refOptions = (rn) => (refs[rn] || []).map((x) => ({ value: x.id, label: x.name }));
-  const uomOptions = refOptions("uoms");
   const displayField = (f, r) => {
     if (f.ref) return refName(f.ref, r[f.k]);
     const value = r[f.k];
     if (value === undefined || value === null || value === "") return "-";
     return f.suffix ? `${value}${f.suffix}` : value;
   };
-
-  const addUom = () => setForm((s) => ({ ...s, uoms: [...(s.uoms || []), { uom_id: "", factor: 1 }] }));
-  const updUom = (i, patch) => setForm((s) => ({ ...s, uoms: (s.uoms || []).map((u, x) => x === i ? { ...u, ...patch } : u) }));
-  const delUom = (i) => setForm((s) => ({ ...s, uoms: (s.uoms || []).filter((_, x) => x !== i) }));
 
   return <div>
     <div className="flex items-center justify-between mb-4 gap-3">
@@ -324,34 +375,7 @@ function MasterTab({ name }) {
         </tr>)}</tbody></table></div>
     <MasterDeleteDialog open={!!delRows} rows={delRows || []} checkName={name} entityLabel={cfg.label} onDeselect={(ids) => setSel((c) => new Set([...c].filter((x) => !ids.includes(x))))} onClose={() => setDelRows(null)} onDone={() => { setDelRows(null); setSel(new Set()); load(); }} />
 
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className={`${name === "suppliers" ? "max-w-6xl" : "max-w-3xl"} max-h-[92vh] overflow-y-auto`} data-testid={`master-${name}-form`}>
-        <DialogHeader><DialogTitle className="font-head">{form.id ? "Edit" : "Tambah"} {cfg.label}</DialogTitle></DialogHeader>
-
-        {name === "suppliers" ? <SupplierEditor form={form} setForm={setForm} refs={refs} /> : <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
-            {cfg.fields.map((f) => <Field key={f.k} label={f.l + (f.auto ? " (Otomatis, bisa diedit)" : f.req ? " *" : "")}>
-              {f.ref ? <Combobox options={refOptions(f.ref)} value={form[f.k] || ""} onChange={(v) => setForm({ ...form, [f.k]: v })} /> :
-                <Input data-testid={`master-${name}-field-${f.k}`} type={f.type || "text"} step={f.step} min={f.type === "number" ? "0" : undefined} value={form[f.k] ?? ""} onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} placeholder={f.auto ? "Kode otomatis" : undefined} className={f.auto ? "font-mono font-semibold" : ""} />}
-            </Field>)}
-          </div>
-
-          {name === "items" && <div className="mt-2 rounded-xl border bg-muted/20 p-4 space-y-3">
-            <div className="flex items-start justify-between gap-3"><div><h3 className="font-head font-semibold">Multi Satuan Barang</h3><p className="text-xs text-muted-foreground mt-1">Satuan dasar selalu bernilai 1. Tambahkan satuan transaksi dan isi berapa satuan dasar di dalam 1 satuan tersebut.</p></div><Button type="button" variant="outline" size="sm" onClick={addUom}><Plus className="h-4 w-4 mr-2" />Tambah Satuan</Button></div>
-            <div className="rounded-lg border bg-background p-3 text-sm"><span className="text-muted-foreground">Satuan dasar:</span> <span className="font-semibold">{refName("uoms", form.base_uom_id)}</span><span className="ml-2 text-xs text-muted-foreground">= 1</span></div>
-            {(form.uoms || []).length === 0 && <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">Belum ada satuan tambahan. Barang tetap bisa ditransaksikan dengan satuan dasar.</div>}
-            {(form.uoms || []).map((row, i) => <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_180px_44px] gap-2 items-end rounded-lg border bg-background p-3">
-              <Field label="Satuan Tambahan"><Combobox options={uomOptions.filter((x) => x.value !== form.base_uom_id)} value={row.uom_id || ""} onChange={(v) => updUom(i, { uom_id: v })} placeholder="Pilih satuan" /></Field>
-              <Field label={`1 satuan = ... ${refName("uoms", form.base_uom_id)}`}><Input type="number" min="0.000001" step="any" value={row.factor ?? 1} onChange={(e) => updUom(i, { factor: e.target.value })} /></Field>
-              <Button type="button" variant="ghost" size="icon" onClick={() => delUom(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-            </div>)}
-            <div className="text-xs text-muted-foreground">Contoh: satuan dasar PCS, BOX = 12. Saat transaksi 2 BOX, sistem mencatat stok 24 PCS tetapi dokumen tetap mengingat bahwa user memilih 2 BOX.</div>
-          </div>}
-        </>}
-
-        <DialogFooter><Button variant="outline" onClick={() => setOpen(false)} data-testid={`master-${name}-form-cancel`}>Batal</Button><Button onClick={save} data-testid={`master-${name}-form-save`}>Simpan</Button></DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <MasterFormDialog name={name} open={open} onOpenChange={setOpen} form={form} setForm={setForm} refs={refs} onSaved={() => { setOpen(false); setForm({}); load(); }} />
   </div>;
 }
 

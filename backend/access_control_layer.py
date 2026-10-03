@@ -543,6 +543,40 @@ def install(server):
         return ep
     wrap("/api/item-warehouse", "POST", mk_iwset)
 
+    # Info stok per gudang (read-only, tanpa nilai): Tenant -> Permission -> Divisi barang -> Gudang (divisi gudang)
+    def mk_stock(orig):
+        async def ep(item_id: str, user=Depends(server.current_user)):
+            res = await orig(item_id=item_id, user=user)
+            item = await db().items.find_one({"id": item_id}, {"_id": 0, "id": 1, "division_id": 1, "base_uom_id": 1, "unit": 1})
+            if not item:
+                raise HTTPException(404, "Barang tidak ditemukan")
+            alw = allowed(user)
+            if not in_scope(item, alw):
+                raise HTTPException(403, "Barang ini berada di luar cakupan divisi Anda.")
+            uom = await db().uoms.find_one({"id": item.get("base_uom_id")}, {"_id": 0, "symbol": 1, "code": 1, "name": 1}) if item.get("base_uom_id") else None
+            whs = {w["id"]: w for w in await db().warehouses.find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(5000)}
+            rows = [r for r in res.get("warehouses") or [] if r.get("warehouse_id") in whs and in_scope(whs[r["warehouse_id"]], alw)]
+            unit = (uom or {}).get("symbol") or (uom or {}).get("code") or (uom or {}).get("name") or item.get("unit") or ""
+            return {"item_id": item_id, "unit": unit, "warehouses": [{**r, "unit": unit} for r in rows]}
+        return ep
+    wrap("/api/stock/by-warehouse/{item_id}", "GET", mk_stock)
+
+    @app.get("/api/stock/warehouse/{warehouse_id}", tags=["access-control"])
+    async def stock_of_warehouse(warehouse_id: str, user=Depends(server.current_user)):
+        """Saldo semua barang di satu gudang (1 query, untuk kolom Stok Tersedia di pemilih Barang)."""
+        server.require(user, "view")
+        wh = await db().warehouses.find_one({"id": warehouse_id}, {"_id": 0, "id": 1, "division_id": 1})
+        if not wh:
+            raise HTTPException(404, "Gudang tidak ditemukan")
+        alw = allowed(user)
+        if not in_scope(wh, alw):
+            raise HTTPException(403, "Gudang ini berada di luar cakupan divisi Anda.")
+        rows = await db().item_warehouse.find({"warehouse_id": warehouse_id}, {"_id": 0, "item_id": 1, "current_stock": 1}).to_list(100000)
+        if alw is not None:
+            items = {i["id"]: i for i in await db().items.find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(100000)}
+            rows = [r for r in rows if in_scope(items.get(r["item_id"], {}), alw)]
+        return {r["item_id"]: float(r.get("current_stock") or 0) for r in rows}
+
     # SPK (division-scoped master)
     spk_list = next((r for r in app.router.routes if getattr(r, "path", "") == "/api/spk" and "GET" in r.methods), None)
     if spk_list:
@@ -845,7 +879,7 @@ LOOKUP_REASONS = {
 }
 _COMMON = ["id", "code", "name", "is_active", "division_id"]
 LOOKUP_FIELDS = {
-    "items": ["unit", "base_uom_id", "uom_id", "uom_name", "uom_conversions", "conversions", "category_id", "specification", "brand", "item_type"],
+    "items": ["unit", "base_uom_id", "uom_id", "uom_name", "uom_conversions", "conversions", "category_id", "specification", "brand", "part_number", "item_type", "uoms"],
     "warehouses": ["location"],
     "projects": ["pic_id", "pic_name", "status", "default_global_budget_policy", "default_category_budget_policy"],
     "units": ["project_id", "plate_no", "unit_type", "type"],

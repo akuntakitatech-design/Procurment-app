@@ -75,7 +75,7 @@ export default function Transfer() {
           <Field label="Proyek"><Combobox options={masters.opts("projects")} value={h.project_id} onChange={(v) => setH({ ...h, project_id: v })} /></Field>
           <Field label="Keterangan"><Input value={h.notes} onChange={(e) => setH({ ...h, notes: e.target.value })} /></Field>
         </div>
-        <ItemLines lines={lines} onChange={setLines} masters={masters} fields={{ project: true, unit: true, notes: true }} />
+        <ItemLines lines={lines} onChange={setLines} masters={masters} fields={{ project: true, unit: true, notes: true }} stockWarehouse={() => h.from_warehouse_id} testidPrefix="trf" />
         <div className="rounded-xl border bg-card p-4"><div className="mb-3 flex items-center gap-2 font-head text-sm font-semibold"><Paperclip className="h-4 w-4" />Lampiran</div><AttachmentPanel entity="transfer" entityId={editingId} /></div>
       </CardContent></Card><DocumentMessageEditor module="transfer" value={h.document_message} onChange={(v)=>setH({...h,document_message:v})} useDefault={!editingId} /></div>
     </div>
