@@ -227,6 +227,18 @@ class ValuationTester:
         # For simplicity, we'll use opening valuation if available
         # Otherwise, skip this test
         
+        # Fixture: barang khusus transfer + stok awal via Penyesuaian (+) ber-biaya. Tanpa stok, Transfer Out
+        # benar ditolak 400 "Stok tidak cukup" (perilaku bisnis yang benar, bukan bug).
+        ok_item, titem = self.test("Create Transfer Item", "POST", "master/items", 200, data={
+            "code": f"ITEM-TRF-{uuid.uuid4().hex[:6]}", "name": "Test Item Transfer", "unit": "PCS", "category": "Test", "is_active": True})
+        if not ok_item:
+            return False
+        ok_seed, _ = self.test("Seed Stock for Transfer", "POST", "adjustments", 200, data={
+            "warehouse_id": self.master_data["wh1"]["id"], "reason": "Seed transfer", "notes": "fixture",
+            "lines": [{"item_id": titem["id"], "adjustment": 5, "approved_unit_cost": 1000, "reason": "fixture"}]})
+        if not ok_seed:
+            return False
+
         # Get valuation summary before
         success, before = self.test("Valuation Summary Before", "GET", "reports/valuation-summary", 200)
         if not success:
@@ -240,7 +252,7 @@ class ValuationTester:
             "from_warehouse_id": self.master_data["wh1"]["id"],
             "to_warehouse_id": self.master_data["wh2"]["id"],
             "lines": [{
-                "item_id": self.master_data["item1"]["id"],
+                "item_id": titem["id"],
                 "qty": 1,
                 "unit": "PCS"
             }],
@@ -249,9 +261,7 @@ class ValuationTester:
         
         success, transfer = self.test("Create Transfer", "POST", "transfers", 200, data=transfer_data)
         if not success:
-            # May fail if no stock - that's expected
-            self.log("⚠️  Transfer failed (likely no stock) - this is expected for new tenant")
-            return True
+            return False
         
         # Get valuation summary after
         success, after = self.test("Valuation Summary After", "GET", "reports/valuation-summary", 200)
@@ -371,12 +381,13 @@ class ValuationTester:
         lines = details.get("lines", [])
         if lines:
             count_data = {
+                # Semua baris wajib dihitung sebelum posting (aturan bisnis); baris pertama surplus +5.
                 "lines": [{
                     "line_id": line["id"],
-                    "counted": line.get("snapshot", 0) + 5,  # Add 5 surplus
+                    "counted": line.get("snapshot", 0) + (5 if i == 0 else 0),
                     "approved_unit_cost": 1500,
                     "reason": "Test surplus"
-                } for line in lines[:1]],  # Only first line
+                } for i, line in enumerate(lines)],
                 "status": "Review"
             }
             
