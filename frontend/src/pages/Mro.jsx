@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
+import { useServerList } from "@/lib/serverList";
 import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { MasterQuickCreate } from "@/pages/MasterData";
 import { useAuth } from "@/context/AuthContext";
@@ -28,36 +29,23 @@ import { TxnList } from "@/components/TxnList";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
 
 const FLOW = ["MRO", "RO", "PO", "DO", "MI"];
-function lifecycleStage(t) {
-  const req = Number(t?.request || 0), ro = Number(t?.qty_ro || 0), po = Number(t?.qty_po || 0), received = Number(t?.qty_received || 0), mi = Number(t?.qty_mi || 0);
-  if (req > 0 && mi >= req) return "Completed"; if (mi > 0) return "MI"; if (received > 0) return "DO"; if (po > 0) return "PO"; if (ro > 0) return "RO"; return "MRO";
-}
 function FlowMini({ stage }) {
   const current = stage === "Completed" ? 4 : Math.max(0, FLOW.indexOf(stage));
   return <div className="flex min-w-[280px] items-center gap-1.5">{FLOW.map((x, i) => { const done = stage === "Completed" || i < current, active = stage !== "Completed" && i === current; return <div key={x} className="flex items-center gap-1.5"><div className={`flex h-7 min-w-9 items-center justify-center rounded-full px-2 text-[10px] font-semibold ${done ? "bg-emerald-100 text-emerald-700" : active ? "bg-blue-100 text-blue-700 ring-1 ring-blue-200" : "bg-muted text-muted-foreground"}`}>{x}</div>{i < FLOW.length - 1 && <div className={`h-px w-3 ${done ? "bg-emerald-300" : "bg-border"}`} />}</div>; })}</div>;
 }
 
 export function MroList() {
-  const nav = useNavigate(); const [rows, setRows] = useState([]); const [trace, setTrace] = useState([]); const [stageFilter, setStageFilter] = useState("all");
-  const [loading, setLoading] = useState(true); const [error, setError] = useState(false); const [traceFailed, setTraceFailed] = useState(false);
-  // Decoupled loads: /mro is the PRIMARY source for transaction rows. Traceability is best-effort
-  // enrichment only — if it fails/aborts/times out, rows still render (trace falls back to []).
-  const loadMro = useCallback(async () => { setLoading(true); setError(false); try { const a = await api.get("/mro"); setRows(a.data || []); } catch (e) { setError(true); setLoading(false); return; } setLoading(false); }, []);
-  const loadTrace = useCallback(async () => { setTraceFailed(false); try { const b = await api.get("/reports/mro-traceability"); setTrace(b.data || []); } catch (e) { setTrace([]); setTraceFailed(true); } }, []);
-  const reload = useCallback(() => { loadMro(); loadTrace(); }, [loadMro, loadTrace]);
-  useEffect(() => { loadMro(); loadTrace(); }, [loadMro, loadTrace]);
-  const traceByMro = useMemo(() => { const map = {}; for (const t of trace) { const k = t.mro_id; if (!k) continue; if (!map[k]) map[k] = { request: 0, qty_ro: 0, qty_po: 0, qty_received: 0, qty_mi: 0, outstanding: 0 }; ["request","qty_ro","qty_po","qty_received","qty_mi","outstanding"].forEach((x) => map[k][x] += Number(t[x] || 0)); } return map; }, [trace]);
-  const enriched = useMemo(() => rows.map((r) => { const t = traceByMro[r.id] || { request: 0, qty_ro: 0, qty_po: 0, qty_received: 0, qty_mi: 0, outstanding: r.outstanding_total || 0 }; return { ...r, lifecycle: t, lifecycle_stage: lifecycleStage(t) }; }), [rows, traceByMro]);
-  const counts = useMemo(() => { const out = { all: enriched.length, MRO: 0, RO: 0, PO: 0, DO: 0, MI: 0, Completed: 0 }; enriched.forEach((r) => out[r.lifecycle_stage]++); return out; }, [enriched]);
+  const nav = useNavigate(); const [stageFilter, setStageFilter] = useState("all");
+  // Server-side: lifecycle (Request/RO/PO/DO/MI) & tahap dihitung backend dalam batch; tanpa /reports/mro-traceability.
+  const list = useServerList("/mro", { f_lifecycle_stage: stageFilter === "all" ? "" : stageFilter }, { counts: "lifecycle_stage" });
+  const reload = list.reload;
+  const counts = useMemo(() => { const c = list.facets["count:lifecycle_stage"] || {}; return { all: Object.values(c).reduce((a, b) => a + b, 0), ...c }; }, [list.facets]);
   const cards = [{ key:"all",label:"Total MRO",desc:"Seluruh transaksi"},{key:"MRO",label:"Belum ke RO",desc:"Masih di tahap MRO"},{key:"RO",label:"Sampai RO",desc:"Belum menjadi PO"},{key:"PO",label:"Sampai PO",desc:"Belum ada penerimaan"},{key:"DO",label:"Sampai DO",desc:"Barang sudah diterima"},{key:"MI",label:"Sampai MI",desc:"Pengeluaran masih partial"},{key:"Completed",label:"Selesai",desc:"MI memenuhi request"}];
-  const filtered = useMemo(() => enriched.filter((r) => stageFilter === "all" || r.lifecycle_stage === stageFilter), [enriched, stageFilter]);
-  const columns = useMemo(() => [noCol("No. MRO"), dateCol(fmtDate), { key: "requester", label: "Pemohon" }, { key: "division_name", label: "Divisi" }, traceCol("project"), traceCol("spk"), traceCol("warehouse"), { key: "line_count", label: "Item", num: true }, { key: "lifecycle_stage", label: "Tracking", render: (r) => <FlowMini stage={r.lifecycle_stage} /> }, { key: "req", label: "Request", num: true, value: (r) => r.lifecycle.request, render: (r) => num(r.lifecycle.request) }, { key: "mi", label: "MI", num: true, value: (r) => r.lifecycle.qty_mi, render: (r) => num(r.lifecycle.qty_mi) }, { key: "outs", label: "Outstanding", num: true, value: (r) => r.lifecycle.outstanding, render: (r) => <span className="font-semibold">{num(r.lifecycle.outstanding)}</span> }, { key: "status", label: "Status", status: true }], []);
+  const columns = useMemo(() => [noCol("No. MRO"), dateCol(fmtDate), { key: "requester", label: "Pemohon" }, { key: "division_name", label: "Divisi" }, traceCol("project"), traceCol("spk"), traceCol("warehouse"), { key: "line_count", label: "Item", num: true }, { key: "lifecycle_stage", label: "Tracking", render: (r) => <FlowMini stage={r.lifecycle_stage} /> }, { key: "req", serverSort: "lifecycle.request", label: "Request", num: true, value: (r) => r.lifecycle?.request, render: (r) => num(r.lifecycle?.request) }, { key: "mi", serverSort: "lifecycle.qty_mi", label: "MI", num: true, value: (r) => r.lifecycle?.qty_mi, render: (r) => num(r.lifecycle?.qty_mi) }, { key: "outs", serverSort: "lifecycle.outstanding", label: "Outstanding", num: true, value: (r) => r.lifecycle?.outstanding, render: (r) => <span className="font-semibold">{num(r.lifecycle?.outstanding)}</span> }, { key: "status", label: "Status", status: true }], []);
   return <div><PageHeader title="MRO — Material Request Order" subtitle="Pengajuan kebutuhan material dan monitoring lifecycle transaksi"><Button onClick={() => nav("/mro/new")}><Plus className="h-4 w-4 mr-2" />Buat Baru</Button></PageHeader>
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7 mb-5">{cards.map((c) => <button key={c.key} onClick={() => setStageFilter(c.key)} className={`rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${stageFilter === c.key ? "border-primary ring-1 ring-primary/20" : ""}`}><div className="text-2xl font-bold tabular-nums">{counts[c.key] || 0}</div><div className="mt-1 text-sm font-semibold">{c.label}</div><div className="mt-0.5 text-[11px] text-muted-foreground">{c.desc}</div></button>)}</div>
-    {traceFailed && !error && !loading && <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800" data-testid="mro-trace-warning">Informasi tracking belum dapat dimuat. Baris transaksi tetap ditampilkan.</div>}
-    {loading && <div className="rounded-xl border bg-card p-10 text-center text-muted-foreground shadow-sm" data-testid="mro-loading">Memuat transaksi MRO...</div>}
-    {error && !loading && <div className="rounded-xl border bg-card p-10 text-center shadow-sm" data-testid="mro-error"><p className="mb-3 text-muted-foreground">Daftar MRO belum dapat dimuat.</p><Button variant="outline" onClick={reload} data-testid="mro-retry">Coba Lagi</Button></div>}
-    {!loading && !error && <TxnList module="mro" columns={columns} rows={filtered} testidPrefix="mro" onReload={reload} resetKey={stageFilter} minWidth={1600} emptyText="Belum ada transaksi pada filter ini"
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7 mb-5">{cards.map((c) => <button key={c.key} onClick={() => setStageFilter(c.key)} className={`rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${stageFilter === c.key ? "border-primary ring-1 ring-primary/20" : ""}`}><div className="text-2xl font-bold tabular-nums" data-testid={`mro-stage-count-${c.key}`}>{counts[c.key] || 0}</div><div className="mt-1 text-sm font-semibold">{c.label}</div><div className="mt-0.5 text-[11px] text-muted-foreground">{c.desc}</div></button>)}</div>
+    {list.error && !list.loading && <div className="rounded-xl border bg-card p-10 text-center shadow-sm" data-testid="mro-error"><p className="mb-3 text-muted-foreground">Daftar MRO belum dapat dimuat.</p><Button variant="outline" onClick={reload} data-testid="mro-retry">Coba Lagi</Button></div>}
+    {!(list.error && !list.loading) && <TxnList module="mro" columns={columns} server={list} testidPrefix="mro" onReload={reload} resetKey={stageFilter} minWidth={1600} emptyText="Belum ada transaksi pada filter ini"
       filters={stageFilter !== "all" && <Button variant="outline" onClick={()=>setStageFilter("all")}>Tampilkan Semua</Button>}
       onOpen={(r)=>nav(`/mro/${r.id}`)} onEdit={(r)=>nav(`/mro/${r.id}?edit=1`)} onPrint={async (r)=>{const d=await api.get(`/mro/${r.id}`);printDoc("MRO",d.data);}}/>}
   </div>;

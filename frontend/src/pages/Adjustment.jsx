@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
+import { useServerList } from "@/lib/serverList";
 import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
@@ -27,7 +28,7 @@ const EMPTY = () => ({ date: todayISO(), warehouse_id: "", division_id: "", adj_
 export default function Adjustment() {
   const masters = useMasters(STOCK_REFS); const { can } = useAuth();
   const canPrice = can("view_purchase_price");
-  const [rows, setRows] = useState([]); const [mode, setMode] = useState("list");
+  const list = useServerList("/adjustments"); const [mode, setMode] = useState("list");
   const [h, setH] = useState(EMPTY());
   const [lines, setLines] = useState([]); const [selected, setSelected] = useState(null); const [editingId,setEditingId]=useState(null);
   const itemsMap = masters.map("items"); const uomsMap = masters.map("uoms");
@@ -41,8 +42,7 @@ export default function Adjustment() {
       .map((r) => { const u = uomsMap[r.uom_id] || {}; return { value: r.uom_id, factor: Number(r.factor) || 1, label: `${u.name || u.code || "Satuan"}${u.symbol ? ` (${u.symbol})` : ""}${r.is_base ? " — Dasar" : ` — 1 = ${num(r.factor)} ${uomLabel(it.base_uom_id)}`}` }; });
   };
 
-  const load = () => api.get("/adjustments").then((r) => setRows(r.data));
-  useEffect(() => { load(); }, []);
+  const load = () => list.reload();
   const openDetail = (id) => api.get(`/adjustments/${id}`).then((r) => setSelected(r.data));
   const startNew=()=>{setEditingId(null);setH(EMPTY());setLines([]);setSelected(null);setMode("form");};
   const startEdit=(doc=selected)=>{if(!doc)return;const selected=doc;setSelected(doc);setEditingId(selected.id);setH({date:selected.date,warehouse_id:selected.warehouse_id||"",division_id:selected.division_id||"",adj_type:selected.adj_type||"Koreksi",reason:selected.reason||"",notes:selected.notes||"",document_message:selected.document_message||""});setLines((selected.lines||[]).map(l=>({item_id:l.item_id,adjustment:l.adjustment,uom_id:itemsMap[l.item_id]?.base_uom_id||"",conversion_factor:1,reason:l.reason||"",approved_unit_cost:l.approved_unit_cost??""})));setMode("form");};
@@ -75,5 +75,5 @@ export default function Adjustment() {
     </CardContent></Card><DocumentMessageEditor module="adjustment" value={h.document_message} onChange={(v)=>setH({...h,document_message:v})} useDefault={!editingId} /></div>
   </div>;
 
-  return <div><PageHeader title="Stock Adjustment" subtitle="Koreksi, rusak, hilang, expired, selisih">{can("stock_adjustment") && <Button onClick={startNew}><Plus className="h-4 w-4 mr-2" />Buat Adjustment</Button>}</PageHeader><TxnList module="adjustment" testidPrefix="adjustment" rows={rows} onReload={() => { setSelected(null); load(); }} selectedId={selected?.id} emptyText="Belum ada adjustment" minWidth={1100} onOpen={(r) => openDetail(r.id)} onEdit={async (r) => { const d = await api.get(`/adjustments/${r.id}`); startEdit(d.data); }} columns={[noCol("No. Adjustment"), dateCol(fmtDate), { key: "warehouse_name", label: "Gudang" }, { key: "adj_type", label: "Jenis" }, { key: "reason", label: "Alasan" }, traceCol("project"), { key: "line_count", label: "Item", num: true }]} />{selected && <Card className="mt-4 border-primary/20"><CardContent className="pt-5 space-y-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wider text-primary">Detail Transaksi</div><div className="mt-1 font-mono font-semibold">{selected.no}</div><div className="mt-2"><TransactionMutationActions module="adjustment" id={selected.id} onEdit={()=>startEdit()} onDeleted={()=>{setSelected(null);load();}} compact /></div></div><Button variant="ghost" size="icon" onClick={() => setSelected(null)}><X className="h-4 w-4" /></Button></div><AttachmentPanel entity="adjustment" entityId={selected.id} /><DocumentMessageEditor module="adjustment" value={selected.document_message||""} readOnly /></CardContent></Card>}</div>;
+  return <div><PageHeader title="Stock Adjustment" subtitle="Koreksi, rusak, hilang, expired, selisih">{can("stock_adjustment") && <Button onClick={startNew}><Plus className="h-4 w-4 mr-2" />Buat Adjustment</Button>}</PageHeader><TxnList module="adjustment" testidPrefix="adjustment" server={list} onReload={() => { setSelected(null); load(); }} selectedId={selected?.id} emptyText="Belum ada adjustment" minWidth={1100} onOpen={(r) => openDetail(r.id)} onEdit={async (r) => { const d = await api.get(`/adjustments/${r.id}`); startEdit(d.data); }} columns={[noCol("No. Adjustment"), dateCol(fmtDate), { key: "warehouse_name", label: "Gudang" }, { key: "adj_type", label: "Jenis" }, { key: "reason", label: "Alasan" }, traceCol("project"), { key: "line_count", label: "Item", num: true }]} />{selected && <Card className="mt-4 border-primary/20"><CardContent className="pt-5 space-y-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wider text-primary">Detail Transaksi</div><div className="mt-1 font-mono font-semibold">{selected.no}</div><div className="mt-2"><TransactionMutationActions module="adjustment" id={selected.id} onEdit={()=>startEdit()} onDeleted={()=>{setSelected(null);load();}} compact /></div></div><Button variant="ghost" size="icon" onClick={() => setSelected(null)}><X className="h-4 w-4" /></Button></div><AttachmentPanel entity="adjustment" entityId={selected.id} /><DocumentMessageEditor module="adjustment" value={selected.document_message||""} readOnly /></CardContent></Card>}</div>;
 }

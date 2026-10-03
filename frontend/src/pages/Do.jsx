@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
+import { useServerList } from "@/lib/serverList";
 import { useMasters } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
@@ -29,7 +30,7 @@ import { SpkAllocationModal, useDocAllocations, formatAllocText } from "@/compon
 import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
-export function DoList(){const[rows,setRows]=useState([]);const load=()=>api.get("/do").then(r=>setRows(r.data));useEffect(()=>{load();},[]);return <DocList title="DO — Penerimaan Barang" subtitle="Penerimaan fisik barang dari supplier" createPath="/do/new" basePath="/do" module="do" printType="DO" printOpts={{title:"PENERIMAAN BARANG"}} onReload={load} testidPrefix="do" rows={rows} minWidth={1500} columns={[noCol("No. DO"),dateCol(fmtDate),{key:"supplier_name",label:"Supplier"},{key:"supplier_dn",label:"No. Surat Jalan"},traceCol("mro"),traceCol("ro"),traceCol("po"),traceCol("project"),traceCol("division"),traceCol("spk"),{key:"supplier_invoice",label:"No. Faktur"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
+export function DoList(){const list=useServerList("/do");const load=()=>list.reload();return <DocList title="DO — Penerimaan Barang" subtitle="Penerimaan fisik barang dari supplier" createPath="/do/new" basePath="/do" module="do" printType="DO" printOpts={{title:"PENERIMAAN BARANG"}} onReload={load} testidPrefix="do" server={list} minWidth={1500} columns={[noCol("No. DO"),dateCol(fmtDate),{key:"supplier_name",label:"Supplier"},{key:"supplier_dn",label:"No. Surat Jalan"},traceCol("mro"),traceCol("ro"),traceCol("po"),traceCol("project"),traceCol("division"),traceCol("spk"),{key:"supplier_invoice",label:"No. Faktur"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
 
 const LBL = "mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground";
 const commonOf=(lines,k)=>{const v=[...new Set(lines.map(l=>l[k]||""))];return v.length===1?v[0]:(v.length?"__mixed__":"");};

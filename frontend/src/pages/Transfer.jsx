@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
+import { useServerList } from "@/lib/serverList";
 import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
@@ -25,15 +26,14 @@ const EMPTY = () => ({ date: todayISO(), from_warehouse_id: "", to_warehouse_id:
 export default function Transfer() {
   const masters = useMasters(STOCK_REFS);
   const { can } = useAuth();
-  const [rows, setRows] = useState([]);
+  const list = useServerList("/transfers");
   const [mode, setMode] = useState("list");
   const [h, setH] = useState(EMPTY());
   const [lines, setLines] = useState([]);
   const [selected, setSelected] = useState(null);
   const [editingId, setEditingId] = useState(null);
 
-  const load = () => api.get("/transfers").then((r) => setRows(r.data));
-  useEffect(() => { load(); }, []);
+  const load = () => list.reload();
   const openDetail = (id) => api.get(`/transfers/${id}`).then((r) => setSelected(r.data));
   const startNew = () => { setEditingId(null); setH(EMPTY()); setLines([]); setSelected(null); setMode("form"); };
   const startEdit = (doc = selected) => {
@@ -84,7 +84,7 @@ export default function Transfer() {
   return (
     <div>
       <PageHeader title="Transfer Antar Gudang" subtitle="Perpindahan barang permanen">{can("create") && <Button onClick={startNew} data-testid="transfer-create-btn"><Plus className="h-4 w-4 mr-2" />Buat Transfer</Button>}</PageHeader>
-      <TxnList module="transfer" testidPrefix="transfer" rows={rows} onReload={() => { setSelected(null); load(); }} selectedId={selected?.id} emptyText="Belum ada transfer" minWidth={1100}
+      <TxnList module="transfer" testidPrefix="transfer" server={list} onReload={() => { setSelected(null); load(); }} selectedId={selected?.id} emptyText="Belum ada transfer" minWidth={1100}
         onOpen={(r) => openDetail(r.id)} onEdit={async (r) => { const d = await api.get(`/transfers/${r.id}`); startEdit(d.data); }}
         columns={[noCol("No. Transfer"), dateCol(fmtDate), { key: "from_name", label: "Dari" }, { key: "to_name", label: "Ke", render: (r) => <span className="flex items-center gap-1"><ArrowLeftRight className="h-3 w-3 text-muted-foreground" />{r.to_name}</span> }, traceCol("project"), traceCol("unit"), { key: "line_count", label: "Item", num: true }, { key: "status", label: "Status", status: true }]} />
       {selected && <Card className="mt-4 border-primary/20"><CardContent className="pt-5 space-y-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wider text-primary">Detail Transaksi</div><div className="mt-1 font-mono font-semibold">{selected.no}</div><div className="mt-2"><TransactionMutationActions module="transfer" id={selected.id} onEdit={()=>startEdit()} onDeleted={()=>{setSelected(null);load();}} compact /></div></div><Button variant="ghost" size="icon" onClick={() => setSelected(null)}><X className="h-4 w-4" /></Button></div><AttachmentPanel entity="transfer" entityId={selected.id} /><DocumentMessageEditor module="transfer" value={selected.document_message||""} readOnly /></CardContent></Card>}

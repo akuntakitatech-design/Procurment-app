@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
+import { useServerList } from "@/lib/serverList";
 import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
@@ -32,7 +33,7 @@ import { useDocAllocations } from "@/components/SpkAllocationModal";
 import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
-export function MiList(){const[rows,setRows]=useState([]);const load=()=>api.get("/mi").then(r=>setRows(r.data));useEffect(()=>{load();},[]);return <DocList title="MI — Material Issued" subtitle="Pengeluaran barang dari gudang" createPath="/mi/new" basePath="/mi" module="mi" printType="MI" printOpts={{title:"MATERIAL ISSUED"}} onReload={load} testidPrefix="mi" rows={rows} minWidth={1300} columns={[noCol("No. MI"),dateCol(fmtDate),traceCol("mro"),traceCol("project"),traceCol("division"),traceCol("spk"),traceCol("requester"),{key:"receiver",label:"Penerima"},{key:"source_type",label:"Sumber",value:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO",render:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
+export function MiList(){const list=useServerList("/mi");const load=()=>list.reload();return <DocList title="MI — Material Issued" subtitle="Pengeluaran barang dari gudang" createPath="/mi/new" basePath="/mi" module="mi" printType="MI" printOpts={{title:"MATERIAL ISSUED"}} onReload={load} testidPrefix="mi" server={list} minWidth={1300} columns={[noCol("No. MI"),dateCol(fmtDate),traceCol("mro"),traceCol("project"),traceCol("division"),traceCol("spk"),traceCol("requester"),{key:"receiver",label:"Penerima"},{key:"source_type",label:"Sumber",value:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO",render:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
 
 // Alokasi SPK MI (read-only, sumber MRO): "SPK-001" | "SPK-001 (6), SPK-002 (4)" | "Non-SPK".
 const baseQty=l=>(Number(l.qty)||0)*(Number(l.conversion_factor)||1);

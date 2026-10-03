@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -10,9 +9,9 @@ import { Combobox } from "@/components/Combobox";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DataTable } from "@/components/invoice/DataTable";
 import { InvoiceSummary } from "@/components/invoice/InvoiceSummary";
-import { fmtD, splitVals, optsOf, hasVal, dateOnly } from "@/lib/invoice";
+import { fmtD, optsOf } from "@/lib/invoice";
+import { useServerList } from "@/lib/serverList";
 import { Plus } from "lucide-react";
-import { toast } from "sonner";
 
 const INV_COLS = [
   { key: "supplier_name", label: "Supplier" },
@@ -45,53 +44,51 @@ const DO_COLS = [
 ];
 const F = ({ children }) => <div className="w-44">{children}</div>;
 
-function useFilters(rows, defs) {
+function useFilterUI(defs, facets) {
   const [f, setF] = useState({});
-  const opts = useMemo(() => Object.fromEntries(defs.map(([k, , all]) => [k, optsOf(splitVals(rows, k), all)])), [rows, defs]);
-  const ui = defs.map(([k, , all]) => <F key={k}><Combobox options={opts[k]} value={f[k] || ""} onChange={(v) => setF((c) => ({ ...c, [k]: v }))} placeholder={all} testid={`filter-${k}`} dense /></F>);
-  const apply = (r) => defs.every(([k]) => hasVal(r, k, f[k]));
-  return { ui, apply, f, setF };
+  const ui = defs.map(([k, , all]) => <F key={k}><Combobox options={optsOf(facets[k] || [], all)} value={f[k] || ""} onChange={(v) => setF((c) => ({ ...c, [k]: v }))} placeholder={all} testid={`filter-${k}`} dense /></F>);
+  const params = Object.fromEntries(defs.map(([k]) => [`f_${k}`, f[k] || ""]));
+  return { ui, params };
 }
 
-const INV_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["trace_division", 0, "Semua Divisi"], ["trace_project", 0, "Semua Proyek"], ["trace_spk", 0, "Semua SPK"], ["trace_po", 0, "Semua PO"], ["do_nos", 0, "Semua DO"], ["status", 0, "Semua Status Invoice"], ["payment_status", 0, "Semua Status Pembayaran"], ["due_state", 0, "Semua Jatuh Tempo"]];
-const DO_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["division", 0, "Semua Divisi"], ["project", 0, "Semua Proyek"], ["spk", 0, "Semua SPK"], ["billing_status", 0, "Semua Status Penagihan"]];
+function RangeUI({ from, to, setFrom, setTo }) {
+  return <div className="flex items-center gap-1 text-xs text-muted-foreground">Tanggal
+    <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-36" data-testid="filter-date-from" />s/d
+    <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-36" data-testid="filter-date-to" /></div>;
+}
+
+// Satu tab = satu list server-side (search/filter/sort/pagination di backend). Tab DO baru dimuat saat dibuka.
+function ServerTable({ url, defs, cols, from, to, setFrom, setTo, ...rest }) {
+  const [fParams, setFParams] = useState({});
+  const list = useServerList(url, { ...fParams, date_from: from, date_to: to }, { facets: defs.map(([k]) => k).join(",") });
+  const fx = useFilterUI(defs, list.facets);
+  const key = JSON.stringify(fx.params);
+  useEffect(() => { setFParams(JSON.parse(key)); }, [key]);
+  return <DataTable columns={cols} server={list} filters={<>{fx.ui}<RangeUI from={from} to={to} setFrom={setFrom} setTo={setTo} /></>} {...rest} />;
+}
 
 export default function InvoiceMonitoring() {
   const nav = useNavigate();
   const { can } = useAuth();
-  const [invs, setInvs] = useState(null);
-  const [dos, setDos] = useState(null);
+  const [tab, setTab] = useState("invoice");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  useEffect(() => {
-    api.get("/vendor-invoices").then((r) => setInvs(r.data)).catch((e) => { setInvs([]); toast.error(apiError(e.response?.data?.detail)); });
-    api.get("/vendor-invoices/do-billing").then((r) => setDos(r.data)).catch(() => setDos([]));
-  }, []);
-  const fi = useFilters(invs || [], INV_FILTERS);
-  const fd = useFilters(dos || [], DO_FILTERS);
-  const inRange = (d) => (!from || dateOnly(d) >= from) && (!to || dateOnly(d) <= to);
-  const invRows = (invs || []).filter((r) => fi.apply(r) && inRange(r.invoice_date));
-  const doRows = (dos || []).filter((r) => fd.apply(r) && inRange(r.date));
-  const range = <div className="flex items-center gap-1 text-xs text-muted-foreground">Tanggal
-    <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-36" data-testid="filter-date-from" />s/d
-    <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-36" data-testid="filter-date-to" /></div>;
+  const rp = { from, to, setFrom, setTo };
   return (
     <div className="space-y-5" data-testid="invoice-monitoring-page">
       <PageHeader title="Monitoring Invoice Vendor" subtitle="DO → Invoice Diterima → Invoice Dibayar. Pencatatan invoice tidak mengubah PO, DO, SPK, stok maupun Moving Average.">
         {can("invoice.create") && <Button onClick={() => nav("/invoice/new")} data-testid="invoice-create-btn"><Plus className="mr-2 h-4 w-4" />Catat Invoice</Button>}
       </PageHeader>
       <InvoiceSummary />
-      <Tabs defaultValue="invoice">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList><TabsTrigger value="invoice" data-testid="tab-invoice">Invoice Vendor</TabsTrigger><TabsTrigger value="do" data-testid="tab-do-billing">Status Penagihan DO</TabsTrigger></TabsList>
         <TabsContent value="invoice" className="mt-4">
-          <DataTable columns={INV_COLS} rows={invRows} testidPrefix="invoice" countLabel="invoice" minWidth={1700}
-            emptyText={invs === null ? "Memuat..." : "Belum ada invoice"} searchPlaceholder="Cari supplier, no invoice, PO, DO, SPK, proyek..."
-            onOpen={(r) => nav(`/invoice/${r.id}`)} filters={<>{fi.ui}{range}</>} />
+          <ServerTable url="/vendor-invoices" defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={1700}
+            emptyText="Belum ada invoice" searchPlaceholder="Cari supplier, no invoice, PO, DO, SPK, proyek..." onOpen={(r) => nav(`/invoice/${r.id}`)} />
         </TabsContent>
         <TabsContent value="do" className="mt-4">
-          <DataTable columns={DO_COLS} rows={doRows} testidPrefix="do-billing" countLabel="DO" minWidth={1400}
-            emptyText={dos === null ? "Memuat..." : "Belum ada DO"} searchPlaceholder="Cari no DO, supplier, PO, SPK, proyek..."
-            onOpen={(r) => nav(`/do/${r.do_id}`)} filters={<>{fd.ui}{range}</>} />
+          {tab === "do" && <ServerTable url="/vendor-invoices/do-billing" defs={DO_FILTERS} cols={DO_COLS} {...rp} testidPrefix="do-billing" countLabel="DO" minWidth={1400}
+            emptyText="Belum ada DO" searchPlaceholder="Cari no DO, supplier, PO, SPK, proyek..." onOpen={(r) => nav(`/do/${r.do_id}`)} />}
         </TabsContent>
       </Tabs>
     </div>

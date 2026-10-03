@@ -75,6 +75,19 @@ async def _derive_do_division(server, doc: dict):
     return (po or {}).get("division_id")
 
 
+async def _derive_do_divisions(server, docs):
+    """Batch _derive_do_division: baris DO pertama -> divisi PO (3 query total, bukan per baris)."""
+    need = [d["id"] for d in docs if not d.get("division_id") and d.get("id")]
+    if not need:
+        return {}
+    first = {}
+    for l in await server.db.do_lines.find({"do_id": {"$in": need}}, {"_id": 0, "do_id": 1, "po_id": 1}).to_list(None):
+        first.setdefault(l.get("do_id"), l)
+    po_ids = list({l.get("po_id") for l in first.values() if l.get("po_id")})
+    pos = {p["id"]: p.get("division_id") for p in (await server.db.po.find({"id": {"$in": po_ids}}, {"_id": 0, "id": 1, "division_id": 1}).to_list(None) if po_ids else [])}
+    return {did: pos.get(l.get("po_id")) for did, l in first.items()}
+
+
 async def _require_do_view(server, did: str, user: dict):
     doc = await server.db.do.find_one({"id": did}, {"_id": 0})
     if not doc:
@@ -201,12 +214,13 @@ def install(server):
             rows = await original_list(user=user)
             out = []
             allowed = _allowed_divisions(user)
+            derived = await _derive_do_divisions(server, rows or [])
+            names = {d["id"]: d.get("name") for d in await server.db.divisions.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(None)}
             for row in rows or []:
-                division_id = row.get("division_id") or await _derive_do_division(server, row)
+                division_id = row.get("division_id") or derived.get(row.get("id"))
                 row["division_id"] = division_id
                 if division_id:
-                    div = await server.db.divisions.find_one({"id": division_id}, {"_id": 0, "name": 1}) or {}
-                    row["division_name"] = div.get("name")
+                    row["division_name"] = names.get(division_id)
                 if _is_global(server, user) or (division_id and str(division_id) in allowed):
                     out.append(row)
             return out

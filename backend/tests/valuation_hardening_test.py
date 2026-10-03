@@ -3,6 +3,7 @@ Inventory Valuation Hardening Test Suite for KelolaKita Procurement
 Tests moving weighted average valuation, concurrency, reversal, transfer value carry,
 adjustment/opname approved-cost rules, loan snapshot carry, backdate guard, opening valuation.
 """
+import json
 import os
 import sys
 import time
@@ -389,12 +390,27 @@ class ValuationTester:
             self.log("⚠️  Opname post failed - may need approval permission")
             return True  # Not critical
         
-        # Verify posting twice is blocked
-        success, _ = self.test("Post Opname Again (Should Fail)", "POST", f"opname/{opname_id}/post", 400, data={})
-        if not success:
-            self.log("✅ Duplicate opname post correctly blocked")
+        # Verify posting twice is blocked. Contract API saat ini: 409 Conflict (dokumen sudah diposting),
+        # sebelumnya test mengharapkan 400. Selain status, pastikan tidak ada mutasi stok/nilai/ledger.
+        def snap():
+            h = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+            pos = self.session.get(f"{API}/inventory/position", headers=h).json()
+            led = self.session.get(f"{API}/inventory/ledger", headers=h).json()
+            doc = self.session.get(f"{API}/opname/{opname_id}", headers=h).json()
+            pos_rows = pos if isinstance(pos, list) else pos.get("rows", pos.get("items", []))
+            led_rows = led if isinstance(led, list) else led.get("rows", led.get("items", []))
+            keep = ("item_id", "warehouse_id", "qty", "stock", "avg_cost", "value", "total_value")
+            return (sorted(json.dumps({k: r.get(k) for k in keep}, sort_keys=True) for r in pos_rows),
+                    len(led_rows), doc.get("status"), json.dumps(doc.get("lines"), sort_keys=True))
+        before = snap()
+        success, _ = self.test("Post Opname Again (Should Fail, 409 Conflict)", "POST", f"opname/{opname_id}/post", 409, data={})
+        after = snap()
+        self.tests_run += 1
+        if before == after:
             self.tests_passed += 1
-        
+            self.log("✅ Repost Opname ditolak tanpa mutasi (qty/avg_cost/nilai/ledger/dokumen tidak berubah)")
+        else:
+            self.log("❌ Repost Opname mengubah data persediaan/ledger/dokumen")
         return True
 
     def test_loan_flow(self):

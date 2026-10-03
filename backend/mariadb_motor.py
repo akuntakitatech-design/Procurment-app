@@ -29,7 +29,9 @@ selalu memproyeksikan {"_id": 0} atau melakukan pop), session/transaksi Mongo.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
+import time
 import logging
 import os
 import re
@@ -43,6 +45,24 @@ from urllib.parse import unquote, urlparse
 import aiomysql
 
 logger = logging.getLogger("mariadb_motor")
+# Statistik query per request [jumlah, total detik, query terlama] — diisi DbStatsMiddleware.
+DB_STATS: contextvars.ContextVar = contextvars.ContextVar("db_stats", default=None)
+_REQ_CACHED = {"users", "tenants"}
+# Cache referensi per request GET (mis. maps()) agar tidak dimuat berulang oleh beberapa layer.
+REQ_CACHE: contextvars.ContextVar = contextvars.ContextVar("req_cache", default=None)
+
+
+_LOG_SQL = os.environ.get("DB_LOG_SQL") == "1"
+
+
+def _track(t0: float, sql: str = "") -> None:
+    st = DB_STATS.get()
+    if st is not None:
+        dt = time.perf_counter() - t0
+        st[0] += 1; st[1] += dt; st[2] = max(st[2], dt)
+        if _LOG_SQL:
+            logger.warning("SQL %.0fms %s", dt * 1000, sql[:160])
+
 
 _SCALAR = (str, int, float, bool, type(None))
 _MISSING = object()
@@ -704,6 +724,13 @@ class MariaCollection:
     async def find_one(self, filter: Optional[dict] = None, projection=None, *args, **kwargs) -> Optional[dict]:
         if isinstance(filter, str):  # find_one("id-value") → by pk/id
             filter = {"id": filter}
+        cache = REQ_CACHE.get() if self.name in _REQ_CACHED else None
+        if cache is not None and isinstance(filter, dict) and set(filter) == {"id"} and isinstance(filter["id"], str) and not kwargs:
+            key = ("find_one", self.name, filter["id"])  # identitas user/tenant dibaca beberapa middleware per request GET
+            if key not in cache:
+                hit = await MariaCursor(self, filter, None).limit(1).to_list(1)
+                cache[key] = hit[0] if hit else None
+            return _project(deepcopy(cache[key]), projection) if cache[key] else None
         cur = MariaCursor(self, filter, projection).limit(1 if not kwargs.get("sort") else 0)
         if kwargs.get("sort"): cur.sort(kwargs["sort"])
         docs = await cur.to_list(1)
@@ -974,22 +1001,30 @@ class MariaDatabase:
     def _transaction(self) -> _Tx: return _Tx(self)
 
     async def _fetchall(self, sql: str, params: Sequence, conn=None):
-        if conn is not None:
-            async with conn.cursor() as cur:
-                await cur.execute(sql, params); return await cur.fetchall()
-        pool = await self._get_pool()
-        async with pool.acquire() as c:
-            async with c.cursor() as cur:
-                await cur.execute(sql, params); return await cur.fetchall()
+        t0 = time.perf_counter()
+        try:
+            if conn is not None:
+                async with conn.cursor() as cur:
+                    await cur.execute(sql, params); return await cur.fetchall()
+            pool = await self._get_pool()
+            async with pool.acquire() as c:
+                async with c.cursor() as cur:
+                    await cur.execute(sql, params); return await cur.fetchall()
+        finally:
+            _track(t0, sql)
 
     async def _execute(self, sql: str, params: Sequence, conn=None) -> int:
-        if conn is not None:
-            async with conn.cursor() as cur:
-                await cur.execute(sql, params); return cur.rowcount
-        pool = await self._get_pool()
-        async with pool.acquire() as c:
-            async with c.cursor() as cur:
-                await cur.execute(sql, params); return cur.rowcount
+        t0 = time.perf_counter()
+        try:
+            if conn is not None:
+                async with conn.cursor() as cur:
+                    await cur.execute(sql, params); return cur.rowcount
+            pool = await self._get_pool()
+            async with pool.acquire() as c:
+                async with c.cursor() as cur:
+                    await cur.execute(sql, params); return cur.rowcount
+        finally:
+            _track(t0, sql)
 
     async def _executemany(self, sql: str, seq_params: Sequence[Sequence], conn=None, chunk: int = 200) -> int:
         """Eksekusi batch (executemany per chunk) — memangkas round-trip untuk update_many/backfill."""
@@ -1128,3 +1163,28 @@ def database_from_env() -> MariaDatabase:
     auto = os.environ.get("DB_AUTO_SCHEMA", "true").strip().lower() not in ("0", "false", "no")
     return MariaDatabase(dsn, auto_schema=auto, pool_size=int(os.environ.get("DATABASE_POOL_SIZE", "10")),
                          name=os.environ.get("DB_NAME", "default"))
+
+
+class DbStatsMiddleware:
+    """ASGI: tambahkan header Server-Timing (jumlah & durasi query DB) per request."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        st = [0, 0.0, 0.0]
+        tok = DB_STATS.set(st)
+        ctok = REQ_CACHE.set({} if scope.get("method") == "GET" else None)
+
+        async def _send(msg):
+            if msg["type"] == "http.response.start":
+                val = f'db;dur={st[1] * 1000:.0f};desc="{st[0]} q max {st[2] * 1000:.0f}ms"'
+                msg = {**msg, "headers": list(msg.get("headers") or []) + [(b"server-timing", val.encode())]}
+            await send(msg)
+        try:
+            await self.app(scope, receive, _send)
+        finally:
+            DB_STATS.reset(tok)
+            REQ_CACHE.reset(ctok)

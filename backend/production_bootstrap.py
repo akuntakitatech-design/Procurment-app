@@ -254,6 +254,15 @@ subscription_access_gate_layer.install(server)
 # normal Bearer auth before tenant isolation/security/access middleware resolve identity.
 attachment_query_token_compat_layer.install(server)
 
+# Server-side pagination/search/filter/sort untuk list transaksi (setelah semua scope & enrichment).
+import txn_list_paging_layer  # noqa: E402
+txn_list_paging_layer.install(server)
+
+# Paling luar: header Server-Timing (jumlah/durasi query DB) untuk audit performa.
+if server.DB_BACKEND == "mariadb":
+    import mariadb_motor  # noqa: E402
+    server.app.add_middleware(mariadb_motor.DbStatsMiddleware)
+
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
+import { useServerList } from "@/lib/serverList";
 import { useMasters } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
@@ -29,8 +30,8 @@ import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
 export function RoList() {
-  const [rows,setRows]=useState([]); const load=()=>api.get("/ro").then(r=>setRows(r.data)); useEffect(()=>{load();},[]);
-  return <DocList title="RO — Request Order" subtitle="Permintaan pembelian barang" createPath="/ro/new" basePath="/ro" module="ro" printType="RO" printOpts={{title:"REQUEST ORDER"}} onReload={load} testidPrefix="ro" rows={rows} minWidth={1200} columns={[noCol("No. RO"),dateCol(fmtDate),{key:"requester",label:"Pemohon"},traceCol("mro"),traceCol("project"),{key:"division_name",label:"Divisi"},traceCol("spk"),{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;
+  const list=useServerList("/ro"); const load=()=>list.reload();
+  return <DocList title="RO — Request Order" subtitle="Permintaan pembelian barang" createPath="/ro/new" basePath="/ro" module="ro" printType="RO" printOpts={{title:"REQUEST ORDER"}} onReload={load} testidPrefix="ro" server={list} minWidth={1200} columns={[noCol("No. RO"),dateCol(fmtDate),{key:"requester",label:"Pemohon"},traceCol("mro"),traceCol("project"),{key:"division_name",label:"Divisi"},traceCol("spk"),{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;
 }
 
 export function RoForm() {

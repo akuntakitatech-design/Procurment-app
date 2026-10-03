@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { apiError } from "@/lib/api";
+import { useServerList } from "@/lib/serverList";
 import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
@@ -25,12 +26,11 @@ const EMPTY = () => ({ date: todayISO(), from_warehouse_id: "", to_warehouse_id:
 
 export default function Loan() {
   const masters = useMasters(STOCK_REFS); const { can } = useAuth();
-  const [rows, setRows] = useState([]); const [mode, setMode] = useState("list");
+  const list = useServerList("/loans"); const [mode, setMode] = useState("list");
   const [h, setH] = useState(EMPTY());
   const [lines, setLines] = useState([]); const [detail, setDetail] = useState(null); const [ret, setRet] = useState(false); const [editingId,setEditingId]=useState(null);
   const [returns,setReturns]=useState([]); const [returnEdit,setReturnEdit]=useState(null); const [returnLines,setReturnLines]=useState([]);
-  const load = () => api.get("/loans").then((r) => setRows(r.data));
-  useEffect(() => { load(); }, []);
+  const load = () => list.reload();
 
   const startNew=()=>{setEditingId(null);setH(EMPTY());setLines([]);setDetail(null);setReturns([]);setMode("form");};
   const startEdit=(doc=detail)=>{if(!doc)return;const detail=doc;setDetail(doc);setEditingId(detail.id);setH({date:detail.date,from_warehouse_id:detail.from_warehouse_id||"",to_warehouse_id:detail.to_warehouse_id||"",due_date:detail.due_date||null,project_id:detail.project_id||"",requester:detail.requester||"",notes:detail.notes||"",document_message:detail.document_message||""});setLines((detail.lines||[]).map(l=>({...l,_readonly:false})));setMode("form");};
@@ -48,7 +48,7 @@ export default function Loan() {
 
   return <div>
     <PageHeader title="Pinjam Antar Gudang" subtitle="Pinjaman dengan kewajiban pengembalian">{can("create") && <Button onClick={startNew}><Plus className="h-4 w-4 mr-2" />Buat Pinjaman</Button>}</PageHeader>
-    <TxnList module="loan" testidPrefix="loan" rows={rows} onReload={() => { setDetail(null); load(); }} selectedId={detail?.id} emptyText="Belum ada pinjaman" minWidth={1200}
+    <TxnList module="loan" testidPrefix="loan" server={list} onReload={() => { setDetail(null); load(); }} selectedId={detail?.id} emptyText="Belum ada pinjaman" minWidth={1200}
       onOpen={(r) => openDetail(r.id)} onEdit={async (r) => { const d = await api.get(`/loans/${r.id}`); startEdit(d.data); }}
       columns={[noCol("No. Pinjaman"), dateCol(fmtDate), { key: "from_name", label: "Pemberi" }, { key: "to_name", label: "Peminjam" }, { key: "requester", label: "Pemohon" }, traceCol("project"), traceCol("unit"), { key: "outstanding_total", label: "Outstanding Dasar", num: true, render: (r) => num(r.outstanding_total) }, { key: "status", label: "Status", status: true }]} />
     {detail && <Card className="mt-4 border-primary/20"><CardContent className="pt-5 space-y-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase tracking-wider text-primary">Detail Pinjaman</div><div className="mt-1 flex flex-wrap items-center gap-2"><span className="text-xs font-semibold text-muted-foreground">No. Pinjaman</span><h2 className="font-head font-mono text-lg font-semibold">{detail.no}</h2><StatusBadge status={detail.status} /></div><div className="mt-1 text-sm text-muted-foreground">{detail.from_name} → {detail.to_name} · Target kembali: {fmtDate(detail.due_date)}</div><div className="mt-2"><TransactionMutationActions module="loan" id={detail.id} onEdit={()=>startEdit()} onDeleted={()=>{setDetail(null);setReturns([]);load();}} compact /></div></div><Button variant="ghost" size="icon" onClick={() => { setDetail(null); setRet(false); }}><X className="h-4 w-4" /></Button></div>

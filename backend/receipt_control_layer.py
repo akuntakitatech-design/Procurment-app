@@ -354,8 +354,11 @@ async def enrich_list(server, module, rows):
             return l.get("display_unit") or bu.get("symbol") or bu.get("name") or it.get("unit") or l.get("unit") or ""
         return l.get("display_unit") or u.get("symbol") or u.get("name") or l.get("unit") or ""
 
-    spk = await _spk_text(server, module, lines, sym) if module in ("mro", "ro", "po", "do", "mi") else {}
-    lin = await _lineage(server, module, lines) if module in ("ro", "po", "do", "mi") else {}
+    async def _none():
+        return {}
+    spk, lin = await asyncio.gather(  # independen -> paralel
+        _spk_text(server, module, lines, sym) if module in ("mro", "ro", "po", "do", "mi") else _none(),
+        _lineage(server, module, lines) if module in ("ro", "po", "do", "mi") else _none())
     mros = lin.pop("_mros", {}) if lin else {}
     nm = lambda coll_, i: (m[coll_].get(i) or {}).get("name") if i else None
     for r in rows:
