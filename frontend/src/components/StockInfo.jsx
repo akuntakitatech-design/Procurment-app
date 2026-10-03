@@ -43,7 +43,7 @@ export function StockInfo({ itemId, warehouseId, itemName, label = "Stok tersedi
   if (!itemId) return null;
   const row = d && !d.error ? d.warehouses.find((w) => w.warehouse_id === warehouseId) : null;
   const shown = value !== undefined ? value : row ? row.stock : d && !d.error && warehouseId ? 0 : null;
-  const text = !warehouseId ? "pilih gudang" : d?.error ? "di luar cakupan" : shown === null ? "…" : `${num(shown)} ${d?.unit || ""}`.trim();
+  const text = !warehouseId ? "pilih gudang" : d?.error ? "di luar cakupan" : shown === null ? "memuat…" : `${num(shown)} ${d?.unit || ""}`.trim();
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className="mb-0.5 block w-full truncate text-left text-[10px] font-medium text-muted-foreground transition-colors hover:text-primary hover:underline" data-testid={testid || "stock-info"} title="Klik untuk melihat Stok per Gudang">
