@@ -138,9 +138,9 @@ function SupplierEditor({ form, setForm, refs }) {
   return <div className="space-y-4 py-2">
     <Section title="Informasi Umum" subtitle="Identitas dan klasifikasi utama supplier.">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Kode Supplier (Otomatis, bisa diedit)"><Input value={form.code || ""} onChange={(e) => setForm({ ...form, code: e.target.value })} className="font-mono font-semibold" /></Field>
-        <Field label="Nama Supplier *"><Input value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-        <Field label="Nama Legal / Perusahaan"><Input value={form.legal_name || ""} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} /></Field>
+        <Field label="Kode Supplier (Otomatis, bisa diedit)"><Input data-testid="master-suppliers-field-code" value={form.code || ""} onChange={(e) => setForm({ ...form, code: e.target.value })} className="font-mono font-semibold" /></Field>
+        <Field label="Nama Supplier *"><Input data-testid="master-suppliers-field-name" value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+        <Field label="Nama Legal / Perusahaan"><Input data-testid="master-suppliers-field-legal_name" value={form.legal_name || ""} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} /></Field>
         <Field label="Kategori Supplier"><Combobox options={supplierCategories} value={form.supplier_category_id || ""} onChange={(v) => setForm({ ...form, supplier_category_id: v })} placeholder="Pilih kategori" /></Field>
         <Field label="Jenis Supplier"><Combobox options={[{ value: "Lokal", label: "Lokal" }, { value: "Import", label: "Import" }, { value: "Jasa", label: "Jasa" }]} value={form.supplier_type || "Lokal"} onChange={(v) => setForm({ ...form, supplier_type: v })} /></Field>
       </div>
