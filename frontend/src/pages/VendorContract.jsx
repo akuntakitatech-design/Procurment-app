@@ -7,6 +7,7 @@ import { Combobox } from "@/components/Combobox";
 import { Field } from "@/components/DatePicker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ListPager, SortTh } from "@/components/ListPager";
 import { MasterDeleteDialog } from "@/components/MasterDeleteDialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Plus, Search, Pencil, ArrowLeft, FileText, Upload, Trash2, Download, ShieldCheck,
-  ChevronLeft, ChevronRight, Handshake, Tag, History, ListChecks, Calculator, CheckCircle2,
+  Handshake, Tag, History, ListChecks, Calculator, CheckCircle2,
   Ban, Package,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -103,6 +104,8 @@ export function VendorContractList() {
   const [supplierId, setSupplierId] = useState("");
   const [currency, setCurrency] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [sort, setSort] = useState("-created_at");
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [checkOpen, setCheckOpen] = useState(false);
@@ -112,16 +115,18 @@ export function VendorContractList() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ q, status, supplier_id: supplierId, currency, page: String(page), page_size: "20" });
+      const params = new URLSearchParams({ q, status, supplier_id: supplierId, currency, sort, page: String(page), page_size: String(pageSize) });
       const r = await api.get(`/vendor-contracts?${params.toString()}`);
       setData(r.data || { items: [], total: 0 });
     } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
     finally { setLoading(false); }
-  }, [q, status, supplierId, currency, page]);
+  }, [q, status, supplierId, currency, sort, page, pageSize]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
-  useEffect(() => { setSel(new Set()); }, [q, status, supplierId, currency, page]);
+  useEffect(() => { setSel(new Set()); }, [q, status, supplierId, currency, sort, page, pageSize]);
 
-  const totalPages = Math.max(1, Math.ceil(data.total / (data.page_size || 20)));
+  const sortObj = { key: sort.replace(/^-/, ""), dir: sort.startsWith("-") ? "desc" : "asc" };
+  const toggleSort = (key) => { setPage(1); setSort((s) => (s === key ? `-${key}` : s === `-${key}` ? key : `-${key}`)); };
+  const th = (label, k, cls = "") => <SortTh label={label} k={k} sort={sortObj} onSort={toggleSort} className={cls} testid="vendor_contracts" />;
 
   return (
     <div>
@@ -145,9 +150,9 @@ export function VendorContractList() {
         <table className="w-full text-sm zebra">
           <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
             <th className="w-10 p-3"><Checkbox checked={data.items.length>0&&data.items.every((x)=>sel.has(x.id))} onCheckedChange={()=>setSel(data.items.every((x)=>sel.has(x.id))?new Set():new Set(data.items.map((x)=>x.id)))} aria-label="Pilih semua" data-testid="vendor_contracts-select-all" /></th>
-            <th className="p-3">No Kontrak</th><th className="p-3">Vendor</th><th className="p-3">Periode</th>
-            <th className="p-3">Mata Uang</th><th className="p-3 text-right">Jml Item</th><th className="p-3">PIC</th>
-            <th className="p-3">Terakhir Diperbarui</th><th className="p-3">Status</th><th className="p-3 w-44 text-right">Aksi</th>
+            {th("No Kontrak", "contract_number")}{th("Vendor", "supplier_name")}{th("Periode", "start_date")}
+            {th("Mata Uang", "currency")}{th("Jml Item", "item_count", "text-right")}{th("PIC", "vendor_pic")}
+            {th("Terakhir Diperbarui", "updated_at")}{th("Status", "derived_status")}<th className="p-3 w-44 text-right">Aksi</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">Memuat...</td></tr>}
@@ -170,14 +175,7 @@ export function VendorContractList() {
         </table>
       </div>
 
-      <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
-        <div>Total {data.total} kontrak</div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-          <span>Hal {data.page} / {totalPages}</span>
-          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
-        </div>
-      </div>
+      <ListPager total={data.total} page={data.page || page} pageSize={pageSize} setPage={setPage} setPageSize={(n) => { setPage(1); setPageSize(n); }} testid="vendor_contracts" unit="kontrak" />
 
       <PriceCheckDialog open={checkOpen} onOpenChange={setCheckOpen} suppliers={suppliers} />
     </div>

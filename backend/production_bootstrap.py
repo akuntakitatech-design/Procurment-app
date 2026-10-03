@@ -258,6 +258,11 @@ attachment_query_token_compat_layer.install(server)
 import txn_list_paging_layer  # noqa: E402
 txn_list_paging_layer.install(server)
 
+# Server-side pagination/search/filter/sort untuk 14 Master Data (setelah tenant, permission & divisi).
+import master_list_paging_layer  # noqa: E402
+master_list_paging_layer.install(server)
+
+
 # Paling luar: header Server-Timing (jumlah/durasi query DB) untuk audit performa.
 if server.DB_BACKEND == "mariadb":
     import mariadb_motor  # noqa: E402

@@ -8,13 +8,14 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Field } from "@/components/DatePicker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ListPager, SortTh } from "@/components/ListPager";
 import { MasterDeleteDialog } from "@/components/MasterDeleteDialog";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   Plus, Search, Pencil, ArrowLeft, FileText, Upload, Trash2, Download, ShieldCheck,
-  Wallet, TrendingUp, Layers3, Info, ChevronLeft, ChevronRight, ClipboardList,
+  Wallet, TrendingUp, Layers3, Info, ClipboardList,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -63,6 +64,7 @@ export function SpkList() {
   const [status, setStatus] = useState("");
   const [divisionId, setDivisionId] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState("-created_at");
   const [divisions, setDivisions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -72,17 +74,18 @@ export function SpkList() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ q, status, division_id: divisionId, sort, page: String(page), page_size: "20" });
+      const params = new URLSearchParams({ q, status, division_id: divisionId, sort, page: String(page), page_size: String(pageSize) });
       const r = await api.get(`/spk?${params.toString()}`);
       setData(r.data || { items: [], total: 0 });
     } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
     finally { setLoading(false); }
-  }, [q, status, divisionId, sort, page]);
+  }, [q, status, divisionId, sort, page, pageSize]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
-  useEffect(() => { setSel(new Set()); }, [q, status, divisionId, sort, page]);
+  useEffect(() => { setSel(new Set()); }, [q, status, divisionId, sort, page, pageSize]);
 
-  const totalPages = Math.max(1, Math.ceil(data.total / (data.page_size || 20)));
-  const toggleSort = (key) => setSort((s) => (s === key ? `-${key}` : s === `-${key}` ? key : `-${key}`));
+  const sortObj = { key: sort.replace(/^-/, ""), dir: sort.startsWith("-") ? "desc" : "asc" };
+  const toggleSort = (key) => { setPage(1); setSort((s) => (s === key ? `-${key}` : s === `-${key}` ? key : `-${key}`)); };
+  const th = (label, k, cls = "") => <SortTh label={label} k={k} sort={sortObj} onSort={toggleSort} className={cls} testid="spk" />;
 
   return (
     <div>
@@ -102,16 +105,16 @@ export function SpkList() {
         <table className="w-full text-sm zebra">
           <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
             <th className="w-10 p-3"><Checkbox checked={data.items.length>0&&data.items.every((x)=>sel.has(x.id))} onCheckedChange={()=>setSel(data.items.every((x)=>sel.has(x.id))?new Set():new Set(data.items.map((x)=>x.id)))} aria-label="Pilih semua" data-testid="spk-select-all" /></th>
-            <th className="p-3 cursor-pointer" onClick={() => toggleSort("spk_number")}>No SPK</th>
-            <th className="p-3">Nama Pekerjaan</th>
-            <th className="p-3">Customer</th>
+            {th("No SPK", "spk_number")}
+            {th("Nama Pekerjaan", "project_name")}
+            {th("Customer", "customer")}
             <th className="p-3">Divisi</th>
-            <th className="p-3">PIC</th>
-            <th className="p-3 text-right cursor-pointer" onClick={() => toggleSort("spk_value")}>Nilai SPK</th>
-            <th className="p-3 text-right">Budget Pengadaan</th>
-            <th className="p-3">Periode</th>
+            {th("PIC", "pic_name")}
+            {th("Nilai SPK", "spk_value", "text-right")}
+            {th("Budget Pengadaan", "procurement_budget", "text-right")}
+            {th("Periode", "start_date")}
             <th className="p-3">Kebijakan</th>
-            <th className="p-3">Status</th>
+            {th("Status", "status")}
             <th className="p-3 w-44 text-right">Aksi</th>
           </tr></thead>
           <tbody>
@@ -137,14 +140,7 @@ export function SpkList() {
         </table>
       </div>
 
-      <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
-        <div>Total {data.total} SPK</div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
-          <span>Hal {data.page} / {totalPages}</span>
-          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
-        </div>
-      </div>
+      <ListPager total={data.total} page={data.page || page} pageSize={pageSize} setPage={setPage} setPageSize={(n) => { setPage(1); setPageSize(n); }} testid="spk" unit="SPK" />
     </div>
   );
 }
