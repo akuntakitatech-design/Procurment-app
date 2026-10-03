@@ -435,10 +435,15 @@ def install(server):
         if currency:
             flt["currency"] = currency.upper()
         rows = await _db().vendor_contracts.find(flt, {"_id": 0}).to_list(100000)
-        # counts
+        # counts (1 query batch, bukan N+1)
+        cnt = {}
+        if rows:
+            ids = [r["id"] for r in rows]
+            for it in await _db().vendor_contract_items.find({"contract_id": {"$in": ids}}, {"_id": 0, "contract_id": 1}).to_list(None):
+                cnt[it.get("contract_id")] = cnt.get(it.get("contract_id"), 0) + 1
         for r in rows:
             r["derived_status"] = _derived_status(r)
-            r["item_count"] = await _db().vendor_contract_items.count_documents({"contract_id": r["id"]})
+            r["item_count"] = cnt.get(r["id"], 0)
         if status:
             rows = [r for r in rows if r["derived_status"] == status]
         if period_start:
