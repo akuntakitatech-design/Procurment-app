@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import api from "@/lib/api";
 
+// Reference lists for warehouse/requisition forms (no supplier/tax lookups needed).
+export const STOCK_REFS = ["divisions", "contacts", "warehouses", "projects", "units", "items", "uoms", "item_categories"];
+
 export function useMasters(names = ["divisions", "contacts", "warehouses", "projects", "units", "suppliers", "supplier_categories", "items", "uoms", "item_categories", "taxes"]) {
   const [data, setData] = useState({});
   const namesKey = names.join(",");
@@ -8,7 +11,7 @@ export function useMasters(names = ["divisions", "contacts", "warehouses", "proj
     const out = {};
     const list = namesKey ? namesKey.split(",") : [];
     await Promise.all(list.map(async (n) => {
-      const r = await api.get(`/master/${n}?active_only=true`);
+      const r = await api.get(`/lookup/${n}`).catch(() => ({ data: [] }));
       out[n] = r.data;
     }));
     setData(out);

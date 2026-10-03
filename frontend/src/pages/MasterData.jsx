@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { MasterDeleteDialog } from "@/components/MasterDeleteDialog";
 import { useNavigate } from "react-router-dom";
+import { MASTER_MODULE } from "@/lib/access";
 import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
@@ -225,9 +228,14 @@ function MasterTab({ name }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({});
   const [q, setQ] = useState("");
+  const [sel, setSel] = useState(new Set());
+  const [delRows, setDelRows] = useState(null);
+  const selectable = can("edit", name) || can("delete", name);
+  useEffect(() => { setSel(new Set()); }, [q, name]);
 
-  const load = useCallback(() => api.get(`/master/${name}`).then((r) => setRows(r.data)), [name]);
-  const loadRef = useCallback((rn) => api.get(`/master/${rn}?active_only=true`).then((r) => setRefs((s) => ({ ...s, [rn]: r.data }))), []);
+  const [loaded, setLoaded] = useState(false);
+  const load = useCallback(() => api.get(`/master/${name}`).then((r) => { setRows(r.data); setLoaded(true); }), [name]);
+  const loadRef = useCallback((rn) => api.get(`/lookup/${rn}`).then((r) => setRefs((s) => ({ ...s, [rn]: r.data }))).catch(() => {}), []);
 
   useEffect(() => {
     load();
@@ -270,6 +278,11 @@ function MasterTab({ name }) {
   };
 
   const filtered = rows.filter((r) => !q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase()));
+  const labelOf = (r) => [r.code, r.name].filter(Boolean).join(" — ") || "-";
+  const selRows = filtered.filter((r) => sel.has(r.id));
+  const allOn = filtered.length > 0 && filtered.every((r) => sel.has(r.id));
+  const toggle = (id) => setSel((cur) => { const n = new Set(cur); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const askDelete = (list) => setDelRows(list.map((r) => ({ id: r.id, label: labelOf(r) })));
   const refName = (rn, id) => (refs[rn] || []).find((x) => x.id === id)?.name || "-";
   const refOptions = (rn) => (refs[rn] || []).map((x) => ({ value: x.id, label: x.name }));
   const uomOptions = refOptions("uoms");
@@ -286,28 +299,40 @@ function MasterTab({ name }) {
 
   return <div>
     <div className="flex items-center justify-between mb-4 gap-3">
-      <div className="relative max-w-sm flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Cari ${cfg.label}...`} className="pl-9" /></div>
-      {can("create") && <Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Tambah {cfg.label}</Button>}
+      <div className="relative max-w-sm flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Cari ${cfg.label}...`} className="pl-9" data-testid={`master-${name}-search`} /></div>
+      {can("create", name) && <Button onClick={openAdd} data-testid={`master-${name}-add`}><Plus className="h-4 w-4 mr-2" />Tambah {cfg.label}</Button>}
     </div>
 
+    {selRows.length > 0 && <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid={`master-${name}-selection-bar`}>
+      <span className="font-semibold" data-testid={`master-${name}-selected-count`}>{selRows.length} dipilih</span>
+      {selRows.length === 1 && can("edit", name) && <Button size="sm" variant="outline" onClick={() => openEdit(selRows[0])} data-testid={`master-${name}-bar-edit`}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit</Button>}
+      {can("delete", name) && <Button size="sm" variant="outline" onClick={() => askDelete(selRows)} data-testid={`master-${name}-bar-delete`}><Trash2 className="mr-1.5 h-3.5 w-3.5 text-destructive" />{selRows.length === 1 ? "Hapus" : "Hapus Massal"}</Button>}
+      <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setSel(new Set())} data-testid={`master-${name}-clear-selection`}>Batal pilih</Button>
+    </div>}
     <div className="border rounded-xl overflow-x-auto bg-card shadow-sm"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-      {cfg.fields.slice(0, 5).map((f) => <th key={f.k} className="p-3">{f.l}</th>)}<th className="p-3">Status</th><th className="p-3 w-16"></th></tr></thead>
-      <tbody>{filtered.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Belum ada data</td></tr>}
-        {filtered.map((r) => <tr key={r.id} className="border-t hover:bg-accent/40 transition-colors">
+      {selectable && <th className="w-10 p-3"><Checkbox checked={allOn} onCheckedChange={() => setSel(allOn ? new Set() : new Set(filtered.map((r) => r.id)))} aria-label="Pilih semua" data-testid={`master-${name}-select-all`} /></th>}
+      {cfg.fields.slice(0, 5).map((f) => <th key={f.k} className="p-3">{f.l}</th>)}<th className="p-3">Status</th><th className="p-3 w-40 text-right">Aksi</th></tr></thead>
+      <tbody>{filtered.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">{loaded ? "Belum ada data" : "Memuat..."}</td></tr>}
+        {filtered.map((r) => <tr key={r.id} className={`border-t hover:bg-accent/40 transition-colors ${sel.has(r.id) ? "bg-primary/5" : ""}`} data-testid={`master-${name}-row-${r.code || r.id}`}>
+          {selectable && <td className="p-3"><Checkbox checked={sel.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label={`Pilih ${labelOf(r)}`} data-testid={`master-${name}-select-${r.code || r.id}`} /></td>}
           {cfg.fields.slice(0, 5).map((f) => <td key={f.k} className={`p-3 ${f.k === "code" ? "font-mono text-xs font-semibold" : ""}`}>{displayField(f, r)}</td>)}
-          <td className="p-3"><StatusBadge status={r.is_active ? "Normal" : "cancelled"} /></td>
-          <td className="p-3"><Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button></td>
+          <td className="p-3"><StatusBadge status={r.is_active ? "Aktif" : "Nonaktif"} className={r.is_active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : ""} /></td>
+          <td className="p-3"><div className="flex justify-end gap-1">
+            {can("edit", name) && <Button variant="ghost" size="sm" className="h-8" onClick={() => openEdit(r)} data-testid={`master-${name}-edit-${r.code || r.id}`}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button>}
+            {can("delete", name) && <Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive" onClick={() => askDelete([r])} data-testid={`master-${name}-delete-${r.code || r.id}`}><Trash2 className="mr-1 h-3.5 w-3.5" />Hapus</Button>}
+          </div></td>
         </tr>)}</tbody></table></div>
+    <MasterDeleteDialog open={!!delRows} rows={delRows || []} checkName={name} entityLabel={cfg.label} onDeselect={(ids) => setSel((c) => new Set([...c].filter((x) => !ids.includes(x))))} onClose={() => setDelRows(null)} onDone={() => { setDelRows(null); setSel(new Set()); load(); }} />
 
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className={`${name === "suppliers" ? "max-w-6xl" : "max-w-3xl"} max-h-[92vh] overflow-y-auto`}>
+      <DialogContent className={`${name === "suppliers" ? "max-w-6xl" : "max-w-3xl"} max-h-[92vh] overflow-y-auto`} data-testid={`master-${name}-form`}>
         <DialogHeader><DialogTitle className="font-head">{form.id ? "Edit" : "Tambah"} {cfg.label}</DialogTitle></DialogHeader>
 
         {name === "suppliers" ? <SupplierEditor form={form} setForm={setForm} refs={refs} /> : <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
             {cfg.fields.map((f) => <Field key={f.k} label={f.l + (f.auto ? " (Otomatis, bisa diedit)" : f.req ? " *" : "")}>
               {f.ref ? <Combobox options={refOptions(f.ref)} value={form[f.k] || ""} onChange={(v) => setForm({ ...form, [f.k]: v })} /> :
-                <Input type={f.type || "text"} step={f.step} min={f.type === "number" ? "0" : undefined} value={form[f.k] ?? ""} onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} placeholder={f.auto ? "Kode otomatis" : undefined} className={f.auto ? "font-mono font-semibold" : ""} />}
+                <Input data-testid={`master-${name}-field-${f.k}`} type={f.type || "text"} step={f.step} min={f.type === "number" ? "0" : undefined} value={form[f.k] ?? ""} onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} placeholder={f.auto ? "Kode otomatis" : undefined} className={f.auto ? "font-mono font-semibold" : ""} />}
             </Field>)}
           </div>
 
@@ -324,36 +349,63 @@ function MasterTab({ name }) {
           </div>}
         </>}
 
-        <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Batal</Button><Button onClick={save}>Simpan</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => setOpen(false)} data-testid={`master-${name}-form-cancel`}>Batal</Button><Button onClick={save} data-testid={`master-${name}-form-save`}>Simpan</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   </div>;
 }
 
+const iwKey = (r) => `${r.item_id}|${r.warehouse_id}`;
+const iwLabel = (r) => `${r.item_code || "-"} — ${r.item_name || "-"} @ ${r.warehouse_name || "-"}`;
+
 function ItemWarehouseTab() {
+  const { can } = useAuth();
   const [rows, setRows] = useState([]);
   const [items, setItems] = useState([]);
   const [whs, setWhs] = useState([]);
   const [form, setForm] = useState({ item_id: "", warehouse_id: "", min_stock: 0, max_stock: 0 });
-  const load = () => api.get("/item-warehouse").then((r) => setRows(r.data));
-  useEffect(() => { load(); api.get("/master/items?active_only=true").then((r) => setItems(r.data)); api.get("/master/warehouses?active_only=true").then((r) => setWhs(r.data)); }, []);
-  const save = async () => { try { await api.post("/item-warehouse", form); toast.success("Tersimpan"); load(); } catch (e) { toast.error(apiError(e.response?.data?.detail)); } };
+  const [sel, setSel] = useState(new Set());
+  const [delRows, setDelRows] = useState(null);
+  const selectable = can("edit", "stock_minmax") || can("delete", "stock_minmax");
+  const [loaded, setLoaded] = useState(false);
+  const load = () => api.get("/item-warehouse").then((r) => { setRows(r.data); setLoaded(true); });
+  useEffect(() => { load(); api.get("/lookup/items").then((r) => setItems(r.data)).catch(() => {}); api.get("/lookup/warehouses").then((r) => setWhs(r.data)).catch(() => {}); }, []);
+  const save = async () => { try { await api.post("/item-warehouse", form); toast.success("Stok Min/Max tersimpan"); load(); } catch (e) { toast.error(apiError(e.response?.data?.detail)); } };
+  const edit = (r) => { setForm({ item_id: r.item_id, warehouse_id: r.warehouse_id, min_stock: r.min_stock || 0, max_stock: r.max_stock || 0 }); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const selRows = rows.filter((r) => sel.has(iwKey(r)));
+  const allOn = rows.length > 0 && rows.every((r) => sel.has(iwKey(r)));
+  const toggle = (k) => setSel((c) => { const n = new Set(c); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const askDelete = (list) => setDelRows(list.map((r) => ({ id: iwKey(r), label: iwLabel(r) })));
   return <div className="space-y-4">
-    <Card><CardContent className="pt-6"><div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+    <Card><CardContent className="pt-6"><div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end" data-testid="minmax-form">
       <Field label="Barang"><Combobox options={items.map((i) => ({ value: i.id, label: i.name }))} value={form.item_id} onChange={(v) => setForm({ ...form, item_id: v })} /></Field>
       <Field label="Gudang"><Combobox options={whs.map((w) => ({ value: w.id, label: w.name }))} value={form.warehouse_id} onChange={(v) => setForm({ ...form, warehouse_id: v })} /></Field>
-      <Field label="Min Stock"><Input type="number" value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: Number(e.target.value) })} /></Field>
-      <Field label="Max Stock"><Input type="number" value={form.max_stock} onChange={(e) => setForm({ ...form, max_stock: Number(e.target.value) })} /></Field>
-      <Button onClick={save} disabled={!form.item_id || !form.warehouse_id}>Set Min/Max</Button>
+      <Field label="Stok Minimum"><Input type="number" value={form.min_stock} onChange={(e) => setForm({ ...form, min_stock: Number(e.target.value) })} data-testid="minmax-min-input" /></Field>
+      <Field label="Stok Maksimum"><Input type="number" value={form.max_stock} onChange={(e) => setForm({ ...form, max_stock: Number(e.target.value) })} data-testid="minmax-max-input" /></Field>
+      <Button onClick={save} disabled={!form.item_id || !form.warehouse_id || !can("edit", "stock_minmax")} data-testid="minmax-save">Simpan Min/Max</Button>
     </div></CardContent></Card>
-    <div className="border rounded-xl overflow-x-auto bg-card shadow-sm"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground"><th className="p-3">Barang</th><th className="p-3">Gudang</th><th className="p-3 text-right">Current</th><th className="p-3 text-right">Min</th><th className="p-3 text-right">Max</th><th className="p-3 text-right">Suggested</th><th className="p-3">Status</th></tr></thead>
-      <tbody>{rows.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Belum ada konfigurasi</td></tr>}{rows.map((r, i) => <tr key={i} className="border-t"><td className="p-3">{r.item_code} — {r.item_name}</td><td className="p-3">{r.warehouse_name}</td><td className="p-3 text-right font-semibold">{num(r.current_stock)}</td><td className="p-3 text-right">{num(r.min_stock)}</td><td className="p-3 text-right">{num(r.max_stock)}</td><td className="p-3 text-right">{num(r.suggested_order)}</td><td className="p-3"><StatusBadge status={r.status} /></td></tr>)}</tbody></table></div>
+    {selRows.length > 0 && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="minmax-selection-bar">
+      <span className="font-semibold" data-testid="minmax-selected-count">{selRows.length} dipilih</span>
+      {selRows.length === 1 && can("edit", "stock_minmax") && <Button size="sm" variant="outline" onClick={() => edit(selRows[0])} data-testid="minmax-bar-edit"><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit</Button>}
+      {can("delete", "stock_minmax") && <Button size="sm" variant="outline" onClick={() => askDelete(selRows)} data-testid="minmax-bar-delete"><Trash2 className="mr-1.5 h-3.5 w-3.5 text-destructive" />{selRows.length === 1 ? "Hapus" : "Hapus Massal"}</Button>}
+      <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setSel(new Set())} data-testid="minmax-clear-selection">Batal pilih</Button>
+    </div>}
+    <div className="border rounded-xl overflow-x-auto bg-card shadow-sm"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+      {selectable && <th className="w-10 p-3"><Checkbox checked={allOn} onCheckedChange={() => setSel(allOn ? new Set() : new Set(rows.map(iwKey)))} aria-label="Pilih semua" data-testid="minmax-select-all" /></th>}
+      <th className="p-3">Barang</th><th className="p-3">Gudang</th><th className="p-3 text-right">Stok Saat Ini</th><th className="p-3 text-right">Min</th><th className="p-3 text-right">Maks</th><th className="p-3 text-right">Saran Order</th><th className="p-3">Status</th><th className="p-3 w-40 text-right">Aksi</th></tr></thead>
+      <tbody>{rows.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">{loaded ? "Belum ada konfigurasi" : "Memuat..."}</td></tr>}
+        {rows.map((r, i) => <tr key={iwKey(r)} className={`border-t ${sel.has(iwKey(r)) ? "bg-primary/5" : ""}`} data-testid={`minmax-row-${i}`}>
+          {selectable && <td className="p-3"><Checkbox checked={sel.has(iwKey(r))} onCheckedChange={() => toggle(iwKey(r))} aria-label={`Pilih ${iwLabel(r)}`} data-testid={`minmax-select-${i}`} /></td>}
+          <td className="p-3">{r.item_code} — {r.item_name}</td><td className="p-3">{r.warehouse_name}</td><td className="p-3 text-right font-semibold">{num(r.current_stock)}</td><td className="p-3 text-right">{num(r.min_stock)}</td><td className="p-3 text-right">{num(r.max_stock)}</td><td className="p-3 text-right">{num(r.suggested_order)}</td><td className="p-3"><StatusBadge status={r.status} /></td>
+          <td className="p-3"><div className="flex justify-end gap-1">{can("edit", "stock_minmax") && <Button variant="ghost" size="sm" className="h-8" onClick={() => edit(r)} data-testid={`minmax-edit-${i}`}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button>}{can("delete", "stock_minmax") && <Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive" onClick={() => askDelete([r])} data-testid={`minmax-delete-${i}`}><Trash2 className="mr-1 h-3.5 w-3.5" />Hapus</Button>}</div></td>
+        </tr>)}</tbody></table></div>
+    <MasterDeleteDialog open={!!delRows} rows={delRows || []} checkName="item_warehouse" entityLabel="Stok Min/Max" onDeselect={(ids) => setSel((c) => new Set([...c].filter((x) => !ids.includes(x))))} onClose={() => setDelRows(null)} onDone={() => { setDelRows(null); setSel(new Set()); load(); }} />
   </div>;
 }
 
 function MasterCard({ card, count, onClick }) {
   const Icon = card.icon;
-  return <button type="button" onClick={onClick} className="group w-full rounded-2xl border bg-card p-4 sm:p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
+  return <button type="button" onClick={onClick} data-testid={`master-card-${card.key}`} className="group w-full rounded-2xl border bg-card p-4 sm:p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md">
     <div className="flex items-center gap-4"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="h-6 w-6" /></div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="font-head text-base font-semibold">{card.label}</h3>{count !== undefined && <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{count} data</span>}</div><p className="mt-1 text-xs sm:text-sm text-muted-foreground line-clamp-2">{card.desc}</p></div><ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
   </button>;
 }
@@ -364,12 +416,12 @@ export default function MasterData() {
   const [active, setActive] = useState(null);
   const [counts, setCounts] = useState({});
   const loadCounts = async () => {
-    const keys = Object.keys(CONFIGS); const out = {};
+    const keys = Object.keys(CONFIGS).filter((k) => can("view", k)); const out = {};
     await Promise.all(keys.map(async (k) => { try { const r = await api.get(`/master/${k}`); out[k] = r.data.length; } catch { out[k] = 0; } }));
-    try { const r = await api.get("/item-warehouse"); out.iw = r.data.length; } catch { out.iw = 0; }
+    if (can("view", "stock_minmax")) { try { const r = await api.get("/item-warehouse"); out.iw = r.data.length; } catch { out.iw = 0; } }
     setCounts(out);
   };
-  useEffect(() => { loadCounts(); }, [active]);
+  useEffect(() => { loadCounts(); }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (active) {
     const title = active === "iw" ? "Stok Min/Max" : CONFIGS[active]?.label;
@@ -386,5 +438,5 @@ export default function MasterData() {
           <div className="flex items-center gap-4"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Handshake className="h-6 w-6" /></div><div className="min-w-0 flex-1"><h3 className="font-head text-base font-semibold">Kontrak Harga Vendor</h3><p className="mt-1 text-xs sm:text-sm text-muted-foreground line-clamp-2">Master kontrak harga vendor: item harga, diskon, net price, periode berlaku, tolerance, histori harga, dan dokumen.</p></div><ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></div>
         </button>}
       </div></section>}
-    {MASTER_GROUPS.map((group) => <section key={group.title}><div className="mb-3"><h2 className="font-head text-sm font-semibold">{group.title}</h2><p className="mt-1 text-xs text-muted-foreground">{group.subtitle}</p></div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">{group.cards.map((card) => <MasterCard key={card.key} card={card} count={counts[card.key]} onClick={() => setActive(card.key)} />)}</div></section>)}</div></div>;
+    {MASTER_GROUPS.filter((group) => group.cards.some((card) => can("view", MASTER_MODULE[card.key] || card.key))).map((group) => <section key={group.title}><div className="mb-3"><h2 className="font-head text-sm font-semibold">{group.title}</h2><p className="mt-1 text-xs text-muted-foreground">{group.subtitle}</p></div><div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">{group.cards.filter((card) => can("view", MASTER_MODULE[card.key] || card.key)).map((card) => <MasterCard key={card.key} card={card} count={counts[card.key]} onClick={() => setActive(card.key)} />)}</div></section>)}</div></div>;
 }

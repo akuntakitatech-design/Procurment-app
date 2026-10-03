@@ -27,6 +27,7 @@ export function PullDialog({ open, onClose, url, title, columns, idKey = "line_i
     setQ("");
     setError("");
     setLoading(true);
+    setRows([]);
     api.get(url)
       .then((r) => {
         setRows(Array.isArray(r.data) ? r.data : []);
@@ -146,10 +147,10 @@ export function PullDialog({ open, onClose, url, title, columns, idKey = "line_i
               {loading && <tr><td colSpan={columns.length + 2} className="p-6 text-center text-muted-foreground">Memuat dokumen...</td></tr>}
               {!loading && error && <tr><td colSpan={columns.length + 2} className="p-6 text-center text-destructive">Gagal memuat sumber dokumen. Lihat pesan di atas.</td></tr>}
               {!loading && !error && filtered.length === 0 && <tr><td colSpan={columns.length + 2} className="p-6 text-center text-muted-foreground">{emptyText}</td></tr>}
-              {filtered.map((r) => {
+              {filtered.map((r, ri) => {
                 const id = r[idKey]; const checked = !!sel[id];
                 return (
-                  <tr key={id} className={`border-t transition-colors ${checked ? "bg-primary/5" : "hover:bg-accent/40"}`}>
+                  <tr key={id} data-testid={`pull-line-${r.po_no || r.ro_no || r.mro_no || "row"}-${ri}`} className={`border-t transition-colors ${checked ? "bg-primary/5" : "hover:bg-accent/40"}`}>
                     <td className="p-2"><Checkbox checked={checked} onCheckedChange={() => toggle(r)} data-testid={`pull-row-${id}`} /></td>
                     {columns.map((c) => (
                       <td key={c.key} className={`p-2 whitespace-nowrap ${c.mono ? "font-mono text-xs" : ""} ${c.num ? "text-right tabular-nums" : ""}`}>

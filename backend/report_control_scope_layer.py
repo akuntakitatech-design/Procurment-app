@@ -53,7 +53,14 @@ async def _visible_mro_ids(server, user: dict) -> set[str]:
     return {str(x.get("id")) for x in rows if x.get("id")}
 
 
+_COLL_MOD = {"mro": "mro", "ro": "ro", "po": "po", "do": "do", "mi": "mi", "transfers": "transfer", "loans": "loan",
+             "adjustments": "adjustment", "opname": "opname"}
+
+
 async def _doc_visible(server, user: dict, collection: str, did: str) -> bool:
+    # Authoritative multi-division rule (all document divisions must be in scope) from access_control_layer.
+    if getattr(server, "ACCESS_DOC_VISIBLE", None) and collection in _COLL_MOD:
+        return await server.ACCESS_DOC_VISIBLE(_COLL_MOD[collection], did, user)
     if _global(server, user):
         return True
     doc = await getattr(server.db, collection).find_one({"id": did}, {"_id": 0, "division_id": 1})
@@ -146,8 +153,12 @@ def install(server):
                 else:
                     normal += 1
             scope = _division_query(server, user)
-            def scoped(extra):
-                return {**scope, **extra}
+            vis = {}
+            for m in ("mro", "ro", "po", "do", "mi"):
+                ids = await server.ACCESS_VISIBLE_IDS(m, user) if getattr(server, "ACCESS_VISIBLE_IDS", None) else None
+                vis[m] = scope if ids is None else {"id": {"$in": list(ids) or ["__none__"]}}
+            def scoped(extra, m="mro"):
+                return {**vis[m], **extra}
             today = server.now_iso()[:10]
             loans_open = 0
             for loan in await server.db.loans.find({}, {"_id": 0, "id": 1}).to_list(10000):
@@ -156,16 +167,17 @@ def install(server):
                 lines = await server.db.loan_lines.find({"loan_id": loan.get("id")}, {"_id": 0}).to_list(2000)
                 if any(str(x.get("item_id")) in item_ids and float(x.get("qty") or 0) - float(x.get("returned") or 0) > 1e-9 for x in lines):
                     loans_open += 1
-            warehouse_count = await server.db.warehouses.count_documents({"id": {"$in": list(wh_ids)}}) if wh_ids else await server.db.warehouses.count_documents({})
+            all_wh = await server.db.warehouses.find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(5000)
+            warehouse_count = len([w for w in all_wh if ((w["id"] in wh_ids) if wh_ids else (not w.get("division_id") or w["division_id"] in _divisions(user)))])
             user_count = await server.db.users.count_documents({"divisions": {"$in": list(_divisions(user))}}) if _divisions(user) else 0
             return {
                 "stock": {"out_of_stock": out_of, "low_stock": low, "overstock": over, "normal": normal, "total": len(iws)},
                 "mro_open": await server.db.mro.count_documents(scoped({"submitted": True, "cancelled": {"$ne": True}})),
-                "ro_open": await server.db.ro.count_documents(scoped({"submitted": True, "cancelled": {"$ne": True}})),
-                "po_waiting_approval": await server.db.po.count_documents(scoped({"status": "Waiting Approval"})),
-                "po_outstanding": await server.db.po.count_documents(scoped({"status": {"$in": ["Approved", "Partially Received"]}})),
-                "do_today": await server.db.do.count_documents(scoped({"date": {"$gte": today}})),
-                "mi_today": await server.db.mi.count_documents(scoped({"date": {"$gte": today}})),
+                "ro_open": await server.db.ro.count_documents(scoped({"submitted": True, "cancelled": {"$ne": True}}, "ro")),
+                "po_waiting_approval": await server.db.po.count_documents(scoped({"status": "Waiting Approval"}, "po")),
+                "po_outstanding": await server.db.po.count_documents(scoped({"status": {"$in": ["Approved", "Partially Received"]}}, "po")),
+                "do_today": await server.db.do.count_documents(scoped({"date": {"$gte": today}}, "do")),
+                "mi_today": await server.db.mi.count_documents(scoped({"date": {"$gte": today}}, "mi")),
                 "loan_outstanding": loans_open,
                 "counts": {"items": len(item_ids), "warehouses": warehouse_count, "suppliers": await server.db.suppliers.count_documents({}), "users": user_count},
             }
@@ -287,9 +299,9 @@ def install(server):
                 elif kind == "items":
                     if rid in item_ids:
                         out.append(row)
-                elif kind == "units":
-                    unit = await server.db.units.find_one({"id": rid}, {"_id": 0, "division_id": 1})
-                    if unit and _division_allowed(server, user, unit.get("division_id")):
+                elif kind in ("units", "projects", "warehouses"):
+                    rec = await getattr(server.db, kind).find_one({"id": rid}, {"_id": 0, "division_id": 1})
+                    if rec and (not rec.get("division_id") and kind != "units" or _division_allowed(server, user, rec.get("division_id"))):
                         out.append(row)
                 else:
                     out.append(row)
@@ -337,13 +349,7 @@ def install(server):
             if _global(server, user):
                 return await original_audit(user=user, entity=entity, entity_id=entity_id, limit=limit)
             rows = await original_audit(user=user, entity=entity, entity_id=entity_id, limit=min(max(limit * 5, 300), 1500))
-            out = []
-            for row in rows:
-                if await _audit_visible(server, user, row):
-                    out.append(row)
-                    if len(out) >= limit:
-                        break
-            return out
+            return await server.ACCESS_AUDIT_FILTER(rows, user, limit)
 
         app.add_api_route("/api/audit", audit_list, methods=["GET"], tags=["report-control-scope"])
 
@@ -359,14 +365,17 @@ def install(server):
                 return data
             pending = 0
             email = str(user.get("email") or "").lower()
-            mapping = {"mro": "mro", "ro": "ro", "po": "po"}
+            mapping, vis_cache = {"mro": "mro", "ro": "ro", "po": "po"}, {}
             for task in await server.db.approval_tasks.find({"status": "Pending"}, {"_id": 0}).to_list(20000):
                 module = str(task.get("module") or "").lower()
                 did = task.get("document_id")
                 if str(task.get("approver_email") or "").lower() == email:
                     pending += 1
-                elif module in mapping and did and await _doc_visible(server, user, mapping[module], str(did)):
-                    pending += 1
+                elif module in mapping and did:
+                    if module not in vis_cache:
+                        vis_cache[module] = await server.ACCESS_VISIBLE_IDS(module, user)
+                    if did in vis_cache[module]:
+                        pending += 1
             today = datetime.now(timezone.utc).date().isoformat()
             overdue_loans = 0
             item_ids = await _visible_item_ids(server, user)
@@ -377,12 +386,7 @@ def install(server):
                 lines = await server.db.loan_lines.find({"loan_id": loan.get("id")}, {"_id": 0}).to_list(2000)
                 if any(str(x.get("item_id")) in item_ids and float(x.get("qty") or 0) - float(x.get("returned") or 0) > 1e-9 for x in lines):
                     overdue_loans += 1
-            recent = []
-            for row in await server.db.audit_logs.find({}, {"_id": 0}).sort("at", -1).to_list(80):
-                if await _audit_visible(server, user, row):
-                    recent.append(row)
-                    if len(recent) >= 8:
-                        break
+            recent = await server.ACCESS_AUDIT_FILTER(await server.db.audit_logs.find({}, {"_id": 0}).sort("at", -1).to_list(80), user, 8)
             data.setdefault("attention", {})["pending_approvals"] = pending
             data["attention"]["overdue_loans"] = overdue_loans
             data["recent"] = recent

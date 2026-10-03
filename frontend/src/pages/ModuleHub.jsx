@@ -1,3 +1,5 @@
+import { useAuth } from "@/context/AuthContext";
+import { moduleFromPath } from "@/lib/access";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -59,10 +61,11 @@ const HUBS = {
 export default function ModuleHub({ type }) {
   const nav = useNavigate();
   const hub = HUBS[type] || HUBS.warehouse;
+  const { can } = useAuth();
   return <div className="space-y-6">
     <PageHeader title={hub.title} subtitle={hub.subtitle} />
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      {hub.cards.map(({ to, code, title, desc, icon: Icon }) => (
+      {hub.cards.filter(({ to }) => { const m = moduleFromPath(to); return !m || can("view", m); }).map(({ to, code, title, desc, icon: Icon }) => (
         <button key={to} onClick={() => nav(to)}
           className="group premium-module-card text-left rounded-2xl border bg-card p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_18px_45px_-28px_rgba(15,23,42,0.45)]">
           <div className="flex items-start justify-between gap-4">

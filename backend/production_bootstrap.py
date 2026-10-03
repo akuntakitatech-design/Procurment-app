@@ -179,6 +179,9 @@ do_receipt_guard_layer.install(server)
 # Receipt quality/discrepancy sits outside the PO quantity guard. Damaged quantities are removed
 # from usable stock via an offset ledger while shortage/excess remain documented exceptions.
 do_receipt_condition_layer.install(server)
+# DO/PO receipt control (over receipt, closed PO, source lock) + list traceability — outermost DO wrapper.
+import receipt_control_layer  # noqa: E402
+receipt_control_layer.install(server)
 # Register opening inventory before the generic Excel routes are installed.
 opening_inventory_layer.install(server, excel_import_layer)
 # Install last so transaction imports call the final wrapped transaction endpoints.
@@ -196,6 +199,9 @@ spk_layer.install(server)
 # vendor_contract_price_history) are automatically tenant-scoped by the isolation proxy.
 # NOTE: CP3 does NOT wire the resolver to PO (that is CP4).
 vendor_contract_layer.install(server)
+# Master Data standard actions: delete protection, bulk preflight, SPK/Kontrak/Stok Min-Max delete.
+import master_action_layer  # noqa: E402
+master_action_layer.install(server)
 
 # CP4 — SPK Allocation Flow (MRO->RO->PO) + Budget Commitment. Installed AFTER the
 # procurement guard/mutation layers (so it wraps their final PO route behavior) and BEFORE
@@ -231,6 +237,9 @@ tenant_security_hardening_layer.install(server)
 # Tenant isolation is installed after all business/feature modules are registered. Its startup
 # handler runs after the original server startup and additive foundation backfill, then replaces
 # raw database references with tenant-aware proxies.
+# Tahap 2 — Hak Akses per Modul/Aksi + Cakupan Divisi. Wraps final business routes; must stay before tenant isolation.
+import access_control_layer  # noqa: E402
+access_control_layer.install(server)
 tenant_isolation_layer.install(server)
 
 # The subscription gate runs after isolation so it can enforce lifecycle access on every tenant

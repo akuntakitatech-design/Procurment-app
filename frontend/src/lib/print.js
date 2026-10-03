@@ -115,7 +115,7 @@ const longDateId = (v) => {
 const nl2br = (v) => esc(v || "").replace(/\n/g, "<br/>");
 
 async function getMaster(name) {
-  try { return (await api.get(`/master/${name}`)).data || []; } catch { return []; }
+  try { return (await api.get(`/lookup/${name}?active_only=false`)).data || []; } catch { return []; }
 }
 
 function renderTermsMessage(text, spk) {

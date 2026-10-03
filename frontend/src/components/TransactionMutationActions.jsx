@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-export function TransactionMutationActions({ module, id, onEdit, onDeleted, compact = false }) {
+export function TransactionMutationActions({ module, id, onEdit, onDeleted, compact = false, ready = true }) {
   const { can } = useAuth();
   const [cap, setCap] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -18,6 +19,17 @@ export function TransactionMutationActions({ module, id, onEdit, onDeleted, comp
   }, [module, id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // List shortcut: /module/:id?edit=1 opens edit mode once, only if the document allows editing.
+  const [params, setParams] = useSearchParams();
+  const autoDone = useRef(false);
+  useEffect(() => {
+    if (autoDone.current || params.get("edit") !== "1" || !cap || !ready) return;
+    autoDone.current = true;
+    params.delete("edit"); setParams(params, { replace: true });
+    if (cap.can_edit && can("edit")) onEdit?.();
+    else toast.error(cap.reason || "Transaksi tidak dapat diedit pada status ini");
+  }, [cap, ready, params, setParams, can, onEdit]);
 
   if (!id || (!can("edit") && !can("delete"))) return null;
 

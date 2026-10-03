@@ -41,7 +41,11 @@ def install(server):
         scope = _scope_query(server, user)
         financial_visible = server.has_perm(user, "view_purchase_price")
 
-        po_docs = await server.db.po.find(scope, {"_id": 0}).to_list(10000)
+        vis = getattr(server, "ACCESS_VISIBLE_IDS", None)
+        po_ids_ok = await vis("po", user) if vis else None
+        po_docs = await server.db.po.find(scope if po_ids_ok is None else {}, {"_id": 0}).to_list(10000)
+        if po_ids_ok is not None:  # multi-division PO counts only when ALL its divisions are in scope
+            po_docs = [d for d in po_docs if d.get("id") in po_ids_ok]
         po_docs = [d for d in po_docs if _active_po(d) and str(d.get("date") or "").startswith(year_prefix)]
         po_ids = [d.get("id") for d in po_docs if d.get("id")]
         po_by_id = {d.get("id"): d for d in po_docs}
@@ -130,9 +134,17 @@ def install(server):
             if any(received_by_line.get(x.get("id"), 0.0) < float(x.get("qty") or 0) - 1e-9 for x in lines):
                 overdue_po += 1
 
-        pending_approvals = await server.db.approval_tasks.count_documents({"status": "Pending"})
+        limited = not server.is_global(user)
+        if limited:
+            pending_approvals = await server.db.approval_tasks.count_documents(
+                {"status": "Pending", "approver_email": str(user.get("email") or "").lower()})
+        else:
+            pending_approvals = await server.db.approval_tasks.count_documents({"status": "Pending"})
         overdue_loans = 0
         loan_docs = await server.db.loans.find({}, {"_id": 0}).to_list(10000)
+        loan_ok = await vis("loan", user) if vis else None
+        if loan_ok is not None:
+            loan_docs = [d for d in loan_docs if d.get("id") in loan_ok]
         for loan in loan_docs:
             due = str(loan.get("due_date") or "")[:10]
             if not due or due >= today:
@@ -141,7 +153,11 @@ def install(server):
             if any(float(x.get("qty") or 0) - float(x.get("returned") or 0) > 1e-9 for x in lines):
                 overdue_loans += 1
 
-        recent = await server.db.audit_logs.find({}, {"_id": 0}).sort("at", -1).to_list(8)
+        if limited:
+            rows = await server.db.audit_logs.find({}, {"_id": 0}).sort("at", -1).to_list(200)
+            recent = await server.ACCESS_AUDIT_FILTER(rows, user, 8)
+        else:
+            recent = await server.db.audit_logs.find({}, {"_id": 0}).sort("at", -1).to_list(8)
         top_categories = [{"name": k, "value": v} for k, v in sorted(category_totals.items(), key=lambda x: x[1], reverse=True)[:5]]
         top_suppliers = [{"name": k, "value": v} for k, v in sorted(supplier_totals.items(), key=lambda x: x[1], reverse=True)[:5]]
 

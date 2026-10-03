@@ -207,9 +207,9 @@ def install(server):
 
         await col.delete_one({"id": rid})
         await server.audit(
-            user, "delete", name, rid, existing.get("code"),
+            user, "delete", name, rid, existing.get("code") or existing.get("name"),
             before=existing,
-            reason="Master dihapus karena belum pernah digunakan",
+            reason=f"{MASTER_LABELS.get(name, 'Data master')} {existing.get('name') or ''} dihapus karena belum pernah digunakan".replace("  ", " "),
         )
         return {"ok": True, "deleted": True}
 

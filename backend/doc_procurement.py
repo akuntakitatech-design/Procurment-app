@@ -842,7 +842,8 @@ async def create_do(body: dict, user=Depends(current_user)):
         po_line = await db.po_lines.find_one({"id": l["po_line_id"]})
         if not has_perm(user, "override_qty") and po_line:
             rem = po_line.get("qty", 0) - await alloc_out(l["po_line_id"], "do")
-            if qty > rem + 1e-6:
+            from receipt_control_layer import over_allowed
+            if qty > rem + 1e-6 and not over_allowed(l["po_line_id"]):
                 raise HTTPException(400, "Qty terima melebihi Qty PO")
         lid = gid()
         wh = l.get("warehouse_id") or body.get("default_warehouse_id")
