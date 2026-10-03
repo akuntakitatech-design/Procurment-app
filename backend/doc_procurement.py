@@ -1,4 +1,5 @@
 """MRO, RO, PO, DO, MI + PO approval workflow."""
+import asyncio
 from fastapi import Depends, HTTPException
 from server import (api, db, gid, now_iso, clean, current_user, require, has_perm,
                     is_global, audit, notify, next_number, alloc_out, create_alloc,
@@ -6,15 +7,21 @@ from server import (api, db, gid, now_iso, clean, current_user, require, has_per
 
 
 async def maps():
-    return {
-        "items": {i["id"]: i for i in await db.items.find({}, {"_id": 0}).to_list(5000)},
-        "warehouses": {w["id"]: w for w in await db.warehouses.find({}, {"_id": 0}).to_list(2000)},
-        "projects": {p["id"]: p for p in await db.projects.find({}, {"_id": 0}).to_list(2000)},
-        "units": {u["id"]: u for u in await db.units.find({}, {"_id": 0}).to_list(2000)},
-        "divisions": {d["id"]: d for d in await db.divisions.find({}, {"_id": 0}).to_list(500)},
-        "suppliers": {s["id"]: s for s in await db.suppliers.find({}, {"_id": 0}).to_list(2000)},
-        "uoms": {u["id"]: u for u in await db.uoms.find({}, {"_id": 0}).to_list(2000)},
-    }
+    import mariadb_motor
+    cache = mariadb_motor.REQ_CACHE.get()
+    if cache is not None and "maps" in cache:
+        return cache["maps"]
+    out = await _load_maps()
+    if cache is not None:
+        cache["maps"] = out
+    return out
+
+
+async def _load_maps():
+    # 7 referensi independen dimuat paralel (1 round-trip efektif, bukan 7 berurutan).
+    names = [("items", 5000), ("warehouses", 2000), ("projects", 2000), ("units", 2000), ("divisions", 500), ("suppliers", 2000), ("uoms", 2000)]
+    res = await asyncio.gather(*(getattr(db, n).find({}, {"_id": 0}).to_list(lim) for n, lim in names))
+    return {n: {d["id"]: d for d in rows} for (n, _), rows in zip(names, res)}
 
 
 def enrich_line(l, m):
@@ -48,6 +55,50 @@ async def mro_line_monitor(line):
             "qty_received": qty_received, "qty_mi": qty_mi, "outstanding": max(0, qty - qty_mi)}
 
 
+# ---- batch helpers (hindari N+1: satu query per relasi untuk seluruh baris) ----
+async def lines_by_doc(coll, fk, ids):
+    out = {i: [] for i in ids}
+    if ids:
+        for l in await getattr(db, coll).find({fk: {"$in": list(ids)}}, {"_id": 0}).to_list(None):
+            out.setdefault(l.get(fk), []).append(l)
+    return out
+
+
+async def allocs_from(source_line_ids, target_type):
+    ids = [x for x in set(source_line_ids) if x]
+    if not ids:
+        return {}
+    out = {}
+    for a in await db.allocations.find({"source_line_id": {"$in": ids}, "target_type": target_type}, {"_id": 0}).to_list(None):
+        out.setdefault(a.get("source_line_id"), []).append(a)
+    return out
+
+
+def _sum(allocs):
+    return sum(a.get("qty") or 0 for a in allocs or [])
+
+
+async def mro_monitor_batch(lines):
+    """Sama dengan mro_line_monitor, tetapi 4 query total untuk seluruh baris."""
+    lids = [l["id"] for l in lines]
+    to_ro, to_mi = await asyncio.gather(allocs_from(lids, "ro"), allocs_from(lids, "mi"))
+    ro_lids = [a["target_line_id"] for v in to_ro.values() for a in v]
+    to_po = await allocs_from(ro_lids, "po")
+    to_do = await allocs_from([a["target_line_id"] for v in to_po.values() for a in v], "do")
+    out = {}
+    for l in lines:
+        qty = l.get("qty", 0); qty_po = 0; qty_received = 0
+        for a in to_ro.get(l["id"], []):
+            rl = a["target_line_id"]; portion = a["qty"]
+            qty_po += min(portion, _sum(to_po.get(rl)))
+            rec = sum(_sum(to_do.get(pa["target_line_id"])) for pa in to_po.get(rl, []))
+            qty_received += min(portion, rec)
+        qty_mi = _sum(to_mi.get(l["id"]))
+        out[l["id"]] = {"qty_request": qty, "qty_ro": _sum(to_ro.get(l["id"])), "qty_po": qty_po,
+                        "qty_received": qty_received, "qty_mi": qty_mi, "outstanding": max(0, qty - qty_mi)}
+    return out
+
+
 def mro_status(lines_mon, cancelled=False, submitted=True):
     if cancelled:
         return "Cancelled"
@@ -67,9 +118,11 @@ async def list_mro(user=Depends(current_user)):
     require(user, "view")
     docs = await db.mro.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     m = await maps()
+    by_doc = await lines_by_doc("mro_lines", "mro_id", [d["id"] for d in docs])
+    monitor = await mro_monitor_batch([l for v in by_doc.values() for l in v])
     for d in docs:
-        lines = await db.mro_lines.find({"mro_id": d["id"]}, {"_id": 0}).to_list(500)
-        mon = [await mro_line_monitor(l) for l in lines]
+        lines = by_doc.get(d["id"], [])
+        mon = [monitor[l["id"]] for l in lines]
         d["status"] = mro_status(mon, d.get("cancelled"), d.get("submitted", True))
         d["division_name"] = m["divisions"].get(d.get("division_id"), {}).get("name")
         d["line_count"] = len(lines)
@@ -322,9 +375,12 @@ async def list_ro(user=Depends(current_user)):
     require(user, "view")
     docs = await db.ro.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     m = await maps()
+    by_doc = await lines_by_doc("ro_lines", "ro_id", [d["id"] for d in docs])
+    ordered = await allocs_from([l["id"] for v in by_doc.values() for l in v], "po")
     for d in docs:
-        lines = await db.ro_lines.find({"ro_id": d["id"]}, {"_id": 0}).to_list(500)
-        states = [await ro_line_state(l) for l in lines]
+        lines = by_doc.get(d["id"], [])
+        states = [{"qty": l.get("qty", 0), "ordered": _sum(ordered.get(l["id"])),
+                   "outstanding": max(0, l.get("qty", 0) - _sum(ordered.get(l["id"])))} for l in lines]
         d["status"] = ro_status(states, d.get("cancelled"), d.get("submitted", True))
         d["division_name"] = m["divisions"].get(d.get("division_id"), {}).get("name")
         d["line_count"] = len(lines)
@@ -435,9 +491,9 @@ async def list_po(user=Depends(current_user)):
     docs = await db.po.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     m = await maps()
     show_price = has_perm(user, "view_purchase_price")
+    by_doc = await lines_by_doc("po_lines", "po_id", [d["id"] for d in docs])
     for d in docs:
-        lines = await db.po_lines.find({"po_id": d["id"]}, {"_id": 0}).to_list(500)
-        d["line_count"] = len(lines)
+        d["line_count"] = len(by_doc.get(d["id"], []))
         d["supplier_name"] = m["suppliers"].get(d.get("supplier_id"), {}).get("name")
         d["division_name"] = m["divisions"].get(d.get("division_id"), {}).get("name")
         if not show_price:
@@ -752,9 +808,10 @@ async def list_do(user=Depends(current_user)):
     require(user, "view")
     docs = await db.do.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     m = await maps()
+    by_doc = await lines_by_doc("do_lines", "do_id", [d["id"] for d in docs])
     for d in docs:
         d["supplier_name"] = m["suppliers"].get(d.get("supplier_id"), {}).get("name")
-        d["line_count"] = await db.do_lines.count_documents({"do_id": d["id"]})
+        d["line_count"] = len(by_doc.get(d["id"], []))
     return docs
 
 
@@ -964,9 +1021,10 @@ async def list_mi(user=Depends(current_user)):
     require(user, "view")
     docs = await db.mi.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     m = await maps()
+    by_doc = await lines_by_doc("mi_lines", "mi_id", [d["id"] for d in docs])
     for d in docs:
         d["division_name"] = m["divisions"].get(d.get("division_id"), {}).get("name")
-        d["line_count"] = await db.mi_lines.count_documents({"mi_id": d["id"]})
+        d["line_count"] = len(by_doc.get(d["id"], []))
     return docs
 
 

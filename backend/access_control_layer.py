@@ -21,10 +21,10 @@ CRUD = [A_VIEW, A_CREATE, A_EDIT, A_DELETE]
 TXN_ACTIONS = CRUD + ["post", "cancel", "print"]
 ACTION_LABELS = {"view": "Lihat", "create": "Tambah", "edit": "Edit", "delete": "Hapus", "post": "Posting",
                  "cancel": "Batalkan / Reversal", "print": "Cetak", "approve": "Setujui", "reject": "Tolak",
-                 "send_email": "Kirim Email", "direct": "MI Langsung (Direct)"}
+                 "send_email": "Kirim Email", "direct": "MI Langsung (Direct)", "pay": "Catat Pembayaran"}
 ACTION_VERB = {"view": "melihat", "create": "menambah", "edit": "mengubah", "delete": "menghapus", "post": "memposting",
                "cancel": "membatalkan / reversal", "print": "mencetak", "approve": "menyetujui", "reject": "menolak",
-               "send_email": "mengirim email", "direct": "membuat MI Langsung"}
+               "send_email": "mengirim email", "direct": "membuat MI Langsung", "pay": "mencatat pembayaran"}
 
 GROUPS = [
     ("transaksi", "Transaksi", [
@@ -33,6 +33,7 @@ GROUPS = [
         ("mi", "MI", TXN_ACTIONS + ["direct"]), ("transfer", "Transfer Antar Gudang", TXN_ACTIONS),
         ("loan", "Pinjam Antar Gudang", TXN_ACTIONS), ("adjustment", "Penyesuaian Stok", TXN_ACTIONS),
         ("opname", "Stock Opname", TXN_ACTIONS)]),
+    ("keuangan", "Keuangan", [("invoice", "Invoice Vendor", CRUD + ["pay", "print"])]),
     ("procurement", "Master Procurement", [("spk", "SPK", CRUD), ("vendor_contracts", "Kontrak Harga Vendor", CRUD)]),
     ("barang", "Master Barang & Persediaan", [("items", "Barang", CRUD), ("item_categories", "Kategori Barang", CRUD),
                                              ("uoms", "Satuan", CRUD), ("stock_minmax", "Stok Min/Max", CRUD)]),
@@ -108,6 +109,10 @@ def legacy_to_granular(perms, role=None) -> set:
     if role == "director":
         out |= {f"users.{a}" for a in ("create", "edit", "delete") if a in p}
     out |= {k for k, _ in SPECIALS if k in p}
+    if role in ("director", "purchasing"):
+        out |= {f"invoice.{a}" for a in ("view", "create", "edit", "pay", "print")} | ({"invoice.delete"} if "delete" in p else set())
+    elif role == "manager":
+        out |= {"invoice.view", "invoice.print"}
     return out & ALL_KEYS
 
 
@@ -213,6 +218,16 @@ def install(server):
             return "users", ["view" if method == "GET" else "edit"], []
         if head == "lookup":
             return None, [], []  # authorised inside the lookup endpoint (functional reason)
+        if head == "vendor-invoices":
+            sub = seg[1] if len(seg) > 1 else None
+            if sub == "eligible-dos":
+                return None, [], []  # create OR edit, checked inside the endpoint
+            if len(seg) == 1:
+                return "invoice", ["view" if method == "GET" else "create"], []
+            if len(seg) == 2 or sub == "do":
+                return "invoice", [{"PUT": "edit", "DELETE": "delete"}.get(method, "view")], []
+            act = {"payments": "pay", "print": "print"}.get(seg[2], "view")
+            return "invoice", [act], []
         if head == "verify" and method == "POST":
             mod = str((body or {}).get("doc_type") or "").lower()
             mod = TXN_ALIAS.get(mod, mod)
@@ -528,6 +543,40 @@ def install(server):
         return ep
     wrap("/api/item-warehouse", "POST", mk_iwset)
 
+    # Info stok per gudang (read-only, tanpa nilai): Tenant -> Permission -> Divisi barang -> Gudang (divisi gudang)
+    def mk_stock(orig):
+        async def ep(item_id: str, user=Depends(server.current_user)):
+            res = await orig(item_id=item_id, user=user)
+            item = await db().items.find_one({"id": item_id}, {"_id": 0, "id": 1, "division_id": 1, "base_uom_id": 1, "unit": 1})
+            if not item:
+                raise HTTPException(404, "Barang tidak ditemukan")
+            alw = allowed(user)
+            if not in_scope(item, alw):
+                raise HTTPException(403, "Barang ini berada di luar cakupan divisi Anda.")
+            uom = await db().uoms.find_one({"id": item.get("base_uom_id")}, {"_id": 0, "symbol": 1, "code": 1, "name": 1}) if item.get("base_uom_id") else None
+            whs = {w["id"]: w for w in await db().warehouses.find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(5000)}
+            rows = [r for r in res.get("warehouses") or [] if r.get("warehouse_id") in whs and in_scope(whs[r["warehouse_id"]], alw)]
+            unit = (uom or {}).get("symbol") or (uom or {}).get("code") or (uom or {}).get("name") or item.get("unit") or ""
+            return {"item_id": item_id, "unit": unit, "warehouses": [{**r, "unit": unit} for r in rows]}
+        return ep
+    wrap("/api/stock/by-warehouse/{item_id}", "GET", mk_stock)
+
+    @app.get("/api/stock/warehouse/{warehouse_id}", tags=["access-control"])
+    async def stock_of_warehouse(warehouse_id: str, user=Depends(server.current_user)):
+        """Saldo semua barang di satu gudang (1 query, untuk kolom Stok Tersedia di pemilih Barang)."""
+        server.require(user, "view")
+        wh = await db().warehouses.find_one({"id": warehouse_id}, {"_id": 0, "id": 1, "division_id": 1})
+        if not wh:
+            raise HTTPException(404, "Gudang tidak ditemukan")
+        alw = allowed(user)
+        if not in_scope(wh, alw):
+            raise HTTPException(403, "Gudang ini berada di luar cakupan divisi Anda.")
+        rows = await db().item_warehouse.find({"warehouse_id": warehouse_id}, {"_id": 0, "item_id": 1, "current_stock": 1}).to_list(100000)
+        if alw is not None:
+            items = {i["id"]: i for i in await db().items.find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(100000)}
+            rows = [r for r in rows if in_scope(items.get(r["item_id"], {}), alw)]
+        return {r["item_id"]: float(r.get("current_stock") or 0) for r in rows}
+
     # SPK (division-scoped master)
     spk_list = next((r for r in app.router.routes if getattr(r, "path", "") == "/api/spk" and "GET" in r.methods), None)
     if spk_list:
@@ -818,7 +867,7 @@ LOOKUP_REASONS = {
     "warehouses": (_TX + ["stock_minmax", "users"], STOCK_MODS + ["stock_minmax", "users"]),
     "projects": (["mro", "ro", "po", "do", "mi", "loan", "units", "spk"], ["units", "spk"]),
     "units": (["mro", "ro", "po", "mi", "loan"], []),
-    "suppliers": (["po", "do", "ro", "vendor_contracts"], ["vendor_contracts"]),
+    "suppliers": (["po", "do", "ro", "vendor_contracts", "invoice"], ["vendor_contracts", "invoice"]),
     "contacts": (["mro", "ro", "po", "projects", "divisions", "spk"], ["projects", "divisions", "spk"]),
     "divisions": (_TX + ["items", "warehouses", "projects", "units", "contacts", "spk", "users"],
                   _TX + ["items", "warehouses", "projects", "units", "contacts", "spk", "users"]),
@@ -830,7 +879,7 @@ LOOKUP_REASONS = {
 }
 _COMMON = ["id", "code", "name", "is_active", "division_id"]
 LOOKUP_FIELDS = {
-    "items": ["unit", "base_uom_id", "uom_id", "uom_name", "uom_conversions", "conversions", "category_id", "specification", "brand", "item_type"],
+    "items": ["unit", "base_uom_id", "uom_id", "uom_name", "uom_conversions", "conversions", "category_id", "specification", "brand", "part_number", "item_type", "uoms"],
     "warehouses": ["location"],
     "projects": ["pic_id", "pic_name", "status", "default_global_budget_policy", "default_category_budget_policy"],
     "units": ["project_id", "plate_no", "unit_type", "type"],

@@ -3,6 +3,7 @@ Inventory Valuation Hardening Test Suite for KelolaKita Procurement
 Tests moving weighted average valuation, concurrency, reversal, transfer value carry,
 adjustment/opname approved-cost rules, loan snapshot carry, backdate guard, opening valuation.
 """
+import json
 import os
 import sys
 import time
@@ -226,6 +227,18 @@ class ValuationTester:
         # For simplicity, we'll use opening valuation if available
         # Otherwise, skip this test
         
+        # Fixture: barang khusus transfer + stok awal via Penyesuaian (+) ber-biaya. Tanpa stok, Transfer Out
+        # benar ditolak 400 "Stok tidak cukup" (perilaku bisnis yang benar, bukan bug).
+        ok_item, titem = self.test("Create Transfer Item", "POST", "master/items", 200, data={
+            "code": f"ITEM-TRF-{uuid.uuid4().hex[:6]}", "name": "Test Item Transfer", "unit": "PCS", "category": "Test", "is_active": True})
+        if not ok_item:
+            return False
+        ok_seed, _ = self.test("Seed Stock for Transfer", "POST", "adjustments", 200, data={
+            "warehouse_id": self.master_data["wh1"]["id"], "reason": "Seed transfer", "notes": "fixture",
+            "lines": [{"item_id": titem["id"], "adjustment": 5, "approved_unit_cost": 1000, "reason": "fixture"}]})
+        if not ok_seed:
+            return False
+
         # Get valuation summary before
         success, before = self.test("Valuation Summary Before", "GET", "reports/valuation-summary", 200)
         if not success:
@@ -239,7 +252,7 @@ class ValuationTester:
             "from_warehouse_id": self.master_data["wh1"]["id"],
             "to_warehouse_id": self.master_data["wh2"]["id"],
             "lines": [{
-                "item_id": self.master_data["item1"]["id"],
+                "item_id": titem["id"],
                 "qty": 1,
                 "unit": "PCS"
             }],
@@ -248,9 +261,7 @@ class ValuationTester:
         
         success, transfer = self.test("Create Transfer", "POST", "transfers", 200, data=transfer_data)
         if not success:
-            # May fail if no stock - that's expected
-            self.log("⚠️  Transfer failed (likely no stock) - this is expected for new tenant")
-            return True
+            return False
         
         # Get valuation summary after
         success, after = self.test("Valuation Summary After", "GET", "reports/valuation-summary", 200)
@@ -370,12 +381,13 @@ class ValuationTester:
         lines = details.get("lines", [])
         if lines:
             count_data = {
+                # Semua baris wajib dihitung sebelum posting (aturan bisnis); baris pertama surplus +5.
                 "lines": [{
                     "line_id": line["id"],
-                    "counted": line.get("snapshot", 0) + 5,  # Add 5 surplus
+                    "counted": line.get("snapshot", 0) + (5 if i == 0 else 0),
                     "approved_unit_cost": 1500,
                     "reason": "Test surplus"
-                } for line in lines[:1]],  # Only first line
+                } for i, line in enumerate(lines)],
                 "status": "Review"
             }
             
@@ -389,12 +401,27 @@ class ValuationTester:
             self.log("⚠️  Opname post failed - may need approval permission")
             return True  # Not critical
         
-        # Verify posting twice is blocked
-        success, _ = self.test("Post Opname Again (Should Fail)", "POST", f"opname/{opname_id}/post", 400, data={})
-        if not success:
-            self.log("✅ Duplicate opname post correctly blocked")
+        # Verify posting twice is blocked. Contract API saat ini: 409 Conflict (dokumen sudah diposting),
+        # sebelumnya test mengharapkan 400. Selain status, pastikan tidak ada mutasi stok/nilai/ledger.
+        def snap():
+            h = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+            pos = self.session.get(f"{API}/inventory/position", headers=h).json()
+            led = self.session.get(f"{API}/inventory/ledger", headers=h).json()
+            doc = self.session.get(f"{API}/opname/{opname_id}", headers=h).json()
+            pos_rows = pos if isinstance(pos, list) else pos.get("rows", pos.get("items", []))
+            led_rows = led if isinstance(led, list) else led.get("rows", led.get("items", []))
+            keep = ("item_id", "warehouse_id", "qty", "stock", "avg_cost", "value", "total_value")
+            return (sorted(json.dumps({k: r.get(k) for k in keep}, sort_keys=True) for r in pos_rows),
+                    len(led_rows), doc.get("status"), json.dumps(doc.get("lines"), sort_keys=True))
+        before = snap()
+        success, _ = self.test("Post Opname Again (Should Fail, 409 Conflict)", "POST", f"opname/{opname_id}/post", 409, data={})
+        after = snap()
+        self.tests_run += 1
+        if before == after:
             self.tests_passed += 1
-        
+            self.log("✅ Repost Opname ditolak tanpa mutasi (qty/avg_cost/nilai/ledger/dokumen tidak berubah)")
+        else:
+            self.log("❌ Repost Opname mengubah data persediaan/ledger/dokumen")
         return True
 
     def test_loan_flow(self):

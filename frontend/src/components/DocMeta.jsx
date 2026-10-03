@@ -29,7 +29,7 @@ export async function uploadPendingAttachments(entity, entityId, files, category
   return { uploaded, failed };
 }
 
-export function AttachmentPanel({ entity, entityId, pending, onPendingChange }) {
+export function AttachmentPanel({ entity, entityId, pending, onPendingChange, multiple = false, canUpload = true, canDelete = true }) {
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   // Pending mode is active when the document has no ID yet AND the parent form
@@ -52,18 +52,18 @@ export function AttachmentPanel({ entity, entityId, pending, onPendingChange }) 
   const removePending = (idx) => onPendingChange((pending || []).filter((_, i) => i !== idx));
 
   const upload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const picked = Array.from(e.target.files || []);
+    if (!picked.length) return;
     setUploading(true);
-    const fd = new FormData();
-    fd.append("file", file); fd.append("entity", entity); fd.append("entity_id", entityId); fd.append("category", "Lainnya");
-    try {
-      await api.post("/attachments", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success("File terunggah"); load();
-    } catch { toast.error("Gagal upload"); }
-    setUploading(false); e.target.value = "";
+    const { failed } = await uploadPendingAttachments(entity, entityId, picked);
+    if (failed.length) toast.error(`Gagal upload: ${failed.map((f) => f.name).join(", ")}`);
+    if (failed.length < picked.length) toast.success("File terunggah");
+    load(); setUploading(false); e.target.value = "";
   };
-  const del = async (id) => { await api.delete(`/attachments/${id}`); load(); };
+  const del = async (id) => {
+    try { await api.delete(`/attachments/${id}`); } catch (err) { toast.error(err.response?.data?.detail || "Gagal menghapus lampiran"); }
+    load();
+  };
 
   // ---------- Pending mode (new, unsaved document) ----------
   if (pendingMode) {
@@ -101,20 +101,20 @@ export function AttachmentPanel({ entity, entityId, pending, onPendingChange }) 
           Lampiran tersedia di form ini. Simpan transaksi terlebih dahulu agar nomor transaksi terbentuk, lalu upload file tanpa berpindah menu.
         </div>
       )}
-      <label className={`inline-flex ${!entityId ? "opacity-60" : ""}`}>
-        <input type="file" className="hidden" onChange={upload} data-testid="attachment-input" />
+      {canUpload && <label className={`inline-flex ${!entityId ? "opacity-60" : ""}`}>
+        <input type="file" multiple={multiple} className="hidden" onChange={upload} data-testid="attachment-input" />
         <Button asChild variant="outline" size="sm" disabled={uploading || !entityId}>
           <span className={entityId ? "cursor-pointer" : "cursor-not-allowed"}><Upload className="h-4 w-4 mr-2" />{uploading ? "Mengunggah..." : "Upload File"}</span>
         </Button>
-      </label>
+      </label>}
       <div className="space-y-2">
         {entityId && files.length === 0 && <p className="text-sm text-muted-foreground">Belum ada lampiran</p>}
         {files.map((f) => (
-          <div key={f.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+          <div key={f.id} className="flex items-center gap-2 rounded-md border p-2 text-sm" data-testid={`attachment-item-${f.original_filename}`}>
             <FileText className="h-4 w-4 text-muted-foreground" />
             <a href={`${API}/attachments/${f.id}/download`} target="_blank" rel="noreferrer" className="flex-1 truncate hover:underline">{f.original_filename}</a>
             <span className="text-xs text-muted-foreground">{f.category}</span>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => del(f.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+            {canDelete && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => del(f.id)} data-testid={`attachment-delete-${f.original_filename}`} aria-label="Hapus lampiran"><Trash2 className="h-3.5 w-3.5" /></Button>}
           </div>
         ))}
       </div>

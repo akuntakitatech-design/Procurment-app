@@ -35,6 +35,9 @@ import Adjustment from "@/pages/Adjustment";
 import Opname from "@/pages/Opname";
 import { SpkList, SpkForm, SpkDetail } from "@/pages/Spk";
 import { VendorContractList, VendorContractForm, VendorContractDetail } from "@/pages/VendorContract";
+import InvoiceMonitoring from "@/pages/InvoiceMonitoring";
+import InvoiceForm from "@/pages/InvoiceForm";
+import InvoiceDetail from "@/pages/InvoiceDetail";
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Memuat...</div>;
@@ -114,6 +117,10 @@ function App() {
               <Route path="/vendor-contracts/new" element={<Protected><VendorContractForm /></Protected>} />
               <Route path="/vendor-contracts/:id" element={<Protected><VendorContractDetail /></Protected>} />
               <Route path="/vendor-contracts/:id/edit" element={<Protected><VendorContractForm /></Protected>} />
+              <Route path="/invoice" element={<Protected><InvoiceMonitoring /></Protected>} />
+              <Route path="/invoice/new" element={<Protected><InvoiceForm /></Protected>} />
+              <Route path="/invoice/:id" element={<Protected><InvoiceDetail /></Protected>} />
+              <Route path="/invoice/:id/edit" element={<Protected><InvoiceForm /></Protected>} />
               <Route path="/users" element={<Protected><Users /></Protected>} />
               <Route path="/settings" element={<Protected><Settings /></Protected>} />
             </Routes>

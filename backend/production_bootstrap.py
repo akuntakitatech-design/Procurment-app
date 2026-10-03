@@ -240,6 +240,8 @@ tenant_security_hardening_layer.install(server)
 # Tahap 2 — Hak Akses per Modul/Aksi + Cakupan Divisi. Wraps final business routes; must stay before tenant isolation.
 import access_control_layer  # noqa: E402
 access_control_layer.install(server)
+import vendor_invoice_layer  # noqa: E402
+vendor_invoice_layer.install(server)
 tenant_isolation_layer.install(server)
 
 # The subscription gate runs after isolation so it can enforce lifecycle access on every tenant
@@ -251,6 +253,15 @@ subscription_access_gate_layer.install(server)
 # the subscription gate so it runs outermost: legacy ?auth= attachment links are converted into
 # normal Bearer auth before tenant isolation/security/access middleware resolve identity.
 attachment_query_token_compat_layer.install(server)
+
+# Server-side pagination/search/filter/sort untuk list transaksi (setelah semua scope & enrichment).
+import txn_list_paging_layer  # noqa: E402
+txn_list_paging_layer.install(server)
+
+# Paling luar: header Server-Timing (jumlah/durasi query DB) untuk audit performa.
+if server.DB_BACKEND == "mariadb":
+    import mariadb_motor  # noqa: E402
+    server.app.add_middleware(mariadb_motor.DbStatsMiddleware)
 
 
 if __name__ == "__main__":

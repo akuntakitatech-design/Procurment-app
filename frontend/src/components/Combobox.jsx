@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-export function Combobox({ options, value, onChange, placeholder = "Pilih...", testid, disabled, dense = false }) {
+export function Combobox({ options, value, onChange, placeholder = "Pilih...", testid, disabled, dense = false, footerAction = null }) {
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
   const selectedText = selected ? (selected.selectedLabel ?? selected.label) : placeholder;
@@ -36,6 +36,8 @@ export function Combobox({ options, value, onChange, placeholder = "Pilih...", t
               ))}
             </CommandGroup>
           </CommandList>
+          {footerAction && <div className="border-t p-1"><button type="button" onClick={() => { setOpen(false); footerAction.onClick(); }} data-testid={footerAction.testid}
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-sm font-medium text-primary transition-colors hover:bg-accent"><Plus className="h-4 w-4" />{footerAction.label}</button></div>}
         </Command>
       </PopoverContent>
     </Popover>

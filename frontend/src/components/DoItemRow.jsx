@@ -2,6 +2,7 @@ import { Combobox } from "@/components/Combobox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { NumericInput } from "@/components/NumericInput";
+import { QtyStock } from "@/components/StockInfo";
 import { num } from "@/lib/format";
 import { Trash2, AlertTriangle } from "lucide-react";
 
@@ -49,7 +50,7 @@ export function DoItemRow({ l, i, editable, upd, remove, names, allocCell }) {
         <div className="w-[80px] shrink-0 text-right text-sm tabular-nums" data-testid={`do-qty-po-${i}`}>{l.qty_po == null ? "-" : num(l.qty_po)}</div>
         <div className="w-[100px] shrink-0 text-right text-sm tabular-nums" data-testid={`do-received-${i}`}>{l.qty_po == null ? "-" : num(l.received_before)}</div>
         <div className="w-[80px] shrink-0 text-right text-sm font-medium tabular-nums" data-testid={`do-sisa-${i}`}>{l.qty_po == null ? "-" : num(sisaOf(l))}</div>
-        <div className="w-[110px] shrink-0">{editable ? <NumericInput mode="quantity" value={l.qty} onChange={(v) => upd(i, { qty: v })} className={`h-9 text-right ${over > 0 ? "border-orange-400" : ""}`} data-testid={`do-qty-${i}`} /> : <div className="text-right text-sm tabular-nums">{num(l.display_qty ?? l.qty)}</div>}</div>
+        <div className="w-[110px] shrink-0"><QtyStock itemId={l.item_id} warehouseId={l.warehouse_id} itemName={l.item_name} testid={`do-stock-${i}`}>{editable ? <NumericInput mode="quantity" value={l.qty} onChange={(v) => upd(i, { qty: v })} className={`h-9 text-right ${over > 0 ? "border-orange-400" : ""}`} data-testid={`do-qty-${i}`} /> : <div className="h-9 pt-2 text-right text-sm tabular-nums">{num(l.display_qty ?? l.qty)}</div>}</QtyStock></div>
         <div className="w-[90px] shrink-0 truncate text-sm" data-testid={`do-uom-${i}`}>{l.display_unit || l.unit || "-"}</div>
         <div className="w-[110px] shrink-0">{editable ? <Combobox dense options={CONDITIONS} value={l.condition || "Baik"} onChange={(v) => upd(i, { condition: v })} testid={`do-condition-${i}`} /> : <span className="text-sm">{l.condition || "Baik"}</span>}</div>
         <div className="w-[120px] shrink-0"><Selisih l={l} i={i} editable={editable} upd={upd} /></div>

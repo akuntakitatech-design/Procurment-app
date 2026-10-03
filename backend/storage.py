@@ -135,3 +135,15 @@ def get_object(path: str):
         return response["Body"].read(), response.get("ContentType", "application/octet-stream")
 
     raise RuntimeError(f"Unsupported STORAGE_DRIVER: {STORAGE_DRIVER}")
+
+
+def delete_object(path: str) -> None:
+    if STORAGE_DRIVER == "local":
+        target = _safe_local_path(path)
+        if target.exists():
+            target.unlink()
+        return
+    if STORAGE_DRIVER in ("minio", "s3"):
+        _s3_client().delete_object(Bucket=S3_BUCKET, Key=path)
+        return
+    raise RuntimeError(f"Unsupported STORAGE_DRIVER: {STORAGE_DRIVER}")
