@@ -20,10 +20,9 @@ function PayDialog({ inv, open, onClose, onDone }) {
     setBusy(true);
     try {
       const r = await api.post(`/vendor-invoices/${inv.id}/payments`, { ...p, amount: round2(p.amount) });
-      const before = new Set((inv.payments || []).map((x) => x.id));
-      const created = (r.data.payments || []).find((x) => !before.has(x.id));
-      if (pending.length && created) {
-        const { failed } = await uploadPendingAttachments("invoice_payment", created.id, pending);
+      const pid = r.data.created_payment_id;
+      if (pending.length && pid) {
+        const { failed } = await uploadPendingAttachments("invoice_payment", pid, pending);
         if (failed.length) toast.error(`Pembayaran tercatat, tetapi lampiran "${failed.map((f) => f.name).join(", ")}" gagal diunggah.`);
       }
       toast.success("Pembayaran dicatat"); onDone(); onClose();

@@ -461,7 +461,7 @@ def install(server):
             paid, st = await refresh_paid(iid)
             await server.audit(user, "payment", "invoice", iid, inv.get("no"),
                                after={"tanggal": pdate, "nilai": amt, "referensi": pay["reference"], "sudah_dibayar": paid, "status": st})
-        return await detail(iid, user)
+        return {**await detail(iid, user), "created_payment_id": pay["id"]}
 
     @app.post("/api/vendor-invoices/{iid}/payments/{pid}/cancel", tags=["vendor-invoice"])
     async def cancel_payment(iid: str, pid: str, body: dict = None, user=Depends(cu)):
