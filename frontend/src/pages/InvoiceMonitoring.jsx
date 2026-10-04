@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { TransactionPageHeader } from "@/components/TransactionPageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -79,9 +79,9 @@ export default function InvoiceMonitoring() {
   const rp = { from, to, setFrom, setTo };
   return (
     <div className="space-y-5" data-testid="invoice-monitoring-page">
-      <PageHeader title="Monitoring Invoice Vendor" subtitle="DO → Invoice Diterima → Invoice Dibayar. Pencatatan invoice tidak mengubah PO, DO, SPK, stok maupun Moving Average.">
+      <TransactionPageHeader type="invoice" mode="list">
         {can("invoice.create") && <Button onClick={() => nav("/invoice/new")} data-testid="invoice-create-btn"><Plus className="mr-2 h-4 w-4" />Catat Invoice</Button>}
-      </PageHeader>
+      </TransactionPageHeader>
       <InvoiceSummary />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList><TabsTrigger value="invoice" data-testid="tab-invoice">Invoice Vendor</TabsTrigger><TabsTrigger value="do" data-testid="tab-do-billing">Status Penagihan DO</TabsTrigger></TabsList>

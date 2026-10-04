@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useMasters } from "@/hooks/useMasters";
-import { PageHeader } from "@/components/PageHeader";
+import { TransactionPageHeader } from "@/components/TransactionPageHeader";
 import { Field } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -89,10 +89,10 @@ export default function InvoiceForm() {
   if (!can(id ? "invoice.edit" : "invoice.create")) return <div className="p-8 text-muted-foreground" data-testid="invoice-form-denied">Anda tidak memiliki izin untuk {id ? "mengubah" : "menambah"} Invoice Vendor.</div>;
   return (
     <div data-testid="invoice-form-page">
-      <PageHeader title={id ? `Edit Invoice ${h.invoice_no || ""}` : "Catat Invoice Vendor"} subtitle="Pilih DO dari supplier yang sama, tentukan alokasi per DO, lalu cocokkan dengan nilai faktur vendor.">
+      <TransactionPageHeader type="invoice" mode={id ? "edit" : "new"} number={h.no || h.invoice_no} subtitle="Pilih DO dari supplier yang sama, tentukan alokasi per DO, lalu cocokkan dengan nilai faktur vendor.">
         <Button variant="outline" onClick={() => nav(id ? `/invoice/${id}` : "/invoice")}><ArrowLeft className="mr-2 h-4 w-4" />Kembali</Button>
         <Button onClick={save} disabled={saving} data-testid="invoice-save-btn">{saving ? "Menyimpan..." : "Simpan Invoice"}</Button>
-      </PageHeader>
+      </TransactionPageHeader>
       <Card><CardContent className="space-y-6 pt-6">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Field label="Supplier"><div data-testid="invoice-supplier">{id ? <Input value={h.supplier_name || ""} disabled /> :
