@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { TransactionPageHeader } from "@/components/TransactionPageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -62,12 +62,12 @@ export default function InvoiceDetail() {
   if (!inv) return <div className="p-8 text-muted-foreground">Memuat...</div>;
   return (
     <div className="space-y-4" data-testid="invoice-detail-page">
-      <PageHeader title={`Invoice ${inv.invoice_no}`} subtitle={<span className="flex items-center gap-2">{inv.no} · <StatusBadge status={inv.status} /><StatusBadge status={inv.payment_status} />{["Lewat Jatuh Tempo", "Jatuh Tempo"].includes(inv.due_state) && <StatusBadge status={inv.due_state} />}</span>}>
+      <TransactionPageHeader type="invoice" mode="view" number={inv.no || inv.invoice_no} subtitle={<span className="flex flex-wrap items-center gap-2">{inv.invoice_no && <span data-testid="invoice-detail-vendor-no">No. Faktur {inv.invoice_no}</span>}{inv.invoice_no && " · "}<StatusBadge status={inv.status} /><StatusBadge status={inv.payment_status} />{["Lewat Jatuh Tempo", "Jatuh Tempo"].includes(inv.due_state) && <StatusBadge status={inv.due_state} />}</span>}>
         <Button variant="outline" onClick={() => nav("/invoice")}><ArrowLeft className="mr-2 h-4 w-4" />Kembali</Button>
         {can("invoice.print") && <Button variant="outline" onClick={print} data-testid="invoice-print-btn"><Printer className="mr-2 h-4 w-4" />Cetak</Button>}
         {can("invoice.edit") && <Button variant="outline" onClick={() => nav(`/invoice/${id}/edit`)} data-testid="invoice-edit-btn"><Pencil className="mr-2 h-4 w-4" />Edit</Button>}
         {can("invoice.delete") && <Button variant="outline" className="text-destructive" onClick={() => setDel(true)} data-testid="invoice-delete-btn"><Trash2 className="mr-2 h-4 w-4" />Hapus</Button>}
-      </PageHeader>
+      </TransactionPageHeader>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <Big label="Nilai Invoice" value={inv.amount} tid="invoice-detail-amount" />
         <Big label="Sudah Dibayar" value={inv.paid_total} tone="text-emerald-600" tid="invoice-detail-paid" />

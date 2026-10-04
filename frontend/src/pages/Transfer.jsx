@@ -3,7 +3,7 @@ import api, { apiError } from "@/lib/api";
 import { useServerList } from "@/lib/serverList";
 import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
-import { PageHeader } from "@/components/PageHeader";
+import { TransactionPageHeader } from "@/components/TransactionPageHeader";
 import { ItemLines } from "@/components/ItemLines";
 import { AttachmentPanel } from "@/components/DocMeta";
 import { DocumentMessageEditor, saveDocumentMessage } from "@/components/DocumentMessageEditor";
@@ -62,10 +62,10 @@ export default function Transfer() {
 
   if (mode === "form") return (
     <div>
-      <PageHeader title={editingId ? "Edit Transfer" : "Transfer Baru"} subtitle={editingId ? "Perubahan akan melakukan reversal stok lama lalu posting ulang" : "Perpindahan barang permanen antar gudang"}>
+      <TransactionPageHeader type="transfer" mode={editingId ? "edit" : "new"} number={selected?.no} showNumberField subtitle={editingId ? "Perubahan akan melakukan reversal stok lama lalu posting ulang" : undefined}>
         <Button variant="outline" onClick={() => { setMode("list"); setEditingId(null); }}><ArrowLeft className="h-4 w-4 mr-2" />Kembali</Button>
         <Button onClick={save} disabled={lines.length === 0}>{editingId ? "Simpan Perubahan" : "Posting Transfer"}</Button>
-      </PageHeader>
+      </TransactionPageHeader>
       <div className="space-y-4"><Card><CardContent className="pt-6 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Field label="No. Transfer"><Input value={editingId ? selected?.no || "" : "Otomatis saat disimpan"} disabled className="font-mono" /></Field>
@@ -83,7 +83,7 @@ export default function Transfer() {
 
   return (
     <div>
-      <PageHeader title="Transfer Antar Gudang" subtitle="Perpindahan barang permanen">{can("create") && <Button onClick={startNew} data-testid="transfer-create-btn"><Plus className="h-4 w-4 mr-2" />Buat Transfer</Button>}</PageHeader>
+      <TransactionPageHeader type="transfer" mode={selected ? "view" : "list"} number={selected?.no}>{can("create") && <Button onClick={startNew} data-testid="transfer-create-btn"><Plus className="h-4 w-4 mr-2" />Buat Transfer</Button>}</TransactionPageHeader>
       <TxnList module="transfer" testidPrefix="transfer" server={list} onReload={() => { setSelected(null); load(); }} selectedId={selected?.id} emptyText="Belum ada transfer" minWidth={1100}
         onOpen={(r) => openDetail(r.id)} onEdit={async (r) => { const d = await api.get(`/transfers/${r.id}`); startEdit(d.data); }}
         columns={[noCol("No. Transfer"), dateCol(fmtDate), { key: "from_name", label: "Dari" }, { key: "to_name", label: "Ke", render: (r) => <span className="flex items-center gap-1"><ArrowLeftRight className="h-3 w-3 text-muted-foreground" />{r.to_name}</span> }, traceCol("project"), traceCol("unit"), { key: "line_count", label: "Item", num: true }, { key: "status", label: "Status", status: true }]} />
