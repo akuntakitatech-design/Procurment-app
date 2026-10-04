@@ -110,8 +110,8 @@ export function ItemStockTab({ FormDialog, newForm, refNames }) {
   return <div className="space-y-4" data-testid="master-items-stock">
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <SummaryCard testid="master-items-summary-total" title="Jumlah Item" value={summary.total} subtitle="Barang sesuai filter aktif" icon={Package} tone="bg-primary/10 text-primary" active={!stockStatus} onClick={() => setStockStatus("")} />
-      <SummaryCard testid="master-items-summary-out" title="Stok Habis" value={summary.out_of_stock} subtitle="Total stok = 0" icon={PackageX} tone="bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300" active={stockStatus === "Out of Stock"} onClick={() => toggleStatus("Out of Stock")} />
-      <SummaryCard testid="master-items-summary-low" title="Stok Menipis" value={summary.low_stock} subtitle="Sudah mencapai batas minimum" icon={TriangleAlert} tone="bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300" active={stockStatus === "Low Stock"} onClick={() => toggleStatus("Low Stock")} />
+      <SummaryCard testid="master-items-summary-out" title="Stok Habis" value={summary.out_of_stock} subtitle={summary.no_stock ? `Total stok = 0 · ${num(summary.no_stock)} belum ada catatan stok` : "Total stok = 0"} icon={PackageX} tone="bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300" active={stockStatus === "Out of Stock"} onClick={() => toggleStatus("Out of Stock")} />
+      <SummaryCard testid="master-items-summary-low" title="Stok Menipis" value={summary.low_stock} subtitle="Stok ≤ minimum (Stok Min/Max)" icon={TriangleAlert} tone="bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300" active={stockStatus === "Low Stock"} onClick={() => toggleStatus("Low Stock")} />
       <SummaryCard testid="master-items-summary-over" title="Overstock" value={summary.overstock} subtitle="Melebihi batas maksimum" icon={TrendingUp} tone="bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300" active={stockStatus === "Overstock"} onClick={() => toggleStatus("Overstock")} />
     </div>
 
@@ -178,8 +178,9 @@ export function ItemStockTab({ FormDialog, newForm, refNames }) {
                     <div className={cn("mt-0.5 text-[10px] font-medium leading-tight", s.text)}>{s.label}</div>
                   </td>;
                 })}
-                <td className="p-3 text-right font-bold tabular-nums" data-testid={`master-items-total-${rowKey}`}>{r.stock_records ? num(r.total_stock) : <span className="font-normal text-muted-foreground">–</span>}</td>
-                <td className="p-3"><StockBadge status={r.stock_status} testid={`master-items-status-${rowKey}`} /></td>
+                <td className={cn("p-3 text-right font-bold tabular-nums", !r.stock_records && "font-normal text-muted-foreground")} data-testid={`master-items-total-${rowKey}`}>{num(r.total_stock)}</td>
+                <td className="p-3"><StockBadge status={r.stock_status} testid={`master-items-status-${rowKey}`} />
+                  {!r.stock_records && <div className="mt-1 text-[10px] text-muted-foreground" data-testid={`master-items-norecord-${rowKey}`}>Belum ada catatan stok</div>}</td>
                 <td className="p-3"><div className="flex justify-end gap-1">
                   {can("edit", "items") && <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit" aria-label={`Edit ${labelOf(r)}`} onClick={() => openEdit(r)} data-testid={`master-items-edit-${rowKey}`}><Pencil className="h-4 w-4" /></Button>}
                   {can("delete", "items") && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="Hapus" aria-label={`Hapus ${labelOf(r)}`} onClick={() => askDelete([r])} data-testid={`master-items-delete-${rowKey}`}><Trash2 className="h-4 w-4" /></Button>}
