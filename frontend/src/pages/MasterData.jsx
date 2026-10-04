@@ -28,21 +28,22 @@ import { ItemStockTab } from "@/components/master/ItemStockTab";
 
 const CONFIGS = {
   items: { label: "Barang", fields: [
-    { k: "code", l: "Kode Barang", auto: true },
+    { k: "code", l: "Kode Barang", auto: true, req: true },
     { k: "name", l: "Nama Barang", req: true },
     { k: "alias", l: "Nama Alias" },
-    { k: "category_id", l: "Kategori Barang", ref: "item_categories" },
-    { k: "division_id", l: "Divisi", ref: "divisions" },
+    { k: "category_id", l: "Kategori Barang", ref: "item_categories", req: true },
+    { k: "division_id", l: "Divisi", ref: "divisions", req: true },
     { k: "base_uom_id", l: "Satuan Dasar", ref: "uoms", req: true },
+    { k: "primary_supplier_id", l: "Supplier Utama", ref: "suppliers" },
     { k: "brand", l: "Merk" },
     { k: "part_number", l: "Part Number" },
     { k: "spec", l: "Spesifikasi" },
   ] },
   item_categories: { label: "Kategori Barang", fields: [
-    { k: "code", l: "Kode Kategori", auto: true }, { k: "name", l: "Nama Kategori", req: true }, { k: "notes", l: "Keterangan" },
+    { k: "code", l: "Kode Kategori", req: true }, { k: "name", l: "Nama Kategori", req: true }, { k: "notes", l: "Keterangan" },
   ] },
   uoms: { label: "Satuan", fields: [
-    { k: "code", l: "Kode Satuan", auto: true }, { k: "name", l: "Nama Satuan", req: true }, { k: "symbol", l: "Simbol", req: true }, { k: "notes", l: "Keterangan" },
+    { k: "code", l: "Kode Satuan", req: true }, { k: "name", l: "Nama Satuan", req: true }, { k: "notes", l: "Keterangan" },
   ] },
   taxes: { label: "Pajak", fields: [
     { k: "code", l: "Kode Pajak", auto: true }, { k: "name", l: "Nama Pajak", req: true },
@@ -65,8 +66,8 @@ const CONFIGS = {
     { k: "year", l: "Tahun" }, { k: "division_id", l: "Divisi", ref: "divisions" },
   ] },
   suppliers: { label: "Supplier", fields: [
-    { k: "code", l: "Kode Supplier", auto: true }, { k: "name", l: "Nama Supplier", req: true },
-    { k: "supplier_category_id", l: "Kategori Supplier", ref: "supplier_categories" },
+    { k: "code", l: "Kode Supplier", auto: true, req: true }, { k: "name", l: "Nama Supplier", req: true },
+    { k: "supplier_category_id", l: "Kategori Supplier", ref: "supplier_categories", req: true },
     { k: "phone", l: "Telepon" }, { k: "email", l: "Email" },
   ] },
   divisions: { label: "Divisi", fields: [
@@ -123,7 +124,13 @@ function Section({ title, subtitle, children }) {
   </div>;
 }
 
-function SupplierEditor({ form, setForm, refs }) {
+const INVALID_CLS = "border-destructive ring-1 ring-destructive/40";
+const INVALID_WRAP = "rounded-md ring-1 ring-destructive";
+const MANUAL_CODE = new Set(["item_categories", "uoms"]);
+const isBlank = (v) => v === undefined || v === null || (typeof v === "string" && !v.trim());
+export const missingRequired = (name, form) => (CONFIGS[name]?.fields || []).filter((f) => f.req && isBlank(form[f.k]));
+
+function SupplierEditor({ form, setForm, refs, invalid }) {
   const supplierCategories = (refs.supplier_categories || []).map((x) => ({ value: x.id, label: x.name }));
   const taxOptions = [{ value: "", label: "Tanpa Pajak Default" }, ...(refs.taxes || []).map((x) => ({ value: x.id, label: `${x.name} (${num(x.rate)}%)` }))];
   const itemCategories = refs.item_categories || [];
@@ -142,10 +149,10 @@ function SupplierEditor({ form, setForm, refs }) {
   return <div className="space-y-4 py-2">
     <Section title="Informasi Umum" subtitle="Identitas dan klasifikasi utama supplier.">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Kode Supplier (Otomatis, bisa diedit)"><Input data-testid="master-suppliers-field-code" value={form.code || ""} onChange={(e) => setForm({ ...form, code: e.target.value })} className="font-mono font-semibold" /></Field>
-        <Field label="Nama Supplier *"><Input data-testid="master-suppliers-field-name" value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+        <Field label="Kode Supplier (Otomatis, bisa diedit) *"><Input data-testid="master-suppliers-field-code" aria-invalid={invalid?.has("code") || undefined} className={`font-mono font-semibold ${invalid?.has("code") ? INVALID_CLS : ""}`} value={form.code || ""} onChange={(e) => setForm({ ...form, code: e.target.value })} /></Field>
+        <Field label="Nama Supplier *"><Input data-testid="master-suppliers-field-name" aria-invalid={invalid?.has("name") || undefined} className={invalid?.has("name") ? INVALID_CLS : ""} value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
         <Field label="Nama Legal / Perusahaan"><Input data-testid="master-suppliers-field-legal_name" value={form.legal_name || ""} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} /></Field>
-        <Field label="Kategori Supplier"><Combobox options={supplierCategories} value={form.supplier_category_id || ""} onChange={(v) => setForm({ ...form, supplier_category_id: v })} placeholder="Pilih kategori" /></Field>
+        <Field label="Kategori Supplier *"><div data-testid="master-suppliers-field-supplier_category_id" className={invalid?.has("supplier_category_id") ? INVALID_WRAP : ""}><Combobox options={supplierCategories} value={form.supplier_category_id || ""} onChange={(v) => setForm({ ...form, supplier_category_id: v })} placeholder="Pilih kategori" /></div></Field>
         <Field label="Jenis Supplier"><Combobox options={[{ value: "Lokal", label: "Lokal" }, { value: "Import", label: "Import" }, { value: "Jasa", label: "Jasa" }]} value={form.supplier_type || "Lokal"} onChange={(v) => setForm({ ...form, supplier_type: v })} /></Field>
       </div>
     </Section>
@@ -233,7 +240,7 @@ export const masterRefNames = (name) => {
 
 export async function newMasterForm(name) {
   let code = "";
-  try { const res = await api.get(`/master-code/${name}/preview`); code = res.data.code || ""; } catch {}
+  if (!MANUAL_CODE.has(name)) { try { const res = await api.get(`/master-code/${name}/preview`); code = res.data.code || ""; } catch {} }
   const defaults = name === "items" ? { uoms: [] } : name === "taxes" ? { rate: 0 } : name === "suppliers" ? {
     contacts: [], banks: [], supplied_category_ids: [], country: "Indonesia", currency: "IDR", supplier_type: "Lokal", lead_time_days: 0, min_order: 0,
   } : {};
@@ -249,7 +256,16 @@ export function MasterFormDialog({ name, open, onOpenChange, form, setForm, refs
   const addUom = () => setForm((s) => ({ ...s, uoms: [...(s.uoms || []), { uom_id: "", factor: 1 }] }));
   const updUom = (i, patch) => setForm((s) => ({ ...s, uoms: (s.uoms || []).map((u, x) => x === i ? { ...u, ...patch } : u) }));
   const delUom = (i) => setForm((s) => ({ ...s, uoms: (s.uoms || []).filter((_, x) => x !== i) }));
+  const [invalid, setInvalid] = useState(new Set());
+  useEffect(() => { if (!open) setInvalid(new Set()); }, [open]);
+  const missing = missingRequired(name, form);
+  useEffect(() => { setInvalid((cur) => (cur.size ? new Set(missing.map((f) => f.k)) : cur)); }, [form]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
+    if (missing.length) {
+      setInvalid(new Set(missing.map((f) => f.k)));
+      toast.error(`Wajib diisi: ${missing.map((f) => f.l).join(", ")}`);
+      return;
+    }
     try {
       const editing = !!form.id;
       const res = editing ? await api.put(`/master/${name}/${form.id}`, form) : await api.post(`/master/${name}`, form);
@@ -261,12 +277,13 @@ export function MasterFormDialog({ name, open, onOpenChange, form, setForm, refs
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={`${name === "suppliers" ? "max-w-6xl" : "max-w-3xl"} max-h-[92vh] overflow-y-auto`} data-testid={`master-${name}-form`}>
         <DialogHeader><DialogTitle className="font-head">{form.id ? "Edit" : "Tambah"} {cfg.label}</DialogTitle></DialogHeader>
-        {name === "suppliers" ? <SupplierEditor form={form} setForm={setForm} refs={refs} /> : <>
+        {name === "suppliers" ? <SupplierEditor form={form} setForm={setForm} refs={refs} invalid={invalid} /> : <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
-            {cfg.fields.map((f) => <Field key={f.k} label={f.l + (f.auto ? " (Otomatis, bisa diedit)" : f.req ? " *" : "")}>
-              {f.ref ? <Combobox options={refOptions(f.ref)} value={form[f.k] || ""} onChange={(v) => setForm({ ...form, [f.k]: v })} /> :
-                <Input data-testid={`master-${name}-field-${f.k}`} type={f.type || "text"} step={f.step} min={f.type === "number" ? "0" : undefined} value={form[f.k] ?? ""} onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} placeholder={f.auto ? "Kode otomatis" : undefined} className={f.auto ? "font-mono font-semibold" : ""} />}
-            </Field>)}
+            {cfg.fields.map((f) => { const bad = invalid.has(f.k); return <Field key={f.k} label={f.l + (f.auto ? " (Otomatis, bisa diedit)" : "") + (f.req ? " *" : "")}>
+              {f.ref ? <div data-testid={`master-${name}-field-${f.k}`} className={bad ? INVALID_WRAP : ""}><Combobox options={f.ref === "suppliers" ? [{ value: "", label: "Tanpa Supplier Utama" }, ...refOptions(f.ref)] : refOptions(f.ref)} value={form[f.k] || ""} onChange={(v) => setForm({ ...form, [f.k]: v })} /></div> :
+                <Input data-testid={`master-${name}-field-${f.k}`} aria-invalid={bad || undefined} type={f.type || "text"} step={f.step} min={f.type === "number" ? "0" : undefined} value={form[f.k] ?? ""} onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} placeholder={f.auto ? "Kode otomatis" : f.k === "code" ? "Isi kode manual" : undefined} className={`${f.auto || f.k === "code" ? "font-mono font-semibold" : ""} ${bad ? INVALID_CLS : ""}`} />}
+              {bad && <p className="text-xs text-destructive" data-testid={`master-${name}-error-${f.k}`}>Wajib diisi</p>}
+            </Field>; })}
           </div>
 
           {name === "items" && <div className="mt-2 rounded-xl border bg-muted/20 p-4 space-y-3">

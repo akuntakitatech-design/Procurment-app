@@ -36,6 +36,9 @@ async def _extra_reason(server, name, rid, doc):
     if name == "suppliers":
         if await _exists(db, "vendor_contracts", {"supplier_id": rid}):
             return "sudah digunakan pada Kontrak Harga Vendor"
+        n = await db.items.count_documents({"primary_supplier_id": rid})
+        if n:
+            return f"masih menjadi Supplier Utama pada {n} barang"
     if name == "uoms" and await _exists(db, "vendor_contract_items", {"uom_id": rid}):
         return "sudah digunakan pada Kontrak Harga Vendor"
     if name == "projects":

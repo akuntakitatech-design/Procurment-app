@@ -165,13 +165,23 @@ class ValuationTester:
         if not success:
             return False
         
+        # Referensi wajib Master Barang: kategori, satuan dasar, divisi.
+        tag = uuid.uuid4().hex[:6]
+        ok_c, cat = self.test("Create Item Category", "POST", "master/item_categories", 200, data={"code": f"KAT-{tag}", "name": "Test"})
+        ok_u, uom = self.test("Create UOM", "POST", "master/uoms", 200, data={"code": f"PCS-{tag}", "name": "Pieces"})
+        ok_d, div = self.test("Create Division", "POST", "master/divisions", 200, data={"code": f"DIV-{tag}", "name": "Divisi Test"})
+        if not (ok_c and ok_u and ok_d):
+            return False
+        self.item_ref = {"category_id": cat["id"], "base_uom_id": uom["id"], "division_id": div["id"]}
+
         # Create items with base_uom
         item1_data = {
             "code": f"ITEM-001-{uuid.uuid4().hex[:6]}",
             "name": "Test Item 001",
             "unit": "PCS",
             "category": "Test",
-            "is_active": True
+            "is_active": True,
+            **self.item_ref,
         }
         success, item1 = self.test("Create Item 001", "POST", "master/items", 200, data=item1_data)
         if not success:
@@ -182,7 +192,8 @@ class ValuationTester:
             "name": "Test Item 002",
             "unit": "PCS",
             "category": "Test",
-            "is_active": True
+            "is_active": True,
+            **self.item_ref,
         }
         success, item2 = self.test("Create Item 002", "POST", "master/items", 200, data=item2_data)
         if not success:
@@ -230,7 +241,7 @@ class ValuationTester:
         # Fixture: barang khusus transfer + stok awal via Penyesuaian (+) ber-biaya. Tanpa stok, Transfer Out
         # benar ditolak 400 "Stok tidak cukup" (perilaku bisnis yang benar, bukan bug).
         ok_item, titem = self.test("Create Transfer Item", "POST", "master/items", 200, data={
-            "code": f"ITEM-TRF-{uuid.uuid4().hex[:6]}", "name": "Test Item Transfer", "unit": "PCS", "category": "Test", "is_active": True})
+            "code": f"ITEM-TRF-{uuid.uuid4().hex[:6]}", "name": "Test Item Transfer", "unit": "PCS", "category": "Test", "is_active": True, **self.item_ref})
         if not ok_item:
             return False
         ok_seed, _ = self.test("Seed Stock for Transfer", "POST", "adjustments", 200, data={

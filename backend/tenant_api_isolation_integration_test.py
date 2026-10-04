@@ -5,6 +5,7 @@ creates two synthetic tenant admins directly in the disposable MongoDB, then exe
 actual HTTP API for master data and MRO -> RO -> PO. The same business codes are deliberately
 used in both tenants to prove that queries and uniqueness checks are tenant-scoped.
 """
+from integrity_master_fixture import fill_required  # noqa: E402
 import os
 import sys
 import time
@@ -71,6 +72,7 @@ def create_master(session, name, code, display_name, extra=None):
     body = {"code": code, "name": display_name, "is_active": True}
     if extra:
         body.update(extra)
+    body = fill_required(session, API, name, body)
     return post_ok(session, f"/master/{name}", body, f"Create {name} {code}")
 
 

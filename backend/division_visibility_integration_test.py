@@ -3,6 +3,7 @@
 Validates that limited users only see MRO/RO/PO in assigned divisions while the Purchasing role
 keeps cross-division visibility. Also validates create guards for limited users.
 """
+from integrity_master_fixture import fill_required  # noqa: E402
 import os
 import sys
 import time
@@ -46,6 +47,7 @@ def login(email, password):
 
 
 def create_master(session, name, payload):
+    payload = fill_required(session, API, name, payload)
     r = session.post(f"{API}/master/{name}", json=payload, timeout=15)
     if r.status_code != 200:
         raise AssertionError(f"Create master {name} gagal: HTTP {r.status_code} {r.text}")

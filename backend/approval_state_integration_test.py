@@ -1,4 +1,5 @@
 """Disposable integration test for MRO/RO/PO approval lifecycle state."""
+from integrity_master_fixture import fill_required  # noqa: E402
 import os
 import sys
 import time
@@ -45,6 +46,7 @@ def login(email, password):
 
 
 def create_master(session, name, payload):
+    payload = fill_required(session, API, name, payload)
     r = session.post(f"{API}/master/{name}", json=payload, timeout=15)
     if r.status_code != 200:
         raise AssertionError(f"Gagal membuat master {name}: HTTP {r.status_code} {r.text}")

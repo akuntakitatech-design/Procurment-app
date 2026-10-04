@@ -1,4 +1,5 @@
 """Disposable integration test for DO / penerimaan barang integrity."""
+from integrity_master_fixture import fill_required  # noqa: E402
 import os
 import sys
 import time
@@ -41,6 +42,7 @@ def login(email, password):
 
 
 def master(s, name, payload):
+    payload = fill_required(s, API, name, payload)
     r = s.post(f"{API}/master/{name}", json=payload, timeout=15)
     if r.status_code != 200:
         raise AssertionError(f"Gagal membuat master {name}: {r.status_code} {r.text}")

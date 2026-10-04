@@ -1,4 +1,5 @@
 """Disposable integration test for core master data integrity and delete guards."""
+from integrity_master_fixture import fill_required  # noqa: E402
 import os
 import sys
 import time
@@ -38,6 +39,7 @@ def login():
 
 
 def create_master(s, name, payload):
+    payload = fill_required(s, API, name, payload)
     r = s.post(f"{API}/master/{name}", json=payload, timeout=15)
     check(r.status_code == 200, f"Master {name} berhasil dibuat")
     return r.json()

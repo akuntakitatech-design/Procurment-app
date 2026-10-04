@@ -39,16 +39,28 @@ def setup():
     for key, coll, body in [
         ("wh", "warehouses", {"code": f"WA{u}", "name": "Gudang A", "is_active": True}),
         ("wh2", "warehouses", {"code": f"WB{u}", "name": "Gudang B", "is_active": True}),
-        ("item", "items", {"code": f"IT{u}", "name": "Baut M8", "unit": "PCS", "is_active": True}),
-        ("item2", "items", {"code": f"IU{u}", "name": "Mur M8", "unit": "PCS", "is_active": True}),
-        ("supX", "suppliers", {"code": f"SX{u}", "name": "Supplier X", "email": "x@example.com"}),
-        ("supY", "suppliers", {"code": f"SY{u}", "name": "Supplier Y"}),
         ("div", "divisions", {"code": f"DV{u}", "name": "Divisi Teknik"}),
+        ("cat", "item_categories", {"code": f"KC{u}", "name": "Kategori Umum"}),
+        ("uom", "uoms", {"code": f"PCS{u}", "name": "Pieces"}),
+        ("scat", "supplier_categories", {"code": f"KS{u}", "name": "Kategori Supplier Umum"}),
+    ]:
+        sc, M[key] = call("POST", f"master/{coll}", body, 200)
+    item_ref = {"category_id": M["cat"]["id"], "division_id": M["div"]["id"], "base_uom_id": M["uom"]["id"]}
+    for key, coll, body in [
+        ("item", "items", {"code": f"IT{u}", "name": "Baut M8", "unit": "PCS", "is_active": True, **item_ref}),
+        ("item2", "items", {"code": f"IU{u}", "name": "Mur M8", "unit": "PCS", "is_active": True, **item_ref}),
+        ("supX", "suppliers", {"code": f"SX{u}", "name": "Supplier X", "email": "x@example.com", "supplier_category_id": M["scat"]["id"]}),
+        ("supY", "suppliers", {"code": f"SY{u}", "name": "Supplier Y", "supplier_category_id": M["scat"]["id"]}),
         ("pa", "projects", {"code": f"PA{u}", "name": "Project A"}),
         ("pb", "projects", {"code": f"PB{u}", "name": "Project B"}),
     ]:
         sc, M[key] = call("POST", f"master/{coll}", body, 200)
     return M
+
+
+def item_ref(M, **over):
+    """Field wajib Master Barang (kategori, divisi, satuan dasar) untuk fixture test."""
+    return {"category_id": M["cat"]["id"], "division_id": M["div"]["id"], "base_uom_id": M["uom"]["id"], **over}
 
 
 def make_po(M, supplier, qty, project="pa", item="item", mro_no=None, wh="wh"):

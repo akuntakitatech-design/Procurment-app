@@ -23,6 +23,32 @@ MASTER_PREFIX = {
     "taxes": "PJK",
 }
 
+# Master dengan kode manual (tanpa penomoran otomatis).
+MANUAL_CODE_MASTERS = {"item_categories", "uoms"}
+
+# Field wajib per master: (key, label). Kode diperiksa terpisah.
+REQUIRED_FIELDS = {
+    "items": [("name", "Nama Barang"), ("category_id", "Kategori Barang"), ("base_uom_id", "Satuan Dasar"), ("division_id", "Divisi")],
+    "item_categories": [("name", "Nama Kategori")],
+    "uoms": [("name", "Nama Satuan")],
+    "suppliers": [("name", "Nama Supplier"), ("supplier_category_id", "Kategori Supplier")],
+}
+CODE_LABEL = {"items": "Kode Barang", "item_categories": "Kode Kategori", "uoms": "Kode Satuan", "suppliers": "Kode Supplier"}
+
+
+def _blank(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def validate_required(name: str, body: dict, require_code: bool = False):
+    """Tolak penyimpanan bila ada field wajib yang kosong (dipakai form & API)."""
+    missing = []
+    if require_code and _blank(body.get("code")):
+        missing.append(CODE_LABEL.get(name, "Kode"))
+    missing += [label for key, label in REQUIRED_FIELDS.get(name, []) if _blank(body.get(key))]
+    if missing:
+        raise HTTPException(status_code=400, detail="Wajib diisi: " + ", ".join(missing))
+
 
 async def _available_code(server, name: str, start_seq: int) -> str:
     if name not in MASTER_PREFIX:
@@ -98,6 +124,20 @@ async def _normalize_item(server, body: dict) -> dict:
         if not cat:
             raise HTTPException(status_code=400, detail="Kategori barang tidak ditemukan / nonaktif")
         out["category"] = cat.get("name")
+    division_id = out.get("division_id")
+    if division_id:
+        div = await server.db.divisions.find_one({"id": division_id, "is_active": {"$ne": False}})
+        if not div:
+            raise HTTPException(status_code=400, detail="Divisi tidak ditemukan / nonaktif")
+    supplier_id = out.get("primary_supplier_id") or None
+    out["primary_supplier_id"] = supplier_id
+    if supplier_id:
+        sup = await server.db.suppliers.find_one({"id": supplier_id, "is_active": {"$ne": False}})
+        if not sup:
+            raise HTTPException(status_code=400, detail="Supplier utama tidak ditemukan / nonaktif")
+        out["primary_supplier_name"] = sup.get("name")
+    else:
+        out["primary_supplier_name"] = None
     return out
 
 
@@ -268,8 +308,10 @@ def install(server):
     async def master_create_auto(name: str, body: dict, user=Depends(server.current_user)):
         server.require(user, "create")
         col = server._mc(name)
-        automatic_code = await next_master_code(server, name)
         requested_code = str(body.get("code") or "").strip()
+        validate_required(name, body, require_code=name in MANUAL_CODE_MASTERS)
+        # Sequence tetap dikonsumsi untuk master berkode otomatis (perilaku lama).
+        automatic_code = None if name in MANUAL_CODE_MASTERS else await next_master_code(server, name)
         code = requested_code or automatic_code
         if await col.find_one({"code": code}):
             raise HTTPException(status_code=400, detail=f"Kode {code} sudah dipakai")
@@ -296,6 +338,7 @@ def install(server):
         if not existing:
             raise HTTPException(status_code=404, detail="Data master tidak ditemukan")
 
+        validate_required(name, body, require_code=name in CODE_LABEL)
         update = await _prepare_body(server, name, body)
         update.pop("id", None)
         update.pop("_id", None)

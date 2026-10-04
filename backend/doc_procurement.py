@@ -1393,7 +1393,7 @@ async def opening_candidates(q: str = None, warehouse_id: str = None, status: st
             "warehouse_id": r.get("warehouse_id"),
             "warehouse_name": m["warehouses"].get(r.get("warehouse_id"), {}).get("name"),
             "qty_existing": qty, "base_uom": buid,
-            "base_uom_name": (m.get("uoms", {}).get(buid, {}) or {}).get("symbol")
+            "base_uom_name": (lambda u: u.get("symbol") or u.get("code") or u.get("name"))(m.get("uoms", {}).get(buid, {}) or {})
                               or (m.get("uoms", {}).get(buid, {}) or {}).get("name"),
             "avg_cost": float(r.get("avg_cost") or 0),
             "inventory_value": float(r.get("total_value") or 0),
