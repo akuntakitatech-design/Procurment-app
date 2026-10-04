@@ -31,5 +31,5 @@ export function useServerList(url, params = {}, { facets = "", counts = "" } = {
     finally { if (my === seq.current) setLoading(false); }
   }, [url, page, pageSize, dq, sort, pkey, facets, counts]);
   useEffect(() => { load(); }, [load]);
-  return { rows: data.items || [], total: data.total || 0, page, setPage, pageSize, setPageSize, q, setQ, sort, setSort, facets: data.facets || {}, loading, error, reload: load };
+  return { data, rows: data.items || [], total: data.total || 0, page, setPage, pageSize, setPageSize, q, setQ, sort, setSort, facets: data.facets || {}, loading, error, reload: load };
 }
