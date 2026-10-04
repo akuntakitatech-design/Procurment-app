@@ -42,14 +42,15 @@ def main():
     dA = M["div"]
     dB = call("POST", "master/divisions", {"code": f"DB{u}", "name": f"Divisi B {u}"}, 200)[1]
     cats = [call("POST", "master/item_categories", {"code": f"KC{u}{i}", "name": f"Kat{u} {n}"}, 200)[1] for i, n in enumerate(("Alfa", "Beta"))]
-    for m, b in (("uoms", {"code": f"S{u}", "name": f"Sat {u}", "symbol": "s"}), ("taxes", {"code": f"T{u}", "name": f"Pajak {u}", "rate": 11}),
+    uom = call("POST", "master/uoms", {"code": f"S{u}", "name": f"Sat {u}", "is_active": True}, 200)[1]
+    for m, b in ( ("taxes", {"code": f"T{u}", "name": f"Pajak {u}", "rate": 11}),
                  ("supplier_categories", {"code": f"KS{u}", "name": f"KatSup {u}"}), ("units", {"code": f"UN{u}", "name": f"Unit {u}", "division_id": dA["id"]}),
                  ("contacts", {"code": f"KT{u}", "name": f"Kontak {u}", "division_id": dB["id"]})):
         call("POST", f"master/{m}", {**b, "is_active": True}, 200)
     items = []
     for i in range(30):
         items.append(call("POST", "master/items", {"code": f"PG{u}-{i:02d}", "name": f"Barang Paging {i:02d}", "unit": "PCS", "is_active": True,
-                                                   "category_id": cats[i % 2]["id"], "division_id": (dA if i < 20 else dB)["id"]}, 200)[1])
+                                                   "category_id": cats[i % 2]["id"], "division_id": (dA if i < 20 else dB)["id"], "base_uom_id": uom["id"]}, 200)[1])
     print(f"setup: tenant + 30 barang ({u})")
 
     # --- kompatibilitas lama: tanpa page -> array

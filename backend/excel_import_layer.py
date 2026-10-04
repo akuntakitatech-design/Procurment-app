@@ -24,10 +24,10 @@ MASTER_DATASETS = {
         "label": "Master Barang",
         "columns": [
             "code", "name", "alias", "category_code", "division_code", "base_uom_code",
-            "brand", "part_number", "spec", "is_active",
+            "brand", "part_number", "spec", "primary_supplier_code", "is_active",
         ],
-        "required": ["code", "name", "base_uom_code"],
-        "example": ["BRG-00001", "RANTAI BESI 5/8 PANJANG 8 M", "Rantai 5/8", "SPAREPART", "OPS", "PCS", "", "", "", "Ya"],
+        "required": ["code", "name", "category_code", "division_code", "base_uom_code"],
+        "example": ["BRG-00001", "RANTAI BESI 5/8 PANJANG 8 M", "Rantai 5/8", "SPAREPART", "OPS", "PCS", "", "", "", "SUP-00001", "Ya"],
     },
     "suppliers": {
         "label": "Master Supplier",
@@ -38,7 +38,7 @@ MASTER_DATASETS = {
             "contact_name", "contact_role", "contact_phone", "contact_email",
             "bank_name", "bank_account_no", "bank_account_name", "bank_branch", "bank_currency", "is_active",
         ],
-        "required": ["code", "name"],
+        "required": ["code", "name", "supplier_category_code"],
         "example": ["SUP-00001", "PT. Profita Abadi", "SPAREPART", "", "", "PT. Profita Abadi", "Lokal", "", "", "", "Indonesia", "", "", "Ya", "Net 120", "IDR", "PPN11", 7, 0, "H+7 After PO", "", "Ibu Lidya", "Marketing", "085214080112", "", "BANK MANDIRI", "108-001-023-364-2", "PT. Profita Abadi", "", "IDR", "Ya"],
     },
     "units": {
@@ -301,6 +301,12 @@ async def _import_master(server, key, rows, user):
                 "brand": _text(r.get("brand")) or None, "part_number": _text(r.get("part_number")) or None,
                 "spec": _text(r.get("spec")) or None, "is_active": _bool(r.get("is_active"), True),
             })
+            sup_code = _text(r.get("primary_supplier_code"))
+            if sup_code:
+                sup_id = _ref(maps, "suppliers", sup_code, n, "primary_supplier_code", errors)
+                if sup_id:
+                    prepared[-1]["primary_supplier_id"] = sup_id
+                    prepared[-1]["primary_supplier_name"] = (maps["suppliers"].get(sup_code.upper()) or {}).get("name")
         elif key == "units":
             prepared.append({
                 "code": _text(r.get("code")), "name": _text(r.get("name")), "type": _text(r.get("type")) or None,

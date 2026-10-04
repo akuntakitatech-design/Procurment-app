@@ -18,7 +18,7 @@ def main():
     sc, dB = call("POST", "master/divisions", {"code": f"DB{uuid.uuid4().hex[:4]}", "name": "Divisi B"}, 200)
     call("PUT", f"master/warehouses/{M['wh']['id']}", {**M["wh"], "division_id": M["div"]["id"]}, 200)
     sc, whB = call("POST", "master/warehouses", {"code": f"WC{uuid.uuid4().hex[:4]}", "name": "Gudang Divisi B", "division_id": dB["id"], "is_active": True}, 200)
-    sc, itB = call("POST", "master/items", {"code": f"IB{uuid.uuid4().hex[:4]}", "name": "Barang Divisi B", "unit": "PCS", "division_id": dB["id"], "is_active": True}, 200)
+    sc, itB = call("POST", "master/items", {"code": f"IB{uuid.uuid4().hex[:4]}", "name": "Barang Divisi B", "unit": "PCS", "is_active": True, **T.item_ref(M, division_id=dB["id"])}, 200)
     po, _, _ = T.make_po(M, "supX", 25)
     call("POST", "do", T.do_body(M, po, 25, "supX"), 200)
 
@@ -57,7 +57,7 @@ def main():
     sc, _ = nd("POST", "master/suppliers", {"name": "Supplier Liar"})
     check("permission: tanpa Supplier.Tambah -> create Supplier 403", sc == 403, sc)
     pn = f"I8-{uuid.uuid4().hex[:5]}-897-A"
-    sc, nw = call("POST", "master/items", {"code": f"QK{uuid.uuid4().hex[:4]}", "name": "Fuel Filter FVZ", "part_number": pn, "brand": "Isuzu", "unit": "PCS", "is_active": True})
+    sc, nw = call("POST", "master/items", {"code": f"QK{uuid.uuid4().hex[:4]}", "name": "Fuel Filter FVZ", "part_number": pn, "brand": "Isuzu", "unit": "PCS", "is_active": True, **T.item_ref(M)})
     sc2, lk = call("GET", "lookup/items")
     hit = next((x for x in lk or [] if x.get("id") == nw.get("id")), {})
     check("Tambah Barang -> langsung tersedia di pilihan Barang (lookup)", sc == 200 and sc2 == 200 and hit.get("name") == "Fuel Filter FVZ", (sc, sc2))

@@ -867,7 +867,7 @@ LOOKUP_REASONS = {
     "warehouses": (_TX + ["stock_minmax", "users"], STOCK_MODS + ["stock_minmax", "users"]),
     "projects": (["mro", "ro", "po", "do", "mi", "loan", "units", "spk"], ["units", "spk"]),
     "units": (["mro", "ro", "po", "mi", "loan"], []),
-    "suppliers": (["po", "do", "ro", "vendor_contracts", "invoice"], ["vendor_contracts", "invoice"]),
+    "suppliers": (["po", "do", "ro", "vendor_contracts", "invoice", "items"], ["vendor_contracts", "invoice", "items"]),
     "contacts": (["mro", "ro", "po", "projects", "divisions", "spk"], ["projects", "divisions", "spk"]),
     "divisions": (_TX + ["items", "warehouses", "projects", "units", "contacts", "spk", "users"],
                   _TX + ["items", "warehouses", "projects", "units", "contacts", "spk", "users"]),

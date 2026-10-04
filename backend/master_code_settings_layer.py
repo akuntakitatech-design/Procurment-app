@@ -124,6 +124,8 @@ def install(server):
         formats = await _formats(server)
         rows = []
         for name in master_auto.MASTER_PREFIX:
+            if name in getattr(master_auto, "MANUAL_CODE_MASTERS", set()):
+                continue  # kode manual, tidak memakai format otomatis
             rows.append({
                 "key": name,
                 "label": LABELS.get(name, name),
@@ -152,7 +154,7 @@ def install(server):
             before={"formats": before.get("formats") or current},
             after={"formats": clean},
         )
-        rows = [{"key": name, "label": LABELS.get(name, name), "format": clean[name], "example": _render(clean[name], 1)} for name in master_auto.MASTER_PREFIX]
+        rows = [{"key": name, "label": LABELS.get(name, name), "format": clean[name], "example": _render(clean[name], 1)} for name in master_auto.MASTER_PREFIX if name not in getattr(master_auto, "MANUAL_CODE_MASTERS", set())]
         return {"formats": clean, "rows": rows}
 
     server.app.add_api_route("/api/settings/master_codes", get_master_code_settings, methods=["GET"], tags=["settings"])

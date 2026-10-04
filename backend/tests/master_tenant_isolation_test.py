@@ -44,14 +44,18 @@ class Tenant:
     def seed(self):
         u = self.u
         bodies = {
-            "warehouses": {"name": f"Gudang {u}"}, "items": {"name": f"Barang {u}", "unit": "PCS"},
-            "suppliers": {"name": f"Supplier {u}"}, "divisions": {"name": f"Divisi {u}"},
+            "warehouses": {"name": f"Gudang {u}"}, "divisions": {"name": f"Divisi {u}"},
             "projects": {"name": f"Proyek {u}"}, "units": {"name": f"Unit {u}"},
-            "item_categories": {"name": f"KatBrg {u}"}, "uoms": {"name": f"Sat{u}", "code": f"S{u[:5]}"},
+            "item_categories": {"name": f"KatBrg {u}", "code": f"K{u[:5]}"}, "uoms": {"name": f"Sat{u}", "code": f"S{u[:5]}"},
             "taxes": {"name": f"Pajak {u}", "rate": 11}, "supplier_categories": {"name": f"KatSup {u}"},
             "contacts": {"name": f"Kontak {u}", "email": f"k{u}@example.com"},
+            # Barang & Supplier dibuat setelah referensi wajibnya tersedia.
+            "items": lambda: {"name": f"Barang {u}", "unit": "PCS", "division_id": self.ids["divisions"]["id"],
+                              "category_id": self.ids["item_categories"]["id"], "base_uom_id": self.ids["uoms"]["id"]},
+            "suppliers": lambda: {"name": f"Supplier {u}", "supplier_category_id": self.ids["supplier_categories"]["id"]},
         }
         for m, b in bodies.items():
+            b = b() if callable(b) else b
             sc, d = self.call("POST", f"master/{m}", {**b, "is_active": True})
             assert sc == 200, (m, sc, d)
             self.ids[m] = d
@@ -161,7 +165,9 @@ def main():
     B.seed()
     attack(B, A, "B->A")
     attack(A, B, "A->B")
-    sc, r = A.call("DELETE", f"master/item_categories/{A.ids['item_categories']['id']}")
+    # Kategori seed kini dipakai Barang (field wajib) -> uji hapus pada kategori yang belum dipakai.
+    sc, spare = A.call("POST", "master/item_categories", {"code": f"KX{A.u[:5]}", "name": f"KatBebas {A.u}", "is_active": True})
+    sc, r = A.call("DELETE", f"master/item_categories/{spare['id']}")
     check("own-tenant delete still works", sc == 200, f"{sc} {r}")
     passed = sum(1 for _, ok in RESULTS if ok)
     print(f"\n{passed}/{len(RESULTS)} passed")

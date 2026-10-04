@@ -5,6 +5,7 @@ MRO -> RO -> PO -> DO -> Inventory -> MI -> Traceability/Report.
 Warehouse flow:
 Opening adjustment -> Transfer -> Loan -> Return -> Damaged adjustment -> Stock Opname.
 """
+from integrity_master_fixture import fill_required  # noqa: E402
 import os
 import sys
 import time
@@ -47,6 +48,7 @@ def login():
 
 
 def master(s, name, payload):
+    payload = fill_required(s, API, name, payload)
     r = s.post(f"{API}/master/{name}", json=payload, timeout=20)
     if r.status_code != 200:
         raise AssertionError(f"Gagal membuat master {name}: HTTP {r.status_code} {r.text}")

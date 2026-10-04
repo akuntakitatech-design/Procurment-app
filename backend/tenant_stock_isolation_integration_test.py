@@ -5,6 +5,7 @@ creates Tenant A and Tenant B users, then exercises purchase receipt and materia
 through the actual HTTP API. Raw MongoDB is used only for verification that ledger documents
 are tagged with the correct tenant.
 """
+from integrity_master_fixture import fill_required  # noqa: E402
 import os
 import sys
 import time
@@ -71,6 +72,7 @@ def create_master(session, name, code, display_name, extra=None):
     body = {"code": code, "name": display_name, "is_active": True}
     if extra:
         body.update(extra)
+    body = fill_required(session, API, name, body)
     return post_ok(session, f"/master/{name}", body, f"Create {name} {code}")
 
 

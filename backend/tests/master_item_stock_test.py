@@ -144,7 +144,7 @@ def main():
           and r["items"] and all(set(x["stock"]) <= {whA["id"]} for x in r["items"]), f"{codes(r)}")
     sc, r = page(f"page=1&warehouse_id={whA2['id']}")
     check("filter gudang: total & status dihitung untuk gudang terpilih", r.get("total") == 1 and r["items"][0]["total_stock"] == 4 and r["items"][0]["stock_status"] == "Low Stock")
-    call("PUT", f"master/items/{items[6]['id']}", {"is_active": False}, 200)
+    call("PUT", f"master/items/{items[6]['id']}", {**items[6], "is_active": False}, 200)
     sc, r = page("page=1&active=Nonaktif")
     check("filter status barang Nonaktif", codes(r) == [f"MS{u}-06"])
     sc, r = page("page=1&page_size=100&sort=code&dir=asc&q=MS" + u)
@@ -162,7 +162,8 @@ def main():
     sc, q25, _ = qcount(T.S, "page=1&page_size=25")
     sc, q100, _ = qcount(T.S, "page=1&page_size=100")
     for i in range(30, 45):
-        call("POST", "master/items", {"code": f"MS{u}-{i:02d}", "name": f"Barang Stok {i:02d}", "unit": "PCS", "is_active": True, "division_id": dA["id"]}, 200)
+        call("POST", "master/items", {"code": f"MS{u}-{i:02d}", "name": f"Barang Stok {i:02d}", "unit": "PCS", "is_active": True, "division_id": dA["id"],
+                                      "base_uom_id": uom["id"], "category_id": cats[0]["id"]}, 200)
     sc, q100b, _ = qcount(T.S, "page=1&page_size=100")
     print(f"  query/request: page25={q25} page100={q100} page100+15barang={q100b}")
     check("tanpa N+1: query konstan (25 vs 100 baris, +15 barang)", q25 is not None and q25 == q100 == q100b and q25 <= 15, f"{q25} {q100} {q100b}")
@@ -204,7 +205,10 @@ def main():
     ob = lambda m, p, b=None: Tb.request(m, f"{API}/{p}", json=b).json()  # noqa: E731
     owh = ob("POST", "master/warehouses", {"code": "OW1", "name": "Gudang Tenant Lain", "is_active": True})
     odiv = ob("POST", "master/divisions", {"code": "OD1", "name": "Div Lain"})
-    oit = ob("POST", "master/items", {"code": "OI1", "name": "Barang Tenant Lain", "unit": "PCS", "is_active": True, "division_id": odiv["id"]})
+    ocat = ob("POST", "master/item_categories", {"code": "OK1", "name": "Kat Lain"})
+    ouom = ob("POST", "master/uoms", {"code": "OS1", "name": "Sat Lain"})
+    oit = ob("POST", "master/items", {"code": "OI1", "name": "Barang Tenant Lain", "unit": "PCS", "is_active": True, "division_id": odiv["id"],
+                                      "category_id": ocat["id"], "base_uom_id": ouom["id"]})
     Tb.post(f"{API}/adjustments", json={"date": "2026-09-20", "warehouse_id": owh["id"], "division_id": odiv["id"], "adj_type": "Opening", "reason": "x",
                                         "lines": [{"item_id": oit["id"], "adjustment": 99, "approved_unit_cost": 1000, "reason": "x"}]})
     r = ob("GET", f"{EP}?page=1&page_size=100")
