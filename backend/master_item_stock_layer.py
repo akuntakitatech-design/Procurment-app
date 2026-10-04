@@ -29,7 +29,7 @@ from fastapi import Depends, HTTPException, Request
 SIZES = (25, 50, 100)
 STATUSES = ("Normal", "Low Stock", "Out of Stock", "Overstock", "No Stock")
 SORTS = {"code", "name", "category_label", "unit_label", "division_label", "total_stock", "stock_status", "created_at"}
-STATUS_RANK = {"Out of Stock": 0, "Low Stock": 1, "Normal": 2, "Overstock": 3, "No Stock": 4}
+STATUS_RANK = {"Out of Stock": 0, "Low Stock": 1, "Normal": 2, "Overstock": 3}
 ITEM_PROJECTION = {"_id": 0}
 
 
@@ -53,9 +53,9 @@ def cell_status(cur, mn, mx) -> str:
 
 
 def item_status(total, min_total, max_total, records) -> str:
-    """Rule existing level barang (Inventory / Posisi Stok): total vs jumlah min/max seluruh gudang."""
-    if not records:
-        return "No Stock"
+    """Rule level barang (Inventory / Posisi Stok): total vs jumlah min/max seluruh gudang.
+    Total stok 0 = Stok Habis, termasuk barang yang belum punya catatan stok di gudang mana pun
+    (sel gudangnya tetap tampil "Belum ada stok"; penanda `stock_records` = 0)."""
     total, min_total, max_total = _f(total), _f(min_total), _f(max_total)
     if total <= 0:
         return "Out of Stock"
@@ -214,13 +214,18 @@ def install(server):
                          "total_stock": round(total, 6), "stock_records": n,
                          "stock_status": item_status(total, mn, mx, n)})
 
+        # out_of_stock mencakup barang tanpa catatan stok; no_stock = bagian dari out_of_stock (informasi).
         summary = {"total": len(rows), "out_of_stock": 0, "low_stock": 0, "overstock": 0, "normal": 0, "no_stock": 0}
-        key = {"Out of Stock": "out_of_stock", "Low Stock": "low_stock", "Overstock": "overstock", "Normal": "normal", "No Stock": "no_stock"}
+        key = {"Out of Stock": "out_of_stock", "Low Stock": "low_stock", "Overstock": "overstock", "Normal": "normal"}
         for r in rows:
             summary[key[r["stock_status"]]] += 1
+            if not r["stock_records"]:
+                summary["no_stock"] += 1
 
         st = qp.get("stock_status") or ""
-        if st in STATUSES:
+        if st == "No Stock":
+            rows = [r for r in rows if not r["stock_records"]]
+        elif st in STATUSES:
             rows = [r for r in rows if r["stock_status"] == st]
 
         sort = qp.get("sort") if qp.get("sort") in SORTS else None

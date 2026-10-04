@@ -108,7 +108,7 @@ def main():
     check("Total Stok = jumlah seluruh gudang terlihat", i0["total_stock"] == 14)
     check("status barang: Normal / Menipis / Overstock / Habis", (i0["stock_status"], i1["stock_status"], i2["stock_status"], i3["stock_status"]) == ("Normal", "Low Stock", "Overstock", "Out of Stock"),
           (i0["stock_status"], i1["stock_status"], i2["stock_status"], i3["stock_status"]))
-    check("barang tanpa record stok -> Belum ada stok (tanpa sel)", i5["stock_status"] == "No Stock" and i5["stock"] == {} and i5["total_stock"] == 0)
+    check("barang tanpa record stok -> Stok Habis (total 0), sel kosong, penanda stock_records=0", i5["stock_status"] == "Out of Stock" and i5["stock_records"] == 0 and i5["stock"] == {} and i5["total_stock"] == 0)
     check("label Kategori/Divisi/Satuan human-readable", i0["category_label"] == f"Kat{u} Alfa" and i0["division_label"] == dA["name"] and i0["unit_label"] == uom["symbol"], (i0["category_label"], i0["division_label"], i0["unit_label"]))
     blob = str(r).lower()
     check("tidak ada nilai HPP / moving average / harga", not any(k in blob for k in ("avg_cost", "average_cost", "moving", "hpp", "'price'", "total_value")))
@@ -118,13 +118,18 @@ def main():
 
     # --- ringkasan (seluruh dataset sesuai filter, bukan halaman aktif)
     s = r["summary"]
-    check("ringkasan: Jumlah Item / Habis / Menipis / Overstock", (s["total"], s["out_of_stock"], s["low_stock"], s["overstock"]) == (32, 1, 1, 1), s)
+    check("ringkasan: Jumlah Item / Habis (termasuk belum ada stok) / Menipis / Overstock", (s["total"], s["out_of_stock"], s["low_stock"], s["overstock"], s["no_stock"]) == (32, 28, 1, 1, 27), s)
+    check("ringkasan Stok Habis = jumlah barang ber-total 0", s["out_of_stock"] == sum(1 for x in r["items"] if x["total_stock"] <= 0))
     sc, r1 = page("page=2&page_size=25")
     check("ringkasan sama di halaman lain", r1["summary"] == s)
     sc, rs = page("page=1&stock_status=Low Stock")
     check("filter status stok + ringkasan tetap utuh", codes(rs) == [f"MS{u}-01"] and rs["summary"] == s, f"{codes(rs)}")
+    sc, rs = page("page=1&page_size=100&stock_status=Out of Stock")
+    check("kartu Stok Habis: filter memuat barang ber-stok 0 + belum ada stok", rs["total"] == 28 and all(x["total_stock"] <= 0 for x in rs["items"]), rs.get("total"))
+    sc, rs = page("page=1&page_size=100&stock_status=No Stock")
+    check("filter Belum ada stok (kompatibel)", rs["total"] == 27 and all(x["stock_records"] == 0 for x in rs["items"]))
     sc, rs = page(f"page=1&category_id={cats[1]['id']}")
-    check("ringkasan mengikuti filter kategori", rs["summary"]["total"] == 15 and rs["summary"]["low_stock"] == 1 and rs["summary"]["out_of_stock"] == 1, rs["summary"])
+    check("ringkasan mengikuti filter kategori", rs["summary"]["total"] == 15 and rs["summary"]["low_stock"] == 1 and rs["summary"]["out_of_stock"] == 14, rs["summary"])
 
     # --- search / filter / sort backend seluruh dataset
     sc, r = page(f"page=1&q=MS{u}-01")
@@ -174,7 +179,7 @@ def main():
           and f"MS{u}-20" not in codes(r) and r["total"] == 37, f"{sc} {r.get('total')}")
     check("divisi A: kolom gudang divisi B tersembunyi", whB["id"] not in vis_wh and {whA["id"], whA2["id"]} <= vis_wh, vis_wh)
     check("divisi A: opsi filter Divisi hanya divisi dalam cakupan", [d["id"] for d in r["filters"]["divisions"]] == [dA["id"]], r["filters"]["divisions"])
-    check("divisi A: ringkasan hanya dataset dalam cakupan", r["summary"]["total"] == 37 and r["summary"]["out_of_stock"] == 1)
+    check("divisi A: ringkasan hanya dataset dalam cakupan", r["summary"]["total"] == 37 and r["summary"]["out_of_stock"] == 34, r["summary"])
     check("divisi A: search tidak membocorkan barang divisi B", page(f"page=1&q=MS{u}-20", A)[1].get("total") == 0)
     check("divisi A: filter divisi B -> 403", page(f"page=1&division_id={dB['id']}", A)[0] == 403)
     check("divisi A: filter gudang divisi B -> 403", page(f"page=1&warehouse_id={whB['id']}", A)[0] == 403)
