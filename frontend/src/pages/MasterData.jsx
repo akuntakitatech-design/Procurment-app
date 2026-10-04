@@ -24,6 +24,7 @@ import { useServerList } from "@/lib/serverList";
 import { nextSort } from "@/lib/txnList";
 import { ListPager, SortTh } from "@/components/ListPager";
 import { toast } from "sonner";
+import { ItemStockTab } from "@/components/master/ItemStockTab";
 
 const CONFIGS = {
   items: { label: "Barang", fields: [
@@ -301,7 +302,14 @@ export function MasterQuickCreate({ name, open, onClose, onCreated }) {
 const STATUS_FILTER = [{ value: "", label: "Semua Status" }, { value: "Aktif", label: "Aktif" }, { value: "Nonaktif", label: "Nonaktif" }];
 const sortKey = (f) => (f.ref ? `${f.k.slice(0, -3)}_label` : f.k);
 
+const ITEM_REF_NAMES = masterRefNames("items");
+
 function MasterTab({ name }) {
+  if (name === "items") return <ItemStockTab FormDialog={MasterFormDialog} newForm={newMasterForm} refNames={ITEM_REF_NAMES} />;
+  return <GenericMasterTab name={name} />;
+}
+
+function GenericMasterTab({ name }) {
   const cfg = CONFIGS[name];
   const { can } = useAuth();
   const [status, setStatus] = useState("");

@@ -262,6 +262,10 @@ txn_list_paging_layer.install(server)
 import master_list_paging_layer  # noqa: E402
 master_list_paging_layer.install(server)
 
+# Master Barang: daftar barang + stok per gudang (server-side, batch query, setelah tenant/izin/divisi).
+import master_item_stock_layer  # noqa: E402
+master_item_stock_layer.install(server)
+
 
 # Paling luar: header Server-Timing (jumlah/durasi query DB) untuk audit performa.
 if server.DB_BACKEND == "mariadb":
