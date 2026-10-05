@@ -17,6 +17,7 @@ from fastapi import Depends, File, Form, HTTPException, Query, Request, UploadFi
 import mariadb_motor
 import receipt_control_layer as RC
 import storage as S
+import supplier_dp_layer as SDP
 import transaction_mutation_layer as TM
 from attachment_integrity_guard_layer import _validate_file
 
@@ -24,6 +25,7 @@ TOL = 1.0            # toleransi Rp1 untuk status penagihan DO & selisih invoice
 EPS = 0.005
 BILL = ("Belum Ditagihkan", "Ditagihkan Sebagian", "Sudah Ditagihkan Penuh")
 PAY = ("Belum Dibayar", "Dibayar Sebagian", "Lunas")
+SETTLE = ("Belum Lunas", "Lunas")   # Status Hutang: apakah kewajiban Invoice masih bersaldo (terpisah dari payment_status)
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _LOCK = asyncio.Lock()
 ATT_ENTITIES = {"invoice", "invoice_payment"}
@@ -61,10 +63,18 @@ def bill_status(value, billed):
     return BILL[2] if billed >= value - TOL else BILL[1]
 
 
-def pay_status(amount, paid):
+def pay_status(amount, paid, dp=0.0):
+    """Status pembayaran mengikuti pembayaran Invoice AKTUAL (paid_total).
+    DP Supplier bukan pembayaran Invoice: tanpa pembayaran aktual status tetap Belum Dibayar walau ada alokasi DP.
+    DP hanya ikut menentukan apakah sisa hutang sudah habis (Lunas) setelah ada pembayaran aktual."""
     if paid <= EPS:
         return PAY[0]
-    return PAY[2] if paid >= amount - EPS else PAY[1]
+    return PAY[2] if paid + dp >= amount - EPS else PAY[1]
+
+
+def settlement_status(amount, dp, paid):
+    """Status Hutang dari sisa kewajiban (amount - DP dialokasikan - pembayaran aktual). DP penuh tanpa kas -> Lunas."""
+    return SETTLE[1] if float(amount or 0) - float(dp or 0) - float(paid or 0) <= EPS else SETTLE[0]
 
 
 def today():
@@ -74,6 +84,9 @@ def today():
 def due_state(inv, td):
     if inv.get("payment_status") == PAY[2]:
         return "Lunas"
+    rem = float(inv.get("amount") or 0) - float(inv.get("dp_allocated_total") or 0) - float(inv.get("paid_total") or 0)
+    if rem <= EPS:
+        return "-"   # sisa hutang nol (tertutup DP) -> tidak ada kewajiban jatuh tempo
     dd = str(inv.get("due_date") or "")[:10]
     if not dd:
         return "-"
@@ -163,14 +176,20 @@ def install(server):
         td = today()
         for i in invs:
             ts = [tr.get(d) or {} for d in i.get("do_ids") or []]
+            # payment_status selalu diturunkan dari pembayaran aktual tersimpan (mencegah status usang)
+            i["payment_status"] = pay_status(float(i.get("amount") or 0), float(i.get("paid_total") or 0), float(i.get("dp_allocated_total") or 0))
             i.update({
                 "supplier_name": (sups.get(i.get("supplier_id")) or {}).get("name"),
                 "do_nos": ", ".join(t.get("no") for t in ts if t.get("no")),
                 "trace_po": join(ts, "trace_po"), "trace_ro": join(ts, "trace_ro"), "trace_mro": join(ts, "trace_mro"),
                 "trace_spk": join(ts, "trace_spk"), "trace_project": join(ts, "trace_project"),
                 "trace_division": join(ts, "trace_division"),
-                "remaining": round(float(i.get("amount") or 0) - float(i.get("paid_total") or 0), 2),
+                "dp_allocated_total": round(float(i.get("dp_allocated_total") or 0), 2),
+                # Sisa Hutang = Nilai Invoice - DP Dialokasikan - Pembayaran Invoice Aktual (paid_total TIDAK memuat DP)
+                "remaining": round(float(i.get("amount") or 0) - float(i.get("dp_allocated_total") or 0) - float(i.get("paid_total") or 0), 2),
                 "due_state": due_state(i, td),
+                # payment_status = pembayaran Invoice aktual; settlement_status = Status Hutang (saldo kewajiban)
+                "settlement_status": settlement_status(i.get("amount"), i.get("dp_allocated_total"), i.get("paid_total")),
             })
         return invs
 
@@ -276,20 +295,33 @@ def install(server):
                 raise HTTPException(409, f"No Invoice {invoice_no} untuk Supplier ini sudah tercatat.")
             raise
 
-    def snap(inv, rows=None):
+    def snap(inv, rows=None, dp_rows=None):
         keep = ("no", "supplier_id", "invoice_no", "invoice_date", "received_date", "due_date", "dpp", "tax_amount", "amount",
-                "alloc_total", "diff", "diff_reason", "notes", "paid_total", "payment_status")
+                "alloc_total", "diff", "diff_reason", "notes", "paid_total", "dp_allocated_total", "payment_status")
         s = {k: inv.get(k) for k in keep}
         if rows is not None:
             s["allocations"] = [{"do_no": r["do_no"], "amount": r["amount"]} for r in rows]
+        if dp_rows is not None:
+            s["dp_allocations"] = [{"po_no": r.get("po_no"), "dp_no": r.get("dp_no"), "amount": r["amount"]} for r in dp_rows]
         return s
+
+    def dp_input(body):
+        raw = (body or {}).get("dp_allocations") or []
+        if not isinstance(raw, list):
+            raise HTTPException(400, "Format alokasi DP tidak valid")
+        return [{"po_id": str((a or {}).get("po_id") or "")[:50], "amount": (a or {}).get("amount")} for a in raw]
+
+    def do_alloc_of(rows):
+        return [{"do_id": r["do_id"], "amount": r["amount"]} for r in rows]
 
     async def refresh_paid(iid):
         inv = await db().vendor_invoices.find_one({"id": iid}, {"_id": 0})
         pays = await db().vendor_invoice_payments.find({"invoice_id": iid, "status": "Aktif"}, {"_id": 0, "amount": 1}).to_list(10000)
         paid = round(sum(float(p.get("amount") or 0) for p in pays), 2)
-        st = pay_status(float(inv.get("amount") or 0), paid)
-        await db().vendor_invoices.update_one({"id": iid}, {"$set": {"paid_total": paid, "payment_status": st, "updated_at": server.now_iso()}})
+        dp = await SDP.invoice_dp_total(server, iid)
+        st = pay_status(float(inv.get("amount") or 0), paid, dp)
+        await db().vendor_invoices.update_one({"id": iid}, {"$set": {"paid_total": paid, "dp_allocated_total": dp, "payment_status": st,
+                                                                    "updated_at": server.now_iso()}})
         return paid, st
 
     # ------------------------------------------------------------------ routes (static paths first)
@@ -345,6 +377,43 @@ def install(server):
         rows = await do_billing_rows(user, supplier_id=supplier_id, exclude=invoice_id)
         return [r for r in rows if r["remaining"] > EPS or r["do_id"] in mine]
 
+    async def dp_do_allocs(body, supplier_id, user):
+        out, seen = [], set()
+        for a in (body or {}).get("allocations") or []:
+            did = (a or {}).get("do_id")
+            amt = money((a or {}).get("amount") or 0, "Nilai alokasi DO")
+            if not did or amt <= 0 or did in seen:
+                continue
+            seen.add(did)
+            out.append({"do_id": did, "amount": amt})
+        if out:
+            dos = {d["id"]: d for d in await db().do.find({"id": {"$in": [a["do_id"] for a in out]}}, {"_id": 0}).to_list(len(out) + 5)}
+            for a in out:
+                d = dos.get(a["do_id"])
+                # DO tidak ada / di luar cakupan divisi -> pesan generik yang sama (tidak membocorkan keberadaan DO).
+                if not d or not await server.ACCESS_DOC_VISIBLE("do", a["do_id"], user):
+                    raise HTTPException(404, "DO tidak ditemukan atau tidak dapat diakses.")
+                if d.get("supplier_id") != supplier_id:
+                    raise HTTPException(400, f"DO {d.get('no')} berasal dari Supplier lain.")
+        return out
+
+    @app.post("/api/vendor-invoices/dp-candidates", tags=["vendor-invoice"])
+    async def dp_candidates_preview(body: dict = None, user=Depends(cu)):
+        """Kandidat DP untuk form invoice (belum tersimpan) berdasarkan alokasi DO yang sedang dipilih."""
+        body = body or {}
+        need_any(user, ["invoice.create", "invoice.edit"], "mencatat")
+        iid = body.get("invoice_id") or None
+        sup = (await get_inv(iid, user))["supplier_id"] if iid else body.get("supplier_id")
+        if not sup:
+            raise HTTPException(400, "Supplier wajib dipilih")
+        return await SDP.invoice_dp_candidates(server, user, sup, await dp_do_allocs(body, sup, user), iid)
+
+    @app.get("/api/vendor-invoices/{iid}/dp-candidates", tags=["vendor-invoice"])
+    async def dp_candidates_saved(iid: str, user=Depends(cu)):
+        inv = await get_inv(iid, user)
+        allocs = await db().vendor_invoice_allocations.find({"invoice_id": iid}, {"_id": 0}).to_list(5000)
+        return await SDP.invoice_dp_candidates(server, user, inv["supplier_id"], [{"do_id": a["do_id"], "amount": a["amount"]} for a in allocs], iid)
+
     @app.get("/api/vendor-invoices/do/{do_id}", tags=["vendor-invoice"])
     async def invoices_for_do(do_id: str, user=Depends(cu)):
         d = await db().do.find_one({"id": do_id}, {"_id": 0})
@@ -368,18 +437,27 @@ def install(server):
     async def create_invoice(body: dict, user=Depends(cu)):
         async with _LOCK:
             data, rows = await validate(body or {}, user)
-            iid = server.gid()
-            await claim_key(data["supplier_id"], data["invoice_no"], iid)
-            try:
-                doc = {"id": iid, "no": await server.next_number("INV"), **data, "status": "Diterima", "paid_total": 0.0,
-                       "payment_status": PAY[0], "created_by": user.get("email"), "created_by_name": user.get("name"),
-                       "created_at": server.now_iso(), "updated_at": server.now_iso()}
-                await db().vendor_invoices.insert_one(doc)
-                await save_allocs(iid, rows, user)
-            except Exception:
-                await db().vendor_invoice_keys.delete_one({"id": key_id(data["supplier_id"], data["invoice_no"])})
-                raise
-            await server.audit(user, "create", "invoice", iid, doc["no"], after=snap(doc, rows))
+            raw_dp = dp_input(body)
+            async with SDP.dp_locks(server, [a.get("po_id") for a in raw_dp]):
+                # DP tersedia dihitung ulang DI DALAM kunci (anti double-use lintas invoice/proses).
+                dp_rows, _dp_total = await SDP.validate_invoice_dp(server, user, data["supplier_id"], do_alloc_of(rows), raw_dp, None, data["amount"], 0.0)
+                iid = server.gid()
+                await claim_key(data["supplier_id"], data["invoice_no"], iid)
+                try:
+                    doc = {"id": iid, "no": await server.next_number("INV"), **data, "status": "Diterima", "paid_total": 0.0,
+                           "dp_allocated_total": 0.0, "payment_status": PAY[0], "created_by": user.get("email"),
+                           "created_by_name": user.get("name"), "created_at": server.now_iso(), "updated_at": server.now_iso()}
+                    await db().vendor_invoices.insert_one(doc)
+                    await save_allocs(iid, rows, user)
+                    await SDP.save_invoice_dp(server, iid, dp_rows, user)
+                except Exception:
+                    await db().vendor_invoice_keys.delete_one({"id": key_id(data["supplier_id"], data["invoice_no"])})
+                    await db().vendor_invoice_dp_allocations.delete_many({"invoice_id": iid})
+                    raise
+                if dp_rows:
+                    await refresh_paid(iid)
+                    doc = await db().vendor_invoices.find_one({"id": iid}, {"_id": 0})
+            await server.audit(user, "create", "invoice", iid, doc["no"], after=snap(doc, rows, dp_rows))
         return await detail(iid, user)
 
     async def detail(iid, user):
@@ -393,6 +471,7 @@ def install(server):
                                "billing_status": bill_status(vals[a["do_id"]]["total"], billed.get(a["do_id"], 0.0)),
                                **{k: (tr.get(a["do_id"]) or {}).get(k) for k in ("trace_po", "trace_ro", "trace_mro", "trace_spk", "trace_project", "trace_division")}}
                               for a in allocs]
+        inv["dp_allocations"] = await SDP.invoice_dp_detail(server, iid)
         inv["payments"] = await db().vendor_invoice_payments.find({"invoice_id": iid}, {"_id": 0}).sort("created_at", 1).to_list(10000)
         atts = await db().attachments.find({"invoice_id": iid, "is_deleted": False}, {"_id": 0, "storage_path": 0}).to_list(2000)
         inv["files"] = [a for a in atts if a.get("entity") == "invoice"]
@@ -416,14 +495,29 @@ def install(server):
             old_rows = await db().vendor_invoice_allocations.find({"invoice_id": iid}, {"_id": 0}).to_list(5000)
             cur["_allocations"] = [{"do_id": a["do_id"], "amount": a["amount"]} for a in old_rows]
             data, rows = await validate(body or {}, user, current=cur)
-            if data["invoice_no_norm"] != cur.get("invoice_no_norm"):
-                await claim_key(cur["supplier_id"], data["invoice_no"], iid)
-                await db().vendor_invoice_keys.delete_one({"id": key_id(cur["supplier_id"], cur["invoice_no"])})
-            await db().vendor_invoices.update_one({"id": iid}, {"$set": {**data, "updated_at": server.now_iso(), "updated_by": user.get("email")}})
-            await save_allocs(iid, rows, user)
-            await refresh_paid(iid)
+            old_dp = await SDP.invoice_dp_detail(server, iid)
+            explicit = "dp_allocations" in (body or {})
+            # Edit tanpa dp_allocations: alokasi DP lama ikut dimuat & divalidasi ulang (tidak hilang, tidak dihapus diam-diam).
+            raw_dp = dp_input(body) if explicit else [{"po_id": a["po_id"], "amount": a["amount"]} for a in old_dp]
+            async with SDP.dp_locks(server, [a.get("po_id") for a in raw_dp] + [a["po_id"] for a in old_dp]):
+                pays = await db().vendor_invoice_payments.find({"invoice_id": iid, "status": "Aktif"}, {"_id": 0, "amount": 1}).to_list(10000)
+                paid_now = round(sum(float(p.get("amount") or 0) for p in pays), 2)
+                try:
+                    dp_rows, _dp_total = await SDP.validate_invoice_dp(server, user, cur["supplier_id"], do_alloc_of(rows), raw_dp, iid, data["amount"], paid_now)
+                except HTTPException as exc:
+                    if explicit:
+                        raise
+                    raise HTTPException(exc.status_code, f"Perubahan invoice membuat alokasi DP Supplier yang sudah ada tidak valid: {exc.detail} "
+                                                         "Sesuaikan alokasi DP terlebih dahulu.")
+                if data["invoice_no_norm"] != cur.get("invoice_no_norm"):
+                    await claim_key(cur["supplier_id"], data["invoice_no"], iid)
+                    await db().vendor_invoice_keys.delete_one({"id": key_id(cur["supplier_id"], cur["invoice_no"])})
+                await db().vendor_invoices.update_one({"id": iid}, {"$set": {**data, "updated_at": server.now_iso(), "updated_by": user.get("email")}})
+                await save_allocs(iid, rows, user)
+                await SDP.save_invoice_dp(server, iid, dp_rows, user)
+                await refresh_paid(iid)
             new = await db().vendor_invoices.find_one({"id": iid}, {"_id": 0})
-            await server.audit(user, "edit", "invoice", iid, cur.get("no"), before=snap(cur, old_rows), after=snap(new, rows),
+            await server.audit(user, "edit", "invoice", iid, cur.get("no"), before=snap(cur, old_rows, old_dp), after=snap(new, rows, dp_rows),
                                reason=(body or {}).get("edit_reason"))
         return await detail(iid, user)
 
@@ -434,11 +528,13 @@ def install(server):
             if await db().vendor_invoice_payments.find_one({"invoice_id": iid, "status": "Aktif"}, {"_id": 0, "id": 1}):
                 raise HTTPException(409, "Invoice sudah memiliki pembayaran aktif. Batalkan pembayaran terlebih dahulu sebelum menghapus invoice.")
             rows = await db().vendor_invoice_allocations.find({"invoice_id": iid}, {"_id": 0}).to_list(5000)
+            dp_rows = await SDP.invoice_dp_detail(server, iid)
             await db().vendor_invoice_allocations.delete_many({"invoice_id": iid})
+            await db().vendor_invoice_dp_allocations.delete_many({"invoice_id": iid})  # DP kembali tersedia
             await db().vendor_invoice_keys.delete_one({"id": key_id(cur["supplier_id"], cur["invoice_no"])})
             await db().vendor_invoices.delete_one({"id": iid})
             await db().attachments.update_many({"invoice_id": iid, "is_deleted": False}, {"$set": {"is_deleted": True, "deleted_by": user.get("email"), "deleted_at": server.now_iso()}})
-            await server.audit(user, "delete", "invoice", iid, cur.get("no"), before=snap(cur, rows))
+            await server.audit(user, "delete", "invoice", iid, cur.get("no"), before=snap(cur, rows, dp_rows))
         return {"ok": True}
 
     @app.post("/api/vendor-invoices/{iid}/payments", tags=["vendor-invoice"])
@@ -451,7 +547,7 @@ def install(server):
             if amt <= 0:
                 raise HTTPException(400, "Nilai Dibayar harus lebih dari 0")
             paid, _ = await refresh_paid(iid)
-            rem = round(float(inv.get("amount") or 0) - paid, 2)
+            rem = round(float(inv.get("amount") or 0) - await SDP.invoice_dp_total(server, iid) - paid, 2)
             if amt > rem + EPS:
                 raise HTTPException(409, f"Nilai pembayaran melebihi sisa invoice (Sisa Rp {rem:,.0f}).".replace(",", "."))
             pay = {"id": server.gid(), "invoice_id": iid, "date": pdate, "amount": amt,

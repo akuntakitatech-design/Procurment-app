@@ -33,7 +33,8 @@ GROUPS = [
         ("mi", "MI", TXN_ACTIONS + ["direct"]), ("transfer", "Transfer Antar Gudang", TXN_ACTIONS),
         ("loan", "Pinjam Antar Gudang", TXN_ACTIONS), ("adjustment", "Penyesuaian Stok", TXN_ACTIONS),
         ("opname", "Stock Opname", TXN_ACTIONS)]),
-    ("keuangan", "Keuangan", [("invoice", "Invoice Vendor", CRUD + ["pay", "print"])]),
+    ("keuangan", "Keuangan", [("invoice", "Invoice Vendor", CRUD + ["pay", "print"]),
+                              ("supplier_dp", "DP Supplier", ["view", "approve", "print"])]),
     ("procurement", "Master Procurement", [("spk", "SPK", CRUD), ("vendor_contracts", "Kontrak Harga Vendor", CRUD)]),
     ("barang", "Master Barang & Persediaan", [("items", "Barang", CRUD), ("item_categories", "Kategori Barang", CRUD),
                                              ("uoms", "Satuan", CRUD), ("stock_minmax", "Stok Min/Max", CRUD)]),
@@ -111,6 +112,8 @@ def legacy_to_granular(perms, role=None) -> set:
     out |= {k for k, _ in SPECIALS if k in p}
     if role in ("director", "purchasing"):
         out |= {f"invoice.{a}" for a in ("view", "create", "edit", "pay", "print")} | ({"invoice.delete"} if "delete" in p else set())
+        # DP Supplier TIDAK diturunkan dari permission Invoice Vendor. Default hanya Admin (ALL_KEYS);
+        # role/user lain diberikan manual lewat granular permission (supplier_dp.view/approve/print).
     elif role == "manager":
         out |= {"invoice.view", "invoice.print"}
     return out & ALL_KEYS
@@ -220,7 +223,7 @@ def install(server):
             return None, [], []  # authorised inside the lookup endpoint (functional reason)
         if head == "vendor-invoices":
             sub = seg[1] if len(seg) > 1 else None
-            if sub == "eligible-dos":
+            if sub in ("eligible-dos", "dp-candidates"):
                 return None, [], []  # create OR edit, checked inside the endpoint
             if len(seg) == 1:
                 return "invoice", ["view" if method == "GET" else "create"], []
@@ -228,6 +231,11 @@ def install(server):
                 return "invoice", [{"PUT": "edit", "DELETE": "delete"}.get(method, "view")], []
             act = {"payments": "pay", "print": "print"}.get(seg[2], "view")
             return "invoice", [act], []
+        if head == "supplier-dp":
+            # GET list/detail -> view; draft/edit/approve/cancel -> approve; print -> print (dicek ulang di endpoint).
+            if len(seg) >= 4 and seg[1] == "payments" and seg[3] == "print":
+                return "supplier_dp", ["print"], []
+            return "supplier_dp", ["view" if method == "GET" else "approve"], []
         if head == "verify" and method == "POST":
             mod = str((body or {}).get("doc_type") or "").lower()
             mod = TXN_ALIAS.get(mod, mod)

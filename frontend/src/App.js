@@ -38,6 +38,8 @@ import { VendorContractList, VendorContractForm, VendorContractDetail } from "@/
 import InvoiceMonitoring from "@/pages/InvoiceMonitoring";
 import InvoiceForm from "@/pages/InvoiceForm";
 import InvoiceDetail from "@/pages/InvoiceDetail";
+import SupplierDp from "@/pages/SupplierDp";
+import SupplierDpDetail from "@/pages/SupplierDpDetail";
 
 function Loading() {
   return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Memuat...</div>;
@@ -121,6 +123,8 @@ function App() {
               <Route path="/invoice/new" element={<Protected><InvoiceForm /></Protected>} />
               <Route path="/invoice/:id" element={<Protected><InvoiceDetail /></Protected>} />
               <Route path="/invoice/:id/edit" element={<Protected><InvoiceForm /></Protected>} />
+              <Route path="/dp-supplier" element={<Protected><SupplierDp /></Protected>} />
+              <Route path="/dp-supplier/:poId" element={<Protected><SupplierDpDetail /></Protected>} />
               <Route path="/users" element={<Protected><Users /></Protected>} />
               <Route path="/settings" element={<Protected><Settings /></Protected>} />
             </Routes>

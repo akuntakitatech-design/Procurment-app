@@ -24,10 +24,12 @@ const INV_COLS = [
   { key: "invoice_date", label: "Tgl Invoice", date: true },
   { key: "due_date", label: "Jatuh Tempo", render: (r) => <div className="space-y-1"><div>{fmtD(r.due_date)}</div>{["Lewat Jatuh Tempo", "Jatuh Tempo"].includes(r.due_state) && <StatusBadge status={r.due_state} />}</div> },
   { key: "amount", label: "Nilai Invoice", money: true, num: true },
+  { key: "dp_allocated_total", label: "DP Dialokasikan", money: true, num: true },
   { key: "paid_total", label: "Sudah Dibayar", money: true, num: true },
-  { key: "remaining", label: "Sisa", money: true, num: true },
+  { key: "remaining", label: "Sisa Hutang", money: true, num: true },
   { key: "status", label: "Status Invoice", status: true },
   { key: "payment_status", label: "Status Pembayaran", status: true },
+  { key: "settlement_status", label: "Status Hutang", status: true },
 ];
 const DO_COLS = [
   { key: "do_no", label: "No DO", mono: true },
@@ -44,7 +46,7 @@ const DO_COLS = [
 ];
 const F = ({ children }) => <div className="w-44">{children}</div>;
 
-const INV_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["trace_division", 0, "Semua Divisi"], ["trace_project", 0, "Semua Proyek"], ["trace_spk", 0, "Semua SPK"], ["trace_po", 0, "Semua PO"], ["do_nos", 0, "Semua DO"], ["status", 0, "Semua Status Invoice"], ["payment_status", 0, "Semua Status Pembayaran"], ["due_state", 0, "Semua Jatuh Tempo"]];
+const INV_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["trace_division", 0, "Semua Divisi"], ["trace_project", 0, "Semua Proyek"], ["trace_spk", 0, "Semua SPK"], ["trace_po", 0, "Semua PO"], ["do_nos", 0, "Semua DO"], ["status", 0, "Semua Status Invoice"], ["payment_status", 0, "Semua Status Pembayaran"], ["settlement_status", 0, "Semua Status Hutang"], ["due_state", 0, "Semua Jatuh Tempo"]];
 const DO_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["division", 0, "Semua Divisi"], ["project", 0, "Semua Proyek"], ["spk", 0, "Semua SPK"], ["billing_status", 0, "Semua Status Penagihan"]];
 
 function useFilterUI(defs, facets) {

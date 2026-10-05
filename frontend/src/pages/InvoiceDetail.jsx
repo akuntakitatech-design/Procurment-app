@@ -39,6 +39,26 @@ function Allocations({ rows }) {
   );
 }
 
+function DpAllocations({ rows, canOpen }) {
+  const head = ["PO", "No. DP", "DP Dibayar", "DP Digunakan", "Sisa DP", "Alokasi ke Invoice"];
+  return (
+    <div className="overflow-x-auto rounded-lg border" data-testid="invoice-dp-allocations">
+      <table className="w-full min-w-[720px] text-sm">
+        <thead className="bg-muted"><tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{head.map((x, i) => <th key={x} className={`p-2.5 ${i >= 2 ? "text-right" : ""}`}>{x}</th>)}</tr></thead>
+        <tbody>{rows.map((a) => (
+          <tr key={a.id} className="border-t" data-testid={`invoice-dp-row-${a.po_no}`}>
+            <td className="p-2.5 font-mono text-xs font-semibold">{canOpen ? <Link to={`/dp-supplier/${a.po_id}`} className="text-primary hover:underline">{a.po_no}</Link> : a.po_no}</td>
+            <td className="p-2.5 font-mono text-xs">{a.dp_no}</td>
+            <td className="p-2.5 text-right tabular-nums">{rupiah(a.dp_paid)}</td>
+            <td className="p-2.5 text-right tabular-nums">{rupiah(a.dp_used)}</td>
+            <td className="p-2.5 text-right tabular-nums">{rupiah(a.dp_remaining)}</td>
+            <td className="p-2.5 text-right font-semibold tabular-nums">{rupiah(a.amount)}</td>
+          </tr>))}</tbody>
+      </table>
+    </div>
+  );
+}
+
 function History({ rows }) {
   return <div className="space-y-2" data-testid="invoice-history">{(rows || []).map((h) => (
     <div key={h.id} className="rounded-lg border p-2.5 text-xs">
@@ -62,16 +82,17 @@ export default function InvoiceDetail() {
   if (!inv) return <div className="p-8 text-muted-foreground">Memuat...</div>;
   return (
     <div className="space-y-4" data-testid="invoice-detail-page">
-      <TransactionPageHeader type="invoice" mode="view" number={inv.no || inv.invoice_no} subtitle={<span className="flex flex-wrap items-center gap-2">{inv.invoice_no && <span data-testid="invoice-detail-vendor-no">No. Faktur {inv.invoice_no}</span>}{inv.invoice_no && " · "}<StatusBadge status={inv.status} /><StatusBadge status={inv.payment_status} />{["Lewat Jatuh Tempo", "Jatuh Tempo"].includes(inv.due_state) && <StatusBadge status={inv.due_state} />}</span>}>
+      <TransactionPageHeader type="invoice" mode="view" number={inv.no || inv.invoice_no} subtitle={<span className="flex flex-wrap items-center gap-2">{inv.invoice_no && <span data-testid="invoice-detail-vendor-no">No. Faktur {inv.invoice_no}</span>}{inv.invoice_no && " · "}<StatusBadge status={inv.status} /><span className="inline-flex items-center gap-1 text-xs text-muted-foreground" data-testid="invoice-detail-payment-status">Pembayaran <StatusBadge status={inv.payment_status} /></span><span className="inline-flex items-center gap-1 text-xs text-muted-foreground" data-testid="invoice-detail-settlement-status">Status Hutang <StatusBadge status={inv.settlement_status} /></span>{["Lewat Jatuh Tempo", "Jatuh Tempo"].includes(inv.due_state) && <StatusBadge status={inv.due_state} />}</span>}>
         <Button variant="outline" onClick={() => nav("/invoice")}><ArrowLeft className="mr-2 h-4 w-4" />Kembali</Button>
         {can("invoice.print") && <Button variant="outline" onClick={print} data-testid="invoice-print-btn"><Printer className="mr-2 h-4 w-4" />Cetak</Button>}
         {can("invoice.edit") && <Button variant="outline" onClick={() => nav(`/invoice/${id}/edit`)} data-testid="invoice-edit-btn"><Pencil className="mr-2 h-4 w-4" />Edit</Button>}
         {can("invoice.delete") && <Button variant="outline" className="text-destructive" onClick={() => setDel(true)} data-testid="invoice-delete-btn"><Trash2 className="mr-2 h-4 w-4" />Hapus</Button>}
       </TransactionPageHeader>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <Big label="Nilai Invoice" value={inv.amount} tid="invoice-detail-amount" />
+        <Big label="DP Dialokasikan" value={inv.dp_allocated_total} tone="text-sky-700 dark:text-sky-300" tid="invoice-detail-dp" />
         <Big label="Sudah Dibayar" value={inv.paid_total} tone="text-emerald-600" tid="invoice-detail-paid" />
-        <Big label="Sisa" value={inv.remaining} tone={inv.remaining > 0 ? "text-rose-600" : ""} tid="invoice-detail-remaining" />
+        <Big label="Sisa Hutang" value={inv.remaining} tone={inv.remaining > 0 ? "text-rose-600" : ""} tid="invoice-detail-remaining" />
       </div>
       <Card><CardContent className="grid grid-cols-2 gap-4 pt-6 md:grid-cols-4">
         <Info label="Supplier" tid="invoice-detail-supplier">{inv.supplier_name}</Info>
@@ -92,6 +113,7 @@ export default function InvoiceDetail() {
         <Info label="Catatan">{inv.notes}</Info>
       </CardContent></Card>
       <Card><CardContent className="space-y-3 pt-6"><h3 className="font-head text-sm font-semibold">Alokasi DO & Traceability (Invoice → DO → PO → RO → MRO)</h3><Allocations rows={inv.allocations || []} /></CardContent></Card>
+      {(inv.dp_allocations || []).length > 0 && <Card><CardContent className="space-y-3 pt-6"><h3 className="font-head text-sm font-semibold">Alokasi DP Supplier</h3><DpAllocations rows={inv.dp_allocations} canOpen={can("supplier_dp.view")} /></CardContent></Card>}
       <Card><CardContent className="pt-6"><PaymentPanel inv={inv} canPay={can("invoice.pay")} onChanged={load} /></CardContent></Card>
       <Card className="no-print"><CardContent className="space-y-3 pt-6"><h3 className="font-head text-sm font-semibold">Lampiran Invoice</h3><div data-testid="invoice-attachments"><AttachmentPanel entity="invoice" entityId={inv.id} multiple canUpload={can("invoice.edit")} canDelete={can("invoice.edit")} /></div></CardContent></Card>
       <Card className="no-print"><CardContent className="space-y-3 pt-6"><h3 className="font-head text-sm font-semibold">Riwayat Perubahan & Pembayaran</h3><History rows={inv.history} /></CardContent></Card>
