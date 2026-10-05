@@ -114,12 +114,13 @@ export function OpeningValuation() {
           {!loading && rows.map((r) => {
             const k = keyOf(r);
             const valued = r.status === "valued";
+            const blocked = !valued && !!r.opening_blocked_reason;
             const liveCost = valued ? r.avg_cost : Number(costs[k] || 0);
-            const liveVal = valued ? r.inventory_value : r.qty_existing * (Number(costs[k]) || 0);
+            const liveVal = valued ? r.inventory_value : (r.opening_import_qty ?? r.qty_existing) * (Number(costs[k]) || 0);
             return <tr key={k} className="border-t" data-testid={`opening-row-${k}`}>
               <td className="p-2"><div className="font-medium">{r.item_name}</div><div className="font-mono text-[11px] text-muted-foreground">{r.item_code}</div></td>
               <td className="p-2">{r.warehouse_name}</td>
-              <td className="p-2 text-right tabular-nums font-semibold">{num(r.qty_existing)}</td>
+              <td className="p-2 text-right tabular-nums font-semibold">{num(r.qty_existing)}{r.opening_import_qty != null && r.opening_import_qty !== r.qty_existing && <div className="text-[11px] font-normal text-muted-foreground" data-testid={`opening-import-qty-${k}`}>Saldo awal: {num(r.opening_import_qty)}</div>}</td>
               <td className="p-2">{r.base_uom_name || "-"}</td>
               <td className="p-1.5">{valued
                 ? <span className="tabular-nums">{rupiah(r.avg_cost)}</span>
@@ -132,8 +133,9 @@ export function OpeningValuation() {
               <td className="p-2 text-right tabular-nums font-semibold" data-testid={`opening-value-${k}`}>{rupiah(liveVal)}</td>
               <td className="p-2">{valued
                 ? <Badge className="bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-0">Sudah Dinilai</Badge>
-                : <Badge variant="outline" className="text-amber-600 border-amber-500/40">Belum Dinilai</Badge>}</td>
-              <td className="p-1.5 text-right">{!valued && <Button size="sm" onClick={() => post(r)} disabled={savingKey === k || !(Number(costs[k]) > 0)} data-testid={`opening-save-${k}`}><Save className="h-3.5 w-3.5 mr-1" />{savingKey === k ? "…" : "Tetapkan"}</Button>}</td>
+                : <div><Badge variant="outline" className="text-amber-600 border-amber-500/40">Belum Dinilai</Badge>
+                  {blocked && <div className="mt-1 max-w-[260px] text-[11px] leading-4 text-destructive" data-testid={`opening-blocked-${k}`}>{r.opening_blocked_reason}</div>}</div>}</td>
+              <td className="p-1.5 text-right">{!valued && <Button size="sm" onClick={() => post(r)} disabled={blocked || savingKey === k || !(Number(costs[k]) > 0)} data-testid={`opening-save-${k}`}><Save className="h-3.5 w-3.5 mr-1" />{savingKey === k ? "…" : "Tetapkan"}</Button>}</td>
             </tr>;
           })}
         </tbody>

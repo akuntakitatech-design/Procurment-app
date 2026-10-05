@@ -1382,6 +1382,27 @@ def _opening_import_candidate(iw):
     return round(avg, 6)
 
 
+_OPENING_DOC_TYPES = ["Opening Balance", "Opening Balance Import"]
+OPENING_MOVED_MSG = ("Sudah terdapat transaksi stok setelah saldo awal pada barang dan gudang ini. "
+                     "Nilai awal tidak dapat ditetapkan otomatis; selesaikan/review transaksi tersebut terlebih dahulu.")
+
+
+async def _pools_with_non_opening_moves(item_ids):
+    """(item, gudang) yang punya movement stok NON-saldo-awal (termasuk yang sudah dibatalkan: HPP
+    transaksi tsb mungkin sudah memakai avg_cost lama). Engine replay/revaluasi tidak tersedia, jadi
+    pool seperti ini tidak boleh di-Tetapkan otomatis (rule konservatif)."""
+    ids = sorted({i for i in item_ids if i})
+    if not ids:
+        return set()
+    rows = await db.stock_ledger.find({"item_id": {"$in": ids}, "doc_type": {"$nin": _OPENING_DOC_TYPES}},
+                                      {"_id": 0, "item_id": 1, "warehouse_id": 1}).to_list(200000)
+    return {(r.get("item_id"), r.get("warehouse_id")) for r in rows}
+
+
+def _has_opening_slice(iw):
+    return float(iw.get("opening_qty") or 0) > 0
+
+
 @api.get("/valuation/opening-candidates")
 async def opening_candidates(q: str = None, warehouse_id: str = None, status: str = None,
                              user=Depends(current_user)):
@@ -1397,6 +1418,7 @@ async def opening_candidates(q: str = None, warehouse_id: str = None, status: st
     rows = [r for r in rows if _wh_in_scope(m["warehouses"].get(r.get("warehouse_id")), alw)]
     opened = {(o.get("item_id"), o.get("warehouse_id"))
               for o in await db.valuation_ledger.find({"doc_type": "Opening Valuation"}, {"_id": 0}).to_list(10000)}
+    moved = await _pools_with_non_opening_moves([r.get("item_id") for r in rows if _has_opening_slice(r)])
     out = []
     ql = (q or "").strip().lower()
     for r in rows:
@@ -1426,8 +1448,11 @@ async def opening_candidates(q: str = None, warehouse_id: str = None, status: st
             # Harga Beli Saldo Awal -> kandidat (status tetap Belum Dinilai sampai Tetapkan)
             "opening_cost_candidate": cand,
             "opening_cost_source": "Import Saldo Awal" if cand is not None else None,
-            "opening_value_candidate": round(qty * cand, 4) if cand is not None else None,
+            # Nilai opening = SLICE saldo awal (opening_qty x opening_average_cost), bukan qty saat ini.
+            "opening_value_candidate": round(float(r.get("opening_value") or 0), 4) if cand is not None else None,
             "opening_import_qty": float(r.get("opening_qty") or 0) or None,
+            "opening_blocked_reason": (OPENING_MOVED_MSG if (not is_valued and _has_opening_slice(r) and (
+                (r.get("item_id"), r.get("warehouse_id")) in moved or abs(float(r.get("opening_qty") or 0) - qty) > 1e-9)) else None),
             "status": "valued" if is_valued else "unvalued"})
     out.sort(key=lambda x: (x["status"] != "unvalued", x["item_name"] or "", x["warehouse_name"] or ""))
     return {"rows": out}
@@ -1458,6 +1483,11 @@ async def post_opening_valuation(body: dict, user=Depends(current_user)):
     exists = await db.valuation_ledger.find_one({"item_id": item_id, "warehouse_id": wh, "doc_type": "Opening Valuation"})
     if exists and not body.get("force"):
         raise HTTPException(400, "Opening valuation untuk pool ini sudah ada")
+    # Pool dari Import Saldo Awal: hanya boleh ditetapkan selama qty pool == opening slice dan belum ada
+    # movement non-saldo-awal (tidak ada engine replay HPP; histori tidak diubah otomatis).
+    if _has_opening_slice(iw) and (abs(float(iw.get("opening_qty") or 0) - qty) > 1e-9
+                                   or (item_id, wh) in await _pools_with_non_opening_moves([item_id])):
+        raise HTTPException(400, OPENING_MOVED_MSG)
     from decimal import Decimal, ROUND_HALF_UP
     val = (Decimal(str(qty)) * Decimal(str(cost))).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
     # Guard atomik (CAS pada pool): Tetapkan ganda/bersamaan tidak membuat valuasi dua kali dan

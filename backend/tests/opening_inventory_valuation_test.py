@@ -177,6 +177,71 @@ def main():
     sc2, _ = tetapkan(A, whC, 70000, nop)
     check("izin: tanpa Lihat Harga Beli tidak bisa melihat/menetapkan nilai (403)", sc == 403 and sc2 == 403, (sc, sc2))
 
+    # ================= HARDENING: re-import setelah Tetapkan & movement sebelum Tetapkan =================
+    mkit = lambda code, name: call("POST", "master/items", {"code": f"{code}{u}", "name": name, "unit": "PCS", "is_active": True, **ref}, 200)[1]
+    itE, itF, itG = mkit("PP", "Pipa"), mkit("VV", "Valve"), mkit("GS", "Gasket")
+    sc, r = imp([[itE["code"], "Pipa", pcs, wh["code"], "", 100, 10000]])
+    sc, _ = tetapkan(itE, wh, 10000)
+    snap = lambda: (cands()[1][(itE["id"], wh["id"])], n_ledger("valuation_ledger", itE["id"], wh["id"], "Opening Valuation"),
+                    n_ledger("stock_ledger", itE["id"], wh["id"]))
+    e0, vl0, sl0 = snap()
+    check("pool Pipa: import 100 x 10.000 lalu Tetapkan = 1.000.000", sc == 200 and e0["status"] == "valued" and e0["inventory_value"] == 1000000 and vl0 == 1, e0)
+    sc, r = imp([[itE["code"], "Pipa", pcs, wh["code"], "", 120, 10000]])
+    check("import ulang pool yang sudah ditetapkan DITOLAK dengan pesan jelas", sc == 200 and r.get("ok") is False
+          and any("sudah ditetapkan. Saldo awal tidak dapat diubah." in e for e in r.get("errors", [])), r)
+    sc, r2 = imp([[itE["code"], "Pipa", pcs, wh["code"], "", 100, 12000]])
+    check("import ulang harga saja (qty sama) juga ditolak", r2.get("ok") is False, r2)
+    e1, vl1, sl1 = snap()
+    check("setelah import ulang gagal: qty/avg/value/opening slice/ledger tidak berubah",
+          (e1["qty_existing"], e1["avg_cost"], e1["inventory_value"], e1["opening_import_qty"], e1["opening_cost_candidate"], e1["opening_value_candidate"], vl1, sl1)
+          == (100, 10000, 1000000, 100, 10000, 1000000, 1, sl0), (e1, vl1, sl1, sl0))
+    sc, r = imp([[itE["code"], "Pipa", pcs, wh["code"], "", 100, 10000]])
+    e2, vl2, sl2 = snap()
+    check("import ulang identik (tanpa perubahan) diterima tanpa menulis apa pun", r.get("ok") is True and (e2["qty_existing"], e2["inventory_value"], vl2, sl2) == (100, 1000000, 1, sl0), (r, e2))
+    sc, r = imp([[itE["code"], "Pipa", pcs, wh["code"], "", 130, 10000], [itG["code"], "Gasket", pcs, wh["code"], "", 8, 5000]])
+    sc2, Cg = cands()
+    check("file campuran (pool terkunci + pool lain) ditolak utuh: pool lain belum tersentuh", r.get("ok") is False and (itG["id"], wh["id"]) not in Cg, r)
+    sc, r = imp([[itG["code"], "Gasket", pcs, wh["code"], "", 8, 5000]])
+    sc2, _ = tetapkan(itG, wh, 5000)
+    sc3, Cg = cands()
+    check("pool lain tetap dapat diproses (import + Tetapkan Gasket 40.000)", r.get("ok") and sc2 == 200 and Cg[(itG["id"], wh["id"])]["inventory_value"] == 40000, (r, sc2))
+
+    # movement sebelum Tetapkan: saldo awal 100 x 10.000 lalu DO +20
+    M["valve"] = itF
+    sc, r = imp([[itF["code"], "Valve", pcs, wh["code"], "", 100, 10000]])
+    pov, _, _ = T.make_po(M, "supX", 20, item="valve")
+    sc, _ = call("POST", "do", T.do_body(M, pov, 20, "supX"), 200)
+    sc, C = cands()
+    f1 = C[(itF["id"], wh["id"])]
+    check("movement +20: Current Qty 120, Opening Qty tetap 100", f1["qty_existing"] == 120 and f1["opening_import_qty"] == 100, f1)
+    check("kandidat opening berdasarkan slice 100 (1.000.000), BUKAN 120 x 10.000", f1["opening_cost_candidate"] == 10000 and f1["opening_value_candidate"] == 1000000, f1)
+    check("baris diberi alasan blokir (perlu review)", f1["status"] == "unvalued" and "transaksi stok setelah saldo awal" in (f1.get("opening_blocked_reason") or ""), f1)
+    pool_before = (f1["avg_cost"], f1["inventory_value"])
+    sc, r = tetapkan(itF, wh, 10000)
+    sc2, C = cands()
+    f2 = C[(itF["id"], wh["id"])]
+    check("Tetapkan setelah movement ditolak (400) — histori/HPP tidak diubah otomatis", sc == 400 and "transaksi stok setelah saldo awal" in str(r.get("detail"))
+          and (f2["avg_cost"], f2["inventory_value"]) == pool_before and f2["qty_existing"] == 120
+          and n_ledger("valuation_ledger", itF["id"], wh["id"], "Opening Valuation") == 0, (sc, r, f2))
+
+    # concurrency: Tetapkan vs import ulang bersamaan -> state selalu konsisten, tanpa 500
+    bad = []
+    for i in range(4):
+        itX = mkit(f"CC{i}", f"Konkuren {i}")
+        imp([[itX["code"], "Konkuren", pcs, wh["code"], "", 50, 1000]])
+        res = {}
+        th = [threading.Thread(target=lambda: res.__setitem__("t", tetapkan(itX, wh, 1000)[0])),
+              threading.Thread(target=lambda: res.__setitem__("i", imp([[itX["code"], "Konkuren", pcs, wh["code"], "", 60, 1000]])))]
+        [t.start() for t in th]
+        [t.join() for t in th]
+        x = cands()[1][(itX["id"], wh["id"])]
+        nvl = n_ledger("valuation_ledger", itX["id"], wh["id"], "Opening Valuation")
+        ok_state = (x["status"] == "valued" and nvl == 1 and x["opening_import_qty"] == x["qty_existing"] and abs(x["inventory_value"] - x["qty_existing"] * x["avg_cost"]) < 0.01) \
+            or (x["status"] == "unvalued" and nvl == 0 and x["qty_existing"] == 60 and x["opening_import_qty"] == 60)
+        if not ok_state or res.get("t") not in (200, 400, 409) or res.get("i", (0,))[0] not in (200, 409):
+            bad.append((res.get("t"), res.get("i"), x, nvl))
+    check("konkuren Tetapkan vs import ulang x4: state konsisten, tanpa 500", not bad, bad)
+
     # --- tenant isolation
     sess_a = T.S
     T.S = requests.Session()
@@ -185,6 +250,9 @@ def main():
     check("tenant: kandidat tenant lain tidak terlihat", sc == 200 and not any(k[0] in (A["id"], itB["id"], itC["id"]) for k in C2))
     sc, r = tetapkan(A, whC, 70000)
     check("tenant: Tetapkan barang/gudang tenant lain ditolak 404", sc == 404, (sc, r))
+    sc, r = imp([[itE["code"], "Pipa", pcs, wh["code"], "", 1, 1]])
+    check("tenant: import saldo awal memakai kode barang/gudang tenant lain ditolak (tidak ditemukan)", r.get("ok") is False
+          and any("tidak ditemukan" in e for e in r.get("errors", [])), r)
     T.S = sess_a
     sc, C = cands()
     check("tenant: pool tenant asal tidak berubah", C[(A["id"], whC["id"])]["status"] == "unvalued" and C[(A["id"], whC["id"])]["inventory_value"] == 0)
