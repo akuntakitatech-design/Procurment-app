@@ -246,6 +246,9 @@ ro_consolidation_layer.install(server)
 # sumber RO (MRO/SPK) pada allocation RO->PO + named lock per baris RO. Sebelum access control.
 import po_ro_split_layer  # noqa: E402
 po_ro_split_layer.install(server)
+# Informasi Harga & Supplier saat Tarik RO (read-only, on-demand). Sebelum access control.
+import po_price_insight_layer  # noqa: E402
+po_price_insight_layer.install(server)
 import access_control_layer  # noqa: E402
 access_control_layer.install(server)
 import vendor_invoice_layer  # noqa: E402
