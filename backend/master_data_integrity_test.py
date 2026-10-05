@@ -141,6 +141,7 @@ def main():
     check(any(x.get("id") == item["id"] for x in search_rows), "Pencarian master barang bekerja")
 
     mro = s.post(f"{API}/mro", json={
+        "no": f"MRO-MD-{uuid.uuid4().hex[:8]}",  # fixture: Nomor MRO wajib (business rule existing)
         "date": "2026-09-20", "division_id": div["id"], "requester": "Master Tester",
         "notes": "MASTER DATA LINE REFERENCE TEST",
         "lines": [{

@@ -276,6 +276,27 @@ def install(server):
                     used += float(r.get("allocated_qty") or 0)
         return used
 
+    async def _per_source_spk(target_type, sources, exclude_doc_id):
+        """RO konsolidasi (multi-MRO): SPK diwariskan PER SUMBER, dibatasi qty yang diambil
+        dari masing-masing baris MRO, sehingga RO parsial tidak 'meminjam' SPK dari MRO
+        yang tidak diambil. sources = [(source_line_id, qty_diambil)]."""
+        src_type = SRC_OF.get(target_type)
+        totals, order = {}, []
+        for sl, taken in sources:
+            rem = float(taken or 0)
+            for a in await _allocs(src_type, sl):
+                if rem <= 1e-9:
+                    break
+                sp = a["spk_id"]
+                consumed = await _consumed_by_other(target_type, [sl], sp, exclude_doc_id)
+                take = min(max(0.0, float(a.get("allocated_qty") or 0) - consumed), rem)
+                if take > 1e-9:
+                    if sp not in totals:
+                        order.append(sp)
+                    totals[sp] = totals.get(sp, 0.0) + take
+                    rem -= take
+        return [(sp, round(totals[sp], 6)) for sp in order]
+
     async def _inherit_line(target_type, doc_id, target_line, user):
         """Materialisasi alokasi target dari source: greedy SPK-first + remaining-only.
 
@@ -284,6 +305,33 @@ def install(server):
         """
         if await _allocs(target_type, target_line["id"]):
             return  # sudah ada
+        if target_type == "ro":
+            srcs = await _src_line_ids("ro", target_line["id"])
+            if len(srcs) > 1:
+                picked = await _per_source_spk("ro", srcs, doc_id)
+                items = [{"spk_id": sp, "allocated_qty": q} for sp, q in picked]
+                if items:
+                    await _set_line_allocations(target_type, doc_id, target_line["id"], items, user,
+                                                inherited=True, enforce_active=False, reason="Inherited")
+                return
+        if target_type == "po":
+            # PO dari RO terkonsolidasi: SPK per sumber RO yang benar-benar dikonsumsi (spk_split
+            # pada allocation RO->PO, diisi po_ro_split_layer). PO lama (tanpa split) -> greedy.
+            rows = await _db().allocations.find({"target_line_id": target_line["id"], "source_type": "ro"}, {"_id": 0}).to_list(500)
+            if rows and all("spk_split" in r for r in rows):
+                totals, order = {}, []
+                for r in rows:
+                    for x in r.get("spk_split") or []:
+                        sp = x.get("spk_id")
+                        if sp and float(x.get("qty") or 0) > 1e-9:
+                            if sp not in totals:
+                                order.append(sp)
+                            totals[sp] = totals.get(sp, 0.0) + float(x.get("qty") or 0)
+                items = [{"spk_id": sp, "allocated_qty": round(totals[sp], 6)} for sp in order]
+                if items:
+                    await _set_line_allocations(target_type, doc_id, target_line["id"], items, user,
+                                                inherited=True, enforce_active=False, reason="Inherited")
+                return
         avail = await _src_available(target_type, target_line["id"], doc_id)
         if not avail:
             return
@@ -387,6 +435,14 @@ def install(server):
         total_qty = round(sum(float(s.get("qty") or 0) for s in sources), 6)
         remaining = total_qty
         allocations = []
+        if target_type == "ro" and len(src_line_ids) > 1:
+            pairs = [(s.get("source_line_id") or s.get("line_id"), float(s.get("qty") or 0)) for s in sources if (s.get("source_line_id") or s.get("line_id"))]
+            for sp, q in await _per_source_spk("ro", pairs, (body or {}).get("exclude_doc_id")):
+                lbl = await _spk_label(sp)
+                allocations.append({"spk_id": sp, "spk_number": lbl.get("spk_number"),
+                                    "project_name": lbl.get("project_name"), "allocated_qty": q})
+                remaining -= q
+            ordered = []  # per-source sudah dihitung; lewati greedy agregat di bawah
         for sp, src_alloc in ordered:
             if remaining <= 1e-9:
                 break
@@ -823,6 +879,7 @@ def install(server):
             return result
         return reject_release
 
+    server.spk_inherit_line = _inherit_line  # dipakai ro_consolidation_layer setelah edit RO
     _wrap("/api/ro", "POST", _mk_create_ro)
     _wrap("/api/po", "POST", _mk_create_po)
     _wrap("/api/do", "POST", _mk_create_do)

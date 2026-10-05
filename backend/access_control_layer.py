@@ -342,7 +342,15 @@ def install(server):
             for src in [ln] + list((ln or {}).get("sources") or []):
                 for key, smod in (("mro_id", "mro"), ("ro_id", "ro"), ("po_id", "po")):
                     if isinstance(src, dict) and src.get(key):
-                        await require_doc(smod, src[key], user)
+                        if (mod, smod) in (("ro", "mro"), ("po", "ro")):
+                            # RO: MRO sumber di luar cakupan divisi tidak boleh dibedakan dari MRO
+                            # yang tidak ada (404 vs 403) -> pesan generik yang sama.
+                            try:
+                                await require_doc(smod, src[key], user)
+                            except HTTPException:
+                                raise HTTPException(404, f"Sumber {smod.upper()} tidak ditemukan atau tidak dapat diakses.")
+                        else:
+                            await require_doc(smod, src[key], user)
 
     async def require_master(name, rid, user, body=None):
         alw = allowed(user)

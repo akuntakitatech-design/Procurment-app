@@ -72,6 +72,7 @@ def main():
     mro = admin.post(
         f"{API}/mro",
         json={
+            "no": f"MRO-FLOW-{uuid.uuid4().hex[:8]}",  # fixture: Nomor MRO wajib (business rule existing)
             "date": "2026-09-18",
             "division_id": div_a["id"],
             "default_warehouse_id": wh["id"],

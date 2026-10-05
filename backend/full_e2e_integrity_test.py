@@ -85,6 +85,7 @@ def main():
 
     print("\n== BUSINESS E2E: MRO -> RO -> PO -> DO -> MI -> REPORT ==")
     mro_r = s.post(f"{API}/mro", json={
+        "no": f"MRO-E2E-{run}",  # fixture: Nomor MRO wajib (business rule existing)
         "date": today, "need_date": today, "division_id": div["id"],
         "default_warehouse_id": wh_main["id"], "requester": "E2E Tester",
         "department": "Workshop", "notes": f"FULL-E2E-{run}",

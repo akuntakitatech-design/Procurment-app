@@ -238,6 +238,14 @@ tenant_security_hardening_layer.install(server)
 # handler runs after the original server startup and additive foundation backfill, then replaces
 # raw database references with tenant-aware proxies.
 # Tahap 2 — Hak Akses per Modul/Aksi + Cakupan Divisi. Wraps final business routes; must stay before tenant isolation.
+# RO Consolidation (multi MRO / multi SPK): validasi sumber & breakdown, sebelum access control
+# sehingga tenant -> izin -> divisi tetap dievaluasi lebih dulu.
+import ro_consolidation_layer  # noqa: E402
+ro_consolidation_layer.install(server)
+# PO dari RO terkonsolidasi: 1 PO = 1 Divisi + 1 Supplier, split supplier/PO parsial, atribusi
+# sumber RO (MRO/SPK) pada allocation RO->PO + named lock per baris RO. Sebelum access control.
+import po_ro_split_layer  # noqa: E402
+po_ro_split_layer.install(server)
 import access_control_layer  # noqa: E402
 access_control_layer.install(server)
 import vendor_invoice_layer  # noqa: E402
