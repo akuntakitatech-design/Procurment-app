@@ -227,33 +227,34 @@ async def _user_from_query_token(server, token: str):
         return None
 
 
+RO_SOURCE_NOT_FOUND = "Sumber MRO tidak ditemukan atau tidak dapat diakses."
+PO_SOURCE_NOT_FOUND = "Sumber RO tidak ditemukan atau tidak dapat diakses."
+
+
 async def _validate_transaction_sources(server, path: str, body: dict):
     db = server.db
     lines = body.get("lines") or []
 
     if path == "/api/ro":
+        # Satu pesan generik untuk semua kasus "tidak ada / tenant lain" (tanpa membedakan baris vs
+        # dokumen). Kecocokan barang dicek di ro_consolidation_layer SETELAH cakupan divisi, agar
+        # MRO di luar cakupan divisi tidak bisa dideteksi lewat pesan "item tidak sesuai".
         for line in lines:
             for src in line.get("sources") or []:
                 mline = await db.mro_lines.find_one({"id": src.get("line_id"), "mro_id": src.get("mro_id")})
-                if not mline:
-                    return "Sumber MRO tidak ditemukan pada tenant aktif"
-                if mline.get("item_id") != line.get("item_id"):
-                    return "Item sumber MRO tidak sesuai dengan item RO"
-                mro = await db.mro.find_one({"id": src.get("mro_id")})
-                if not mro:
-                    return "Dokumen MRO sumber tidak ditemukan pada tenant aktif"
+                mro = await db.mro.find_one({"id": src.get("mro_id")}) if mline else None
+                if not mline or not mro:
+                    return RO_SOURCE_NOT_FOUND
 
     elif path == "/api/po":
+        # Pesan generik (tidak membedakan tidak ada / tenant lain). Kecocokan barang dicek di
+        # po_ro_split_layer SETELAH cakupan divisi agar RO divisi lain tidak terdeteksi.
         for line in lines:
             for src in line.get("sources") or []:
                 rline = await db.ro_lines.find_one({"id": src.get("line_id"), "ro_id": src.get("ro_id")})
-                if not rline:
-                    return "Sumber RO tidak ditemukan pada tenant aktif"
-                if rline.get("item_id") != line.get("item_id"):
-                    return "Item sumber RO tidak sesuai dengan item PO"
-                ro = await db.ro.find_one({"id": src.get("ro_id")})
-                if not ro:
-                    return "Dokumen RO sumber tidak ditemukan pada tenant aktif"
+                ro = await db.ro.find_one({"id": src.get("ro_id")}) if rline else None
+                if not rline or not ro:
+                    return PO_SOURCE_NOT_FOUND
 
     elif path == "/api/do":
         for line in lines:

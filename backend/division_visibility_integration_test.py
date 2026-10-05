@@ -71,6 +71,8 @@ def create_doc(session, module, division_id, label):
     }
     if module == "po":
         body.update({"supplier_id": "", "currency": "IDR", "supplier_notes": "", "internal_notes": ""})
+    if module == "mro":
+        body["no"] = f"MRO-DIV-{uuid.uuid4().hex[:8]}"  # fixture: Nomor MRO wajib (business rule existing)
     r = session.post(f"{API}/{module}", json=body, timeout=15)
     if r.status_code != 200:
         raise AssertionError(f"Create {module.upper()} gagal: HTTP {r.status_code} {r.text}")

@@ -61,7 +61,8 @@ function StageCard({ stage, current }) {
   );
 }
 
-export function LifecycleTracker({ entity, docId, className = "" }) {
+/** refreshKey (opsional): ubah nilainya setelah simpan/submit/batal agar tracking dimuat ulang. */
+export function LifecycleTracker({ entity, docId, className = "", refreshKey }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -74,10 +75,10 @@ export function LifecycleTracker({ entity, docId, className = "" }) {
       .catch(() => { if (alive) setData(null); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [entity, docId]);
+  }, [entity, docId, refreshKey]);
 
   if (!docId) return null;
-  if (loading) return <div className={`mb-4 rounded-xl border bg-card p-4 text-sm text-muted-foreground ${className}`}>Memuat tracking transaksi...</div>;
+  if (loading && !data) return <div className={`mb-4 rounded-xl border bg-card p-4 text-sm text-muted-foreground ${className}`}>Memuat tracking transaksi...</div>;
   if (!data) return null;
 
   const s = data.summary || {};

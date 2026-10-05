@@ -55,6 +55,7 @@ def main():
     item = master(s, "items", {"code": f"DOI{run}", "name": f"Item Dokumen {run}", "unit": "pcs", "division_id": div["id"]})
 
     mro = s.post(f"{API}/mro", json={
+        "no": f"MRO-DOC-{run}",  # fixture: Nomor MRO wajib (business rule existing)
         "date": "2026-09-20", "need_date": "2026-09-21", "division_id": div["id"],
         "requester": "Document Tester", "department": "Workshop",
         "default_warehouse_id": wh["id"], "submitted": False, "notes": "DOCUMENT TEST",

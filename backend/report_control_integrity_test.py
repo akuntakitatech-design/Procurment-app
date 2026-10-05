@@ -61,6 +61,7 @@ def create_adjustment(s, div, wh, item, qty):
 
 def create_mro(s, div, wh, item, note):
     r = s.post(f"{API}/mro", json={
+        "no": f"MRO-RPT-{uuid.uuid4().hex[:8]}",  # fixture: Nomor MRO wajib (business rule existing)
         "date": datetime.now(timezone.utc).date().isoformat(),
         "need_date": datetime.now(timezone.utc).date().isoformat(),
         "division_id": div["id"], "requester": "Report Tester", "department": "Workshop",
