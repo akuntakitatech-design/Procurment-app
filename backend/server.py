@@ -486,6 +486,8 @@ ROLE_DEFAULTS = {
     "director": ALL_PERMISSIONS,
     "manager": ["view","create","edit","submit","approve","reject","cancel","close","print","export","view_all_division","view_all_warehouse","view_purchase_price"],
     "purchasing": ["view","create","edit","submit","cancel","print","export","upload_attachment","view_all_division","view_all_warehouse","view_purchase_price","edit_purchase_price"],
+    # Finance: granular default ditetapkan di access_control_layer.FINANCE_DEFAULT (DP Supplier + Invoice Vendor + read-only pendukung)
+    "finance": ["view","print","export","upload_attachment","view_all_division","view_all_warehouse","view_purchase_price"],
     "warehouse": ["view","create","edit","submit","print","upload_attachment","direct_mi"],
 }
 

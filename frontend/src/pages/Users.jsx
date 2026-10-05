@@ -14,8 +14,9 @@ import { toast } from "sonner";
 import { RoleAccessTab } from "@/components/access/RoleAccessTab";
 import { UserAccessPanel } from "@/components/access/UserAccessPanel";
 
-const ROLES = ["admin", "director", "manager", "purchasing", "warehouse"];
-const ROLE_LABEL = { admin: "Admin", director: "Direktur", manager: "Manajer", purchasing: "Purchasing", warehouse: "Gudang" };
+const ROLES = ["admin", "director", "manager", "purchasing", "finance", "warehouse"];
+const GLOBAL_ROLES = ["admin", "director", "purchasing", "finance"];
+const ROLE_LABEL = { admin: "Admin", director: "Direktur", manager: "Manajer", purchasing: "Purchasing", finance: "Finance", warehouse: "Gudang" };
 
 const fmtDate = (value) => {
   if (!value) return "-";
@@ -93,7 +94,7 @@ export default function Users() {
   };
 
   const setInviteRole = (role) => {
-    const forceGlobal = ["admin", "director", "purchasing"].includes(role);
+    const forceGlobal = GLOBAL_ROLES.includes(role);
     setInviteForm((x) => ({
       ...x,
       role,
@@ -231,7 +232,7 @@ export default function Users() {
               <Field label="Nama *"><Input value={inviteForm.name || ""} onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })} /></Field>
               <Field label="Email *"><Input type="email" value={inviteForm.email || ""} onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })} /></Field>
               <Field label="Role"><Select value={inviteForm.role || "warehouse"} onValueChange={setInviteRole}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>)}</SelectContent></Select></Field>
-              <Field label="Scope"><Select value={inviteForm.scope || "limited"} onValueChange={(v) => setInviteForm({ ...inviteForm, scope: v })} disabled={["admin", "director", "purchasing"].includes(inviteForm.role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="limited">Terbatas</SelectItem><SelectItem value="global">Global</SelectItem></SelectContent></Select></Field>
+              <Field label="Scope"><Select value={inviteForm.scope || "limited"} onValueChange={(v) => setInviteForm({ ...inviteForm, scope: v })} disabled={GLOBAL_ROLES.includes(inviteForm.role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="limited">Terbatas</SelectItem><SelectItem value="global">Global</SelectItem></SelectContent></Select></Field>
               <Field label="Masa Berlaku"><Select value={String(inviteForm.expires_hours || 72)} onValueChange={(v) => setInviteForm({ ...inviteForm, expires_hours: Number(v) })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="24">24 jam</SelectItem><SelectItem value="72">3 hari</SelectItem><SelectItem value="168">7 hari</SelectItem></SelectContent></Select></Field>
             </div>
             {inviteForm.scope === "limited" && (
