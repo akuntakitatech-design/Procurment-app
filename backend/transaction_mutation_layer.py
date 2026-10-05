@@ -235,6 +235,12 @@ async def _replace(server, module, did, body, user):
         await _validate_sources(server, module, did, specs, line.get("item_id"))
         prepared.append((line, specs, uom_metas[idx] if idx < len(uom_metas) else None))
 
+    if module == "po":
+        # DP divalidasi terhadap Grand Total BARU sebelum ada perubahan apa pun (blok Save).
+        import doc_procurement as _dp
+        _c, _t = _dp.compute_po_totals(normalized, [ln for ln, _s, _u in prepared])
+        _dp.compute_po_dp(_dp.po_dp_source(doc, normalized), _t["grand_total"])
+
     # Validate outbound stock using the balance that will exist after reversing this document.
     reversal_by_key = {}
     if meta["stock"]:
@@ -333,7 +339,8 @@ async def _replace(server, module, did, body, user):
             "final_discount_type": totals["final_discount_type"], "final_discount_value": totals["final_discount_value"],
             "final_discount_amount": totals["final_discount_amount"],
             "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
-            "tax_inclusive": bool(normalized.get("tax_inclusive", False)), "status": "Draft"}})
+            "tax_inclusive": bool(normalized.get("tax_inclusive", False)), "status": "Draft",
+            **_dp.compute_po_dp(_dp.po_dp_source(doc, normalized), totals["grand_total"])}})
     elif module == "do":
         import doc_procurement as _dp
         await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})

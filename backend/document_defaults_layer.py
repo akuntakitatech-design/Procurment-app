@@ -74,7 +74,7 @@ async def _recalc_po(server, did, inclusive):
         "final_discount_type": totals["final_discount_type"], "final_discount_value": totals["final_discount_value"],
         "final_discount_amount": totals["final_discount_amount"],
         "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
-        "tax_inclusive": bool(inclusive)}})
+        "tax_inclusive": bool(inclusive), **_dp.compute_po_dp(_dp.po_dp_source(head, {}), totals["grand_total"])}})
 
 
 def install(server):

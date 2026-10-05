@@ -529,8 +529,13 @@ async def get_po(did: str, user=Depends(current_user)):
     d["supplier_name"] = m["suppliers"].get(d.get("supplier_id"), {}).get("name")
     d["division_name"] = m["divisions"].get(d.get("division_id"), {}).get("name")
     d["approvals"] = await db.po_approvals.find({"po_id": did}, {"_id": 0}).sort("seq", 1).to_list(50)
+    d.setdefault("dp_enabled", False)  # PO lama tanpa field DP = tidak menggunakan DP
     if not show_price:
         d["grand_total"] = None
+        d["dp_amount"] = None
+        d["dp_remaining"] = None
+        if d.get("dp_type") == "nominal":
+            d["dp_value"] = None
     return d
 
 
@@ -584,12 +589,70 @@ def compute_po_totals(header, lines):
     return out, totals
 
 
+# ---------------------------------------------------------------------------------------------
+# DP / Uang Muka sebagai KETENTUAN PEMBAYARAN PO (bukan transaksi pembayaran).
+# Dasar = Grand Total PO final dari compute_po_totals (harga, diskon item, Diskon Final, PPN).
+# Hanya menyimpan kesepakatan; TIDAK membuat kas/bank, pembayaran, jurnal, hutang, stok, HPP.
+DP_KEYS = ("dp_enabled", "dp_type", "dp_value", "payment_notes")
+_DP_TYPE_ALIASES = {"percentage": "percentage", "percent": "percentage", "persen": "percentage", "%": "percentage", "pct": "percentage",
+                    "nominal": "nominal", "amount": "nominal", "rp": "nominal"}
+DP_EXCEEDS_MSG = "Nilai DP tidak boleh melebihi Grand Total PO."
+
+
+def _truthy(v):
+    return v is True or str(v).strip().lower() in ("1", "true", "ya", "yes", "y")
+
+
+def compute_po_dp(header, grand_total):
+    """Hitung & validasi DP (Decimal, pembulatan 2 desimal HALF_UP). Return field DP header.
+    percentage: dp_amount = Grand Total x DP% / 100 (0 < DP% <= 100).
+    nominal   : dp_amount = DP nominal (0 < DP <= Grand Total) — nominal user tidak pernah diubah.
+    dp_remaining = Grand Total - dp_amount. Raise HTTPException(400) bila tidak valid."""
+    from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+    cent = Decimal("0.01")
+    notes = str((header or {}).get("payment_notes") or "").strip() or None
+    if not _truthy((header or {}).get("dp_enabled")):
+        return {"dp_enabled": False, "dp_type": None, "dp_value": None, "dp_amount": None, "dp_remaining": None, "payment_notes": notes}
+    t = _DP_TYPE_ALIASES.get(str(header.get("dp_type") or "").strip().lower())
+    if not t:
+        raise HTTPException(400, "Tipe DP wajib dipilih: Persentase (%) atau Nominal (Rp).")
+    raw = header.get("dp_value")
+    try:
+        v = Decimal(str(raw).strip().replace(",", ".")) if raw not in (None, "") else None
+    except (InvalidOperation, ValueError):
+        v = None
+    if v is None or not v.is_finite():
+        raise HTTPException(400, "Nilai DP wajib diisi.")
+    g = Decimal(str(float(grand_total or 0))).quantize(cent, rounding=ROUND_HALF_UP)
+    if t == "percentage":
+        if v <= 0 or v > 100:
+            raise HTTPException(400, "Persentase DP harus lebih dari 0% dan maksimal 100%.")
+        amt = (g * v / Decimal(100)).quantize(cent, rounding=ROUND_HALF_UP)
+    else:
+        v = v.quantize(cent, rounding=ROUND_HALF_UP)
+        if v <= 0:
+            raise HTTPException(400, "Nilai DP harus lebih dari 0.")
+        if v > g:
+            raise HTTPException(400, DP_EXCEEDS_MSG)
+        amt = v
+    return {"dp_enabled": True, "dp_type": t, "dp_value": float(v), "dp_amount": float(amt),
+            "dp_remaining": float(g - amt), "payment_notes": notes}
+
+
+def po_dp_source(existing, body):
+    """Pengaturan DP efektif: nilai body (bila dikirim) di atas nilai tersimpan; PO lama = tanpa DP."""
+    src = {k: (existing or {}).get(k) for k in DP_KEYS}
+    src.update({k: body[k] for k in DP_KEYS if k in (body or {})})
+    return src
+
+
 @api.post("/po")
 async def create_po(body: dict, user=Depends(current_user)):
     require(user, "create")
-    did = gid(); no = await next_number("PO")
     lines_in = body.get("lines", [])
     computed, totals = compute_po_totals(body, lines_in)
+    dp = compute_po_dp(body, totals["grand_total"])  # validasi sebelum nomor/tulis apa pun
+    did = gid(); no = await next_number("PO")
     for l, c in zip(lines_in, computed):
         l["total"] = c["total"]
     grand = totals["grand_total"]
@@ -605,7 +668,7 @@ async def create_po(body: dict, user=Depends(current_user)):
         "gross_total": totals["gross_total"], "item_discount_total": totals["item_discount_total"],
         "subtotal_after_item_discount": totals["subtotal_after_item_discount"],
         "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
-        "grand_total": grand, "status": "Draft", "cancelled": False,
+        "grand_total": grand, **dp, "status": "Draft", "cancelled": False,
         "created_by": user.get("email"), "created_at": now_iso()})
     for l, c in zip(lines_in, computed):
         lid = gid()
