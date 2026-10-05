@@ -9,6 +9,8 @@ Re-importing the same item + warehouse + project updates that opening-balance
 slice by delta, so corrections do not blindly duplicate stock.
 """
 
+from fastapi import HTTPException
+
 DATASET_KEY = "opening_inventory"
 DATASET_SPEC = {
     "label": "Saldo Awal Persediaan",
@@ -22,6 +24,25 @@ DATASET_SPEC = {
         10, 3280000,
     ],
 }
+
+
+VALUED_MSG = ("Nilai awal persediaan untuk barang {item} di gudang {wh} sudah ditetapkan. "
+              "Saldo awal tidak dapat diubah.")
+OPENING_DOC_TYPES = ["Opening Balance", "Opening Balance Import"]
+
+
+async def valued_pairs(server, pairs):
+    """Pool (barang, gudang) yang Opening Valuation-nya sudah ditetapkan (ledger 'Opening Valuation'
+    atau penanda opening_valuation_id pada pool). Tenant-scoped via proxy DB."""
+    pairs = set(pairs)
+    if not pairs:
+        return set()
+    items = sorted({p[0] for p in pairs})
+    out = {(o.get("item_id"), o.get("warehouse_id")) for o in await server.db.valuation_ledger.find(
+        {"doc_type": "Opening Valuation", "item_id": {"$in": items}}, {"_id": 0, "item_id": 1, "warehouse_id": 1}).to_list(100000)}
+    out |= {(r.get("item_id"), r.get("warehouse_id")) for r in await server.db.item_warehouse.find(
+        {"item_id": {"$in": items}}, {"_id": 0}).to_list(100000) if r.get("opening_valuation_id")}
+    return out & pairs
 
 
 def _txt(v):
@@ -173,6 +194,25 @@ async def _import_opening(server, rows, user, maps):
         old_by_key[key] = old
         affected_pairs.add((rec["item_id"], rec["warehouse_id"]))
 
+    # Pool yang Opening Valuation-nya sudah ditetapkan: saldo awal TERKUNCI. Perubahan qty/nilai
+    # ditolak (tidak ada reversal resmi Opening Valuation); baris identik = tanpa perubahan (dilewati).
+    locked = await valued_pairs(server, affected_pairs)
+    skip = set()
+    for rec in prepared:
+        key = (rec["item_id"], rec["warehouse_id"], rec.get("project_id"))
+        pair = key[:2]
+        if pair not in locked:
+            continue
+        old = old_by_key.get(key) or {}
+        if abs(rec["base_qty"] - float(old.get("base_qty") or 0)) > 1e-9 or abs(rec["opening_value"] - float(old.get("opening_value") or 0)) > 0.005:
+            errors.append(VALUED_MSG.format(item=rec.get("item_code"), wh=rec.get("warehouse_code")))
+        else:
+            skip.add(key)
+    if errors:
+        return {"ok": False, "imported": 0, "created": 0, "updated": 0, "errors": errors[:200]}
+    prepared = [r for r in prepared if (r["item_id"], r["warehouse_id"], r.get("project_id")) not in skip]
+    affected_pairs -= locked
+
     # On a brand-new opening balance for an item/warehouse with no operational
     # ledger, the import becomes authoritative. This avoids doubling a legacy
     # manually-entered current_stock value.
@@ -200,6 +240,49 @@ async def _import_opening(server, rows, user, maps):
         iw = await server.db.item_warehouse.find_one({"item_id": pair[0], "warehouse_id": pair[1]}, {"_id": 0}) or {}
         running[pair] = float(iw.get("current_stock") or 0)
 
+    async def pool_set(pair, fields, code, wh):
+        """Tulis pool HANYA bila Opening Valuation belum ditetapkan (guard atomik vs Tetapkan bersamaan).
+        _ver dinaikkan agar Tetapkan yang membaca pool sebelum import ini gagal CAS (409), bukan menilai
+        data lama."""
+        exists = await server.db.item_warehouse.find_one({"item_id": pair[0], "warehouse_id": pair[1]}, {"_id": 0, "item_id": 1})
+        if not exists:
+            await server.db.item_warehouse.update_one({"item_id": pair[0], "warehouse_id": pair[1]}, {"$set": fields}, upsert=True)
+            return
+        ok = await server.db.item_warehouse.find_one_and_update(
+            {"item_id": pair[0], "warehouse_id": pair[1],
+             "$or": [{"opening_valuation_id": {"$exists": False}}, {"opening_valuation_id": None}]},
+            {"$set": fields, "$inc": {"_ver": 1}}, return_document=True)
+        if ok is None:
+            raise HTTPException(409, VALUED_MSG.format(item=code, wh=wh))
+
+    # 1) Hitung keadaan AKHIR tiap pool (qty fisik + opening slice) lalu tulis pool SEKALI di awal dengan
+    #    guard. Bila pool ternyata sudah ditetapkan (bersamaan), import berhenti sebelum slice/ledger
+    #    ditulis -> tidak ada opening slice yang menyimpang dari pool/valuasi.
+    deltas = {}
+    final_slices = {}
+    for pair in affected_pairs:
+        for x in await server.db.opening_inventory.find({"item_id": pair[0], "warehouse_id": pair[1]}, {"_id": 0}).to_list(10000):
+            final_slices[(pair[0], pair[1], x.get("project_id"))] = (float(x.get("base_qty") or 0), float(x.get("opening_value") or 0))
+    for rec in prepared:
+        key = (rec["item_id"], rec["warehouse_id"], rec.get("project_id"))
+        old = old_by_key.get(key) or {}
+        d = deltas.setdefault(key[:2], [0.0, False])
+        dq = rec["base_qty"] - float(old.get("base_qty") or 0)
+        d[0] += dq
+        d[1] = d[1] or abs(dq) > 1e-12 or abs(rec["opening_value"] - float(old.get("opening_value") or 0)) > 0.005
+        final_slices[key] = (rec["base_qty"], rec["opening_value"])
+    codes = {(r["item_id"], r["warehouse_id"]): (r.get("item_code"), r.get("warehouse_code")) for r in prepared}
+    for pair in affected_pairs:
+        oq = sum(v[0] for k, v in final_slices.items() if k[:2] == pair)
+        ov = sum(v[1] for k, v in final_slices.items() if k[:2] == pair)
+        fields = {"opening_qty": oq, "opening_value": ov, "opening_average_cost": (ov / oq if oq else 0),
+                  "opening_updated_at": server.now_iso()}
+        if deltas.get(pair, [0.0, False])[1]:
+            fields["current_stock"] = running[pair] + deltas[pair][0]
+        c = codes.get(pair, ("", ""))
+        await pool_set(pair, fields, c[0], c[1])
+
+    # 2) Slice saldo awal + ledger (stock_ledger 'Opening Balance Import') per baris.
     for rec in prepared:
         key = (rec["item_id"], rec["warehouse_id"], rec.get("project_id"))
         pair = (rec["item_id"], rec["warehouse_id"])
@@ -227,31 +310,6 @@ async def _import_opening(server, rows, user, maps):
         stored = await server.db.opening_inventory.find_one({"id": rec_id}, {"_id": 0})
         if abs(qty_delta) > 1e-12 or abs(value_delta) > 0.005:
             running[pair] = await _append_value_ledger(server, user, stored, qty_delta, value_delta, running[pair])
-            await server.db.item_warehouse.update_one(
-                {"item_id": pair[0], "warehouse_id": pair[1]},
-                {"$set": {"current_stock": running[pair]}},
-                upsert=True,
-            )
-
-    # Recalculate opening valuation per item/warehouse. These are explicitly
-    # opening_* fields so they are not mistaken for a fully-maintained live HPP.
-    for item_id, warehouse_id in affected_pairs:
-        docs = await server.db.opening_inventory.find(
-            {"item_id": item_id, "warehouse_id": warehouse_id}, {"_id": 0}
-        ).to_list(10000)
-        oq = sum(float(x.get("base_qty") or 0) for x in docs)
-        ov = sum(float(x.get("opening_value") or 0) for x in docs)
-        avg = ov / oq if oq else 0
-        await server.db.item_warehouse.update_one(
-            {"item_id": item_id, "warehouse_id": warehouse_id},
-            {"$set": {
-                "opening_qty": oq,
-                "opening_value": ov,
-                "opening_average_cost": avg,
-                "opening_updated_at": server.now_iso(),
-            }},
-            upsert=True,
-        )
 
     await server.audit(user, "excel_import", DATASET_KEY, "batch", after={
         "imported": imported, "created": created, "updated": updated,

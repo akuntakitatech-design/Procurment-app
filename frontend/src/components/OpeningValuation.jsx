@@ -33,7 +33,19 @@ export function OpeningValuation() {
     if (wh) params.warehouse_id = wh;
     if (status !== "all") params.status = status;
     api.get("/valuation/opening-candidates", { params })
-      .then((r) => setRows(r.data?.rows || []))
+      .then((r) => {
+        const list = r.data?.rows || [];
+        setRows(list);
+        // Harga Beli dari Import Saldo Awal menjadi nilai awal input (masih Belum Dinilai sampai Tetapkan).
+        setCosts((c) => {
+          const next = { ...c };
+          list.forEach((x) => {
+            const k = `${x.item_id}::${x.warehouse_id}`;
+            if (x.status !== "valued" && x.opening_cost_candidate > 0 && (next[k] === undefined || next[k] === "")) next[k] = String(x.opening_cost_candidate);
+          });
+          return next;
+        });
+      })
       .catch((e) => toast.error(apiError(e.response?.data?.detail)))
       .finally(() => setLoading(false));
   };
@@ -54,7 +66,7 @@ export function OpeningValuation() {
         opening_avg_cost: cost, cutoff_date: cutoff,
       });
       toast.success(`Nilai awal ${r.item_code} ditetapkan pada ${String(cutoff).slice(0, 10)}`);
-      setCosts((c) => ({ ...c, [k]: "" }));
+      setCosts((c) => { const n = { ...c }; delete n[k]; return n; });
       load();
     } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
     finally { setSavingKey(null); }
@@ -102,21 +114,28 @@ export function OpeningValuation() {
           {!loading && rows.map((r) => {
             const k = keyOf(r);
             const valued = r.status === "valued";
+            const blocked = !valued && !!r.opening_blocked_reason;
             const liveCost = valued ? r.avg_cost : Number(costs[k] || 0);
-            const liveVal = valued ? r.inventory_value : r.qty_existing * (Number(costs[k]) || 0);
+            const liveVal = valued ? r.inventory_value : (r.opening_import_qty ?? r.qty_existing) * (Number(costs[k]) || 0);
             return <tr key={k} className="border-t" data-testid={`opening-row-${k}`}>
               <td className="p-2"><div className="font-medium">{r.item_name}</div><div className="font-mono text-[11px] text-muted-foreground">{r.item_code}</div></td>
               <td className="p-2">{r.warehouse_name}</td>
-              <td className="p-2 text-right tabular-nums font-semibold">{num(r.qty_existing)}</td>
+              <td className="p-2 text-right tabular-nums font-semibold">{num(r.qty_existing)}{r.opening_import_qty != null && r.opening_import_qty !== r.qty_existing && <div className="text-[11px] font-normal text-muted-foreground" data-testid={`opening-import-qty-${k}`}>Saldo awal: {num(r.opening_import_qty)}</div>}</td>
               <td className="p-2">{r.base_uom_name || "-"}</td>
               <td className="p-1.5">{valued
                 ? <span className="tabular-nums">{rupiah(r.avg_cost)}</span>
-                : <NumericInput mode="money" value={costs[k] ?? ""} onChange={(v) => setCosts((c) => ({ ...c, [k]: v }))} className="h-9 text-right" placeholder="0" data-testid={`opening-cost-${k}`} />}</td>
+                : <div>
+                  <NumericInput mode="money" value={costs[k] ?? ""} onChange={(v) => setCosts((c) => ({ ...c, [k]: v }))} className="h-9 text-right" placeholder="0" data-testid={`opening-cost-${k}`} />
+                  {r.opening_cost_candidate > 0 && <div className="mt-0.5 text-[11px] text-muted-foreground" data-testid={`opening-cost-source-${k}`}>
+                    {Number(costs[k]) === Number(r.opening_cost_candidate) ? "Dari Harga Beli Saldo Awal" : `Saldo Awal: ${rupiah(r.opening_cost_candidate)}`}
+                  </div>}
+                </div>}</td>
               <td className="p-2 text-right tabular-nums font-semibold" data-testid={`opening-value-${k}`}>{rupiah(liveVal)}</td>
               <td className="p-2">{valued
                 ? <Badge className="bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-0">Sudah Dinilai</Badge>
-                : <Badge variant="outline" className="text-amber-600 border-amber-500/40">Belum Dinilai</Badge>}</td>
-              <td className="p-1.5 text-right">{!valued && <Button size="sm" onClick={() => post(r)} disabled={savingKey === k || !(Number(costs[k]) > 0)} data-testid={`opening-save-${k}`}><Save className="h-3.5 w-3.5 mr-1" />{savingKey === k ? "…" : "Tetapkan"}</Button>}</td>
+                : <div><Badge variant="outline" className="text-amber-600 border-amber-500/40">Belum Dinilai</Badge>
+                  {blocked && <div className="mt-1 max-w-[260px] text-[11px] leading-4 text-destructive" data-testid={`opening-blocked-${k}`}>{r.opening_blocked_reason}</div>}</div>}</td>
+              <td className="p-1.5 text-right">{!valued && <Button size="sm" onClick={() => post(r)} disabled={blocked || savingKey === k || !(Number(costs[k]) > 0)} data-testid={`opening-save-${k}`}><Save className="h-3.5 w-3.5 mr-1" />{savingKey === k ? "…" : "Tetapkan"}</Button>}</td>
             </tr>;
           })}
         </tbody>
