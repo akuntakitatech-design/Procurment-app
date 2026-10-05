@@ -1,5 +1,6 @@
 import api, { API } from "@/lib/api";
 import { rupiah, num, fmtDate } from "@/lib/format";
+import { dpRows } from "@/lib/poDp";
 
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const SPK_DOC_TYPES = new Set(["mro", "ro", "po", "do", "mi"]);
@@ -137,7 +138,7 @@ function renderTermsMessage(text, spk) {
   return html + (spk && !spkShown ? `<div class="term-line">SPK : ${esc(spk)}</div>` : "");
 }
 
-function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal }) {
+export function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal }) {
   const primary = layout.primary_color || "#17396f";
   const font = layout.font_family || "Arial";
   const fontSize = Math.max(8, Number(layout.font_size) || 11);
@@ -219,7 +220,9 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
         <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Total Setelah Diskon</td><td class="sum-value">${idrPlain(afterDisc)}</td></tr>
         <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(taxLabel)}</td><td class="sum-value">${idrPlain(taxAmount)}</td></tr>
         <tr class="grand"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Grand Total</td><td class="sum-value">${idrPlain(grand)}</td></tr>
+        ${dpRows(doc).map((r) => `<tr class="dp-row" data-dp="${r.key}"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(r.label)}</td><td class="sum-value">${idrPlain(r.amount)}</td></tr>`).join("")}
       </tfoot>` : "";
+  const paymentNotes = doc.payment_notes ? `<div class="terms payment-notes"><div class="term-heading">Ketentuan Pembayaran</div><div class="term-line">${esc(doc.payment_notes)}</div></div>` : "";
   const emptyColspan = showPrice ? 9 : 6;
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.no || "PO")}</title>
@@ -275,6 +278,7 @@ function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, si
     </table>
     ${reasonSection}
     ${terms ? `<div class="terms">${terms}</div>` : ""}
+    ${paymentNotes}
     ${bankName || bankNo || bankAccountName ? `<div class="bank-wrap"><div class="bank-title">Pembayaran dilakukan ke Rekening :</div><table class="bank-table"><thead><tr><th>Nama Bank</th><th>No. Rekening</th><th>Atas Nama</th></tr></thead><tbody><tr><td>${esc(bankName)}</td><td>${esc(bankNo)}</td><td>${esc(bankAccountName)}</td></tr></tbody></table></div>` : ""}
     ${layout.show_signatures ? `<div class="signatures"><div><div class="sign-label">${esc(layout.signature_labels?.[0] || "Approved by,")}</div><div class="sign-space">${approvedSignature}</div><div class="sign-name">${esc(approvedName)}</div><div class="sign-company">${esc(approvedCompany)}</div></div><div><div class="sign-label">${esc(layout.signature_labels?.[1] || "Signed by,")}</div><div class="sign-space"></div><div class="sign-name">${esc(signedName)}</div><div class="sign-company">${esc(supplierCompany)}</div></div></div>` : ""}
     ${qrHtml}
@@ -367,11 +371,11 @@ export async function printDoc(type, doc, opts = {}) {
     const rows = lines.map((l) => `<tr>${columns.map(c => `<td class="col-${c}">${lineValue(c,l)}</td>`).join("")}</tr>`).join("");
     const heads = columns.map(c => `<th>${esc(columnLabel(c))}</th>`).join("");
     const totalIndex = columns.indexOf("total");
-    const foot = showPrice && totalIndex >= 0 ? `<tfoot><tr>${columns.map((c,i)=> i === totalIndex ? `<td class="money grand">${rupiah(doc.grand_total)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">Grand Total</td>` : `<td></td>`).join("")}</tr></tfoot>` : "";
+    const foot = showPrice && totalIndex >= 0 ? `<tfoot><tr>${columns.map((c,i)=> i === totalIndex ? `<td class="money grand">${rupiah(doc.grand_total)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">Grand Total</td>` : `<td></td>`).join("")}</tr>${dpRows(doc).map((r) => `<tr class="dp-row" data-dp="${r.key}">${columns.map((c,i)=> i === totalIndex ? `<td class="money">${rupiah(r.amount)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">${esc(r.label)}</td>` : `<td></td>`).join("")}</tr>`).join("")}</tfoot>` : "";
     return `<table><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody>${foot}</table>`;
   };
 
-  const messageHtml = () => layout.show_message && doc.document_message ? `<div class="terms"><div class="terms-title">Pesan / Ketentuan Dokumen</div><div class="terms-body">${esc(doc.document_message)}</div></div>` : "";
+  const messageHtml = () => `${layout.show_message && doc.document_message ? `<div class="terms"><div class="terms-title">Pesan / Ketentuan Dokumen</div><div class="terms-body">${esc(doc.document_message)}</div></div>` : ""}${key === "po" && doc.payment_notes ? `<div class="terms payment-notes"><div class="terms-title">Ketentuan Pembayaran</div><div class="terms-body">${esc(doc.payment_notes)}</div></div>` : ""}`;
   const signaturesHtml = () => layout.show_signatures ? `<div class="sign">${layout.signature_labels.map((label,i)=>`<div><div>${esc(label)}</div>${key === "po" && i === 0 && poApproved(doc) && signatureImg ? `<img class="generic-signature" src="${signatureImg}"/>` : ""}<div class="line">${i===0 ? esc(doc.created_by || "") : "&nbsp;"}</div></div>`).join("")}</div>` : "";
   const footerHtml = () => `<div class="ft"><div class="footer-text">${esc(layout.footer_text || "")}</div>${layout.show_qr && qrImg ? `<div class="qr"><img src="${qrImg}" width="90" height="90"/><div>${esc(code)}</div></div>` : ""}</div>`;
 
