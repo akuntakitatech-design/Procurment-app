@@ -12,16 +12,19 @@ Aturan:
   aturan resolve_vendor_contract_price: status active, periode efektif, tier min_qty) — batch.
 - Harga Beli Terakhir: harga satuan net PO valid terakhir (status Approved / Partially Received /
   Fully Received, tidak cancelled — definisi yang sama dengan /purchase-price-history existing)
-  untuk Barang + Supplier. Net = (qty x harga - diskon item) / qty (rumus harga efektif
-  assert_po_price_reason existing; Diskon Final PO tidak ikut, sama seperti pembanding kontrak);
-  bila PO "harga termasuk pajak", PPN dikeluarkan dengan model pajak compute_po_totals.
-  Semua harga pembanding dinormalisasi ke satuan dasar barang memakai faktor UOM existing.
+  untuk Barang + Supplier. Effective net = DPP baris / qty dasar, DPP dihitung ulang dengan engine
+  uang PO canonical doc_procurement.compute_po_totals atas SELURUH baris PO tsb: diskon item ->
+  Diskon Final PO diprorata ke net tiap baris -> PPN dikeluarkan bila harga termasuk pajak.
+  Normalisasi ke satuan dasar hanya bila faktor konversi TERBUKTI (UOM dasar = 1, atau faktor
+  tersimpan pada baris dari normalisasi UOM existing); selain itu "Tidak dapat dibandingkan"
+  (tanpa harga, bukan kandidat Harga terendah).
 - Keamanan: tenant (proxy DB) -> izin (access control + view_purchase_price untuk harga)
   -> cakupan divisi (RO & PO pembanding) -> business rule. Pesan 404 generik.
 - Read-only: tidak ada tulis ke PO/RO/kontrak/master/stok/valuasi/SPK.
 """
 from fastapi import Depends, HTTPException
 
+import doc_procurement as _dp
 from po_ro_split_layer import _Ctx, _allowed_divisions, ro_line_state
 
 EPS = 1e-6
@@ -84,35 +87,77 @@ def _uom_tools(item, uoms):
     return factor, label, base_label
 
 
-async def approved_purchases(server, item_id, alw, uoms):
-    """Baris PO valid (Approved/Final) untuk barang, terbaru dulu. 2 query (po_lines + po)."""
+def _f(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def proven_factor(ln, item, uoms):
+    """Faktor UOM baris PO historis -> satuan dasar, HANYA bila dapat dibuktikan; else None.
+
+    - uom_id baris == base UOM barang -> 1.
+    - uom_id beda base -> faktor tersimpan (conversion_factor > 0) dari normalisasi UOM existing,
+      dan konsisten dengan display_qty x faktor == qty dasar tersimpan.
+    - baris legacy tanpa uom_id -> 1 hanya bila teks satuannya = satuan dasar barang.
+    Tidak pernah menebak faktor = 1 untuk satuan yang berbeda."""
+    base_id = item.get("base_uom_id")
+    uid = ln.get("uom_id")
+    if uid:
+        if base_id and uid == base_id:
+            return 1.0
+        f, dq, q = _f(ln.get("conversion_factor")), ln.get("display_qty"), _f(ln.get("qty"))
+        if base_id and f > 0 and dq is not None and abs(_f(dq) * f - q) <= max(1e-6, 1e-6 * abs(q)):
+            return f
+        return None
+    unit = str(ln.get("unit") or "").strip().lower()
+    bu = uoms.get(base_id) or {}
+    labels = {str(x).strip().lower() for x in (bu.get("code"), bu.get("name"), bu.get("symbol"), item.get("unit")) if x}
+    return 1.0 if unit and unit in labels else None
+
+
+async def approved_purchases(server, item, alw, uoms):
+    """Baris PO valid (Approved/Final) untuk barang, terbaru dulu. 3 query batch (po_lines barang,
+    po, seluruh po_lines PO tsb untuk alokasi Diskon Final canonical)."""
     db = server.db
+    item_id = item.get("id")
     lines = await db.po_lines.find({"item_id": item_id}, {"_id": 0}).to_list(20000)
     ids = sorted({x.get("po_id") for x in lines if x.get("po_id")})
     if not ids:
         return []
     pos = {p["id"]: p for p in await db.po.find({"id": {"$in": ids}, "status": {"$in": list(VALID_PO)}, "cancelled": {"$ne": True}},
-                                                {"_id": 0}).to_list(len(ids) + 10)}
+                                                {"_id": 0}).to_list(len(ids) + 10)
+           if p.get("supplier_id") and p.get("status") in VALID_PO and p.get("cancelled") is not True
+           and (alw is None or p.get("division_id") in alw)}  # PO divisi di luar cakupan tidak dipakai
+    if not pos:
+        return []
+    # DPP per baris via engine canonical (diskon item -> prorata Diskon Final -> keluarkan PPN inklusif)
+    all_lines = await db.po_lines.find({"po_id": {"$in": sorted(pos)}}, {"_id": 0}).to_list(50000)
+    by_po = {}
+    for ln in all_lines:
+        by_po.setdefault(ln.get("po_id"), []).append(ln)
+    dpp = {}
+    for pid, pls in by_po.items():
+        computed, _tot = _dp.compute_po_totals(pos[pid], pls)
+        for ln, c in zip(pls, computed):
+            dpp[ln.get("id")] = float(c.get("dpp") or 0)
     rows = []
     for ln in lines:
         p = pos.get(ln.get("po_id"))
-        if not p or not p.get("supplier_id") or p.get("status") not in VALID_PO or p.get("cancelled") is True:
+        qty = _f(ln.get("qty"))
+        if not p or qty <= EPS or ln.get("id") not in dpp:
             continue
-        if alw is not None and p.get("division_id") not in alw:
-            continue  # PO divisi di luar cakupan user tidak dipakai sebagai pembanding
-        qty = float(ln.get("qty") or 0)  # satuan dasar (kanonis)
-        if qty <= EPS:
-            continue
-        net = (qty * float(ln.get("price") or 0) - float(ln.get("discount") or 0)) / qty
-        rate = float(ln.get("tax") or 0)
-        inclusive = ln.get("tax_inclusive") if ln.get("tax_inclusive") is not None else p.get("tax_inclusive")
-        if inclusive and rate:
-            net = net / (1 + rate / 100.0)  # keluarkan PPN (model pajak compute_po_totals)
-        f = float(ln.get("conversion_factor") or 1) or 1
+        net_line = dpp[ln["id"]] / qty  # net per satuan baris tersimpan (dasar bila sudah dinormalisasi)
+        f = proven_factor(ln, item, uoms)
         unit = ln.get("display_unit") or (uoms.get(ln.get("uom_id")) or {}).get("code") or ln.get("unit") or ""
+        comparable = f is not None
         rows.append({"date": p.get("date"), "po_id": p.get("id"), "po_no": p.get("no"), "supplier_id": p.get("supplier_id"),
-                     "qty": _r(ln.get("display_qty") if ln.get("display_qty") is not None else qty / f), "unit": unit,
-                     "uom_id": ln.get("uom_id"), "unit_net_price": _r(net * f, 2), "qty_base": _r(qty), "unit_net_price_base": _r(net, 4),
+                     "qty": _r(ln.get("display_qty") if ln.get("display_qty") is not None else (qty / f if comparable else qty)),
+                     "unit": unit, "uom_id": ln.get("uom_id"), "comparable": comparable,
+                     "unit_net_price": _r(net_line * f, 2) if comparable else None,
+                     "qty_base": _r(qty) if comparable else None,
+                     "unit_net_price_base": _r(net_line, 4) if comparable else None,
                      "_k": (str(p.get("date") or ""), str(p.get("approved_at") or p.get("created_at") or ""), str(p.get("no") or ""))})
     rows.sort(key=lambda r: r["_k"], reverse=True)
     for r in rows:
@@ -150,7 +195,7 @@ def install(server):
         by_sup = {}
         for c in contracts:
             by_sup.setdefault(c.get("supplier_id"), []).append(c)
-        history = await approved_purchases(server, rl.get("item_id"), alw, uoms) if show_price else []
+        history = await approved_purchases(server, {**item, "id": item.get("id") or rl.get("item_id")}, alw, uoms) if show_price else []
         last_by_sup = {}
         for h in history:
             last_by_sup.setdefault(h["supplier_id"], h)
@@ -177,7 +222,7 @@ def install(server):
                             "contract_price": c.get("net_contract_price") if show_price else None,
                             "contract_price_base": _r(float(c.get("net_contract_price") or 0) / f, 4) if (show_price and f) else None})
             if last:
-                row.update({"last_price_base": last["unit_net_price_base"], "last_price": last["unit_net_price"], "last_unit": last["unit"], "last_uom_id": last.get("uom_id"),
+                row.update({"last_price_base": last["unit_net_price_base"], "last_price": last["unit_net_price"], "last_unit": last["unit"], "last_uom_id": last.get("uom_id"), "last_comparable": last["comparable"],
                             "last_qty": last["qty"], "last_po_date": last["date"], "last_po_no": last["po_no"], "last_po_id": last["po_id"]})
             row["diff_pct"], row["diff_label"] = diff_info(row.get("contract_price_base"), row.get("last_price_base"))
             ref = row.get("contract_price_base") if row.get("contract_price_base") is not None else row.get("last_price_base")
@@ -205,7 +250,8 @@ def install(server):
         sup = await server.db.suppliers.find_one({"id": supplier_id}, {"_id": 0}) if supplier_id else None
         if not sup:
             raise HTTPException(404, SUP_NOT_FOUND)
-        rows = [r for r in await approved_purchases(server, rl.get("item_id"), alw, await _uoms()) if r["supplier_id"] == supplier_id]
+        item = await server.db.items.find_one({"id": rl.get("item_id")}, {"_id": 0}) or {"id": rl.get("item_id")}
+        rows = [r for r in await approved_purchases(server, item, alw, await _uoms()) if r["supplier_id"] == supplier_id]
         n = max(1, min(int(limit or 5), 5))
         for r in rows:
             r["supplier_name"] = sup.get("name")

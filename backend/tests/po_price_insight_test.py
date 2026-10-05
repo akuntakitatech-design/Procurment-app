@@ -15,10 +15,17 @@ call, check = T.call, T.check
 INS, HIS = "pull/ro-for-po/price-insight", "pull/ro-for-po/price-history"
 
 
-def manual_po(M, sup, item, qty, price, date, discount=0, tax=0, inclusive=False, div=None, approve=True):
-    sc, po = call("POST", "po", {"supplier_id": sup["id"], "division_id": div or M["div"]["id"], "date": date, "tax_inclusive": inclusive,
-                                 "lines": [{"item_id": item["id"], "qty": qty, "uom_id": M["uom"]["id"], "conversion_factor": 1, "price": price,
-                                            "discount": discount, "tax": tax, "warehouse_id": M["wh"]["id"], "price_change_reason": "uji harga"}]}, 200)
+def pl(M, item, qty, price, discount=0, tax=0, uom=None):
+    return {"item_id": item["id"], "qty": qty, "uom_id": (uom or M["uom"])["id"], "conversion_factor": 1, "price": price,
+            "discount": discount, "tax": tax, "warehouse_id": M["wh"]["id"], "price_change_reason": "uji harga"}
+
+
+def manual_po(M, sup, item, qty, price, date, discount=0, tax=0, inclusive=False, div=None, approve=True, lines=None, final=None):
+    body = {"supplier_id": sup["id"], "division_id": div or M["div"]["id"], "date": date, "tax_inclusive": inclusive,
+            "lines": lines or [pl(M, item, qty, price, discount, tax)]}
+    if final:
+        body["final_discount_type"], body["final_discount_value"] = final
+    sc, po = call("POST", "po", body, 200)
     if approve:
         call("POST", f"po/{po['id']}/submit", {})
         sc, d = call("GET", f"po/{po['id']}")
@@ -36,6 +43,27 @@ def contract(sup, no, item, uom, price, start="2020-01-01", end="2099-12-31", ac
     if activate:
         call("POST", f"vendor-contracts/{vc['id']}/activate", {}, 200)
     return vc
+
+
+def legacy_line(po_id, item_id, uom_id=None, unit=None, qty=None, price=None):
+    """Simulasi baris PO historis (pra-normalisasi UOM): hapus jejak faktor konversi. Dev DB saja."""
+    import pymysql
+    from urllib.parse import urlparse, unquote
+    url = next(x.split("=", 1)[1].strip().strip('"') for x in open("/app/backend/.env") if x.startswith("DATABASE_URL="))
+    assert "prod" not in url
+    u = urlparse(url.replace("mariadb://", "mysql://"))
+    c = pymysql.connect(host=u.hostname, port=u.port or 3306, user=unquote(u.username or ""), password=unquote(u.password or ""), database=u.path.lstrip("/"))
+    with c.cursor() as cur:
+        expr = "JSON_REMOVE(doc, '$.conversion_factor', '$.display_qty', '$.display_unit', '$.base_qty', '$.display_price')"
+        expr = f"JSON_SET({expr}, '$.uom_id', %s)" if uom_id else f"JSON_REMOVE({expr}, '$.uom_id')"
+        if unit:
+            expr = f"JSON_SET({expr}, '$.unit', %s)"
+        if qty is not None:
+            expr = f"JSON_SET({expr}, '$.qty', %s, '$.price', %s)"
+        args = [a for a in (uom_id, unit) if a] + ([qty, price] if qty is not None else []) + [po_id, item_id]
+        n = cur.execute(f"UPDATE po_lines SET doc = {expr} WHERE po_id = %s AND item_id = %s", args)
+    c.commit(); c.close()
+    assert n == 1, n
 
 
 def ins(line_id, fn=None, date="2026-06-01"):
@@ -96,7 +124,6 @@ def main():
             sc, d = call("GET", k)
             out[k] = json.dumps(d, sort_keys=True, default=str)
         return out
-    before = snapshot()
 
     # --- 1. satu supplier kontrak
     sc, r = ins(RB["id"])
@@ -192,9 +219,63 @@ def main():
           and h2[0] == 404, (r2, h2))
     T.S = sess_a
 
-    # --- 8. read-only
+    # --- 8. NET effective (diskon item + Diskon Final + PPN) & UOM terbukti
+    sc, box = call("POST", "master/uoms", {"code": f"BX{u}", "name": f"Box {u}", "symbol": f"BX{u[:2]}"}, 200)
+    sc, dus = call("POST", "master/uoms", {"code": f"DS{u}", "name": f"Dus {u}"}, 200)
+    seal = mk_item(M, f"SEAL{u}", "Seal Pompa")
+    call("PUT", f"master/items/{seal['id']}", {**{k: v for k, v in seal.items() if k not in ("_id",)}, "uoms": [{"uom_id": box["id"], "factor": 10}]}, 200)
+    dummy = mk_item(M, f"DMY{u}", "Barang Lain")
+    S = {k: mk(f"P{k}", f"Supplier Net {k}") for k in ("A", "B", "C", "D", "E", "F", "G", "H", "J")}
+    manual_po(M, S["A"], seal, 4, 100000, "2026-05-01", discount=40000)                     # item disc: 90.000
+    manual_po(M, S["B"], seal, 2, 100000, "2026-05-01", final=("percent", 10))             # final 10%: 90.000
+    poC = manual_po(M, S["C"], None, 0, 0, "2026-05-01", final=("amount", 38000),
+                    lines=[pl(M, seal, 2, 100000, 20000), pl(M, dummy, 1, 200000)])       # 180k+200k, final 38k -> 0,9 -> 81.000
+    manual_po(M, S["D"], seal, 1, 222000, "2026-05-01", discount=22000, tax=11, inclusive=True, final=("percent", 10))  # 180.000/1,11
+    poE = manual_po(M, S["E"], None, 0, 0, "2026-05-01", final=("percent", 5), lines=[pl(M, seal, 2, 1000000, uom=box)])  # 950.000/BOX -> 95.000/dasar
+    poF = manual_po(M, S["F"], None, 0, 0, "2026-05-01", lines=[pl(M, seal, 1, 1000, uom=box)])     # nanti dibuat legacy tanpa faktor
+    poG = manual_po(M, S["G"], seal, 3, 500, "2026-05-01")                                   # legacy satuan teks lain (DUS)
+    poH = manual_po(M, S["H"], seal, 1, 97000, "2026-05-01")                                 # legacy satuan teks = dasar -> faktor 1 valid
+    manual_po(M, S["J"], seal, 1, 99000, "2026-05-01")                                       # pembanding biasa
+    legacy_line(poF["id"], seal["id"], uom_id=box["id"], qty=1, price=1000)  # tersimpan dalam satuan transaksi
+    legacy_line(poG["id"], seal["id"], unit=dus["code"])
+    legacy_line(poH["id"], seal["id"], unit=M["uom"]["code"])
+    M["seal"] = seal
+    m4, l4 = mro(M, f"MRO-S-{u}", 5, item="seal")
+    ro4 = mk_ro(M, [(seal, 5, [(m4, l4, 5)])])
+    sc, r = ins(ro4["lines"][0]["id"])
+    s = by_sup(r)
+    g = lambda k, f="last_price_base": (s.get(S[k]["id"]) or {}).get(f)
+    close = lambda a, b: a is not None and abs(a - b) < 0.01
+    check("net: diskon item (4x100.000 - 40.000)/4 = 90.000", close(g("A"), 90000), g("A"))
+    check("net: Diskon Final PO 10% = 90.000", close(g("B"), 90000), g("B"))
+    check("net: diskon item + Diskon Final Rp dialokasikan prorata (81.000)", close(g("C"), 81000), g("C"))
+    sc, dC = call("GET", f"po/{poC['id']}")
+    dpp_sum = sum(float(x.get("dpp") or 0) for x in dC.get("lines") or [])
+    check("alokasi Diskon Final konsisten: total DPP baris = subtotal setelah diskon item - Diskon Final (342.000)",
+          abs(dpp_sum - 342000) < 0.01 and close(next(float(x["dpp"]) / 2 for x in dC["lines"] if x["item_id"] == seal["id"]), 81000), (dpp_sum, dC.get("final_discount_amount")))
+    check("net: harga termasuk PPN + diskon item + Diskon Final -> 180.000/1,11", close(g("D"), 180000 / 1.11), g("D"))
+    check("UOM beda dengan faktor valid: 950.000/BOX -> 95.000 per satuan dasar", close(g("E"), 95000) and close(g("E", "last_price"), 950000)
+          and g("E", "last_comparable") is True and g("E", "last_qty") == 2, s.get(S["E"]["id"]))
+    check("UOM beda TANPA faktor: Tidak dapat dibandingkan (tanpa harga), No PO/tanggal/qty/satuan tetap",
+          g("F", "last_comparable") is False and g("F") is None and g("F", "last_price") is None and g("F", "last_po_no") == poF["no"]
+          and g("F", "last_qty") == 1 and g("F", "last_unit") and g("F", "diff_label") is None, s.get(S["F"]["id"]))
+    check("legacy satuan teks berbeda tanpa faktor: Tidak dapat dibandingkan", g("G", "last_comparable") is False and g("G") is None, s.get(S["G"]["id"]))
+    check("legacy satuan = satuan dasar: faktor 1 tetap valid", g("H", "last_comparable") is True and close(g("H"), 97000), s.get(S["H"]["id"]))
+    lows = [x["supplier_id"] for x in r["suppliers"] if x["is_lowest"]]
+    check("record tidak comparable tidak mendapat label Harga terendah (harga mentah 100 & 500 diabaikan)",
+          lows == [S["C"]["id"]] and not g("F", "is_lowest") and not g("G", "is_lowest"), [(x["supplier_name"], x["is_lowest"], x.get("last_price_base")) for x in r["suppliers"]])
+    sc, hf = call("GET", f"{HIS}?ro_line_id={ro4['lines'][0]['id']}&supplier_id={S['F']['id']}")
+    check("riwayat: baris tidak comparable tanpa harga, tetap No PO/tanggal/qty/satuan",
+          sc == 200 and hf["rows"] and hf["rows"][0]["comparable"] is False and hf["rows"][0]["unit_net_price"] is None and hf["rows"][0]["po_no"] == poF["no"]
+          and hf["rows"][0]["qty"] == 1 and hf["rows"][0]["unit"], hf)
+    sc, he = call("GET", f"{HIS}?ro_line_id={ro4['lines'][0]['id']}&supplier_id={S['E']['id']}")
+    check("riwayat: UOM BOX tampil satuan asli dengan harga net per BOX", he["rows"][0]["comparable"] is True and close(he["rows"][0]["unit_net_price"], 950000)
+          and he["rows"][0]["qty"] == 2, he["rows"][0])
+
+    # --- 9. read-only
+    before = snapshot()
     for _ in range(2):
-        ins(RB["id"]); ins(RF["id"]); ins(RO_["id"])
+        ins(RB["id"]); ins(RF["id"]); ins(RO_["id"]); ins(ro4["lines"][0]["id"])
         call("GET", f"{HIS}?ro_line_id={RF['id']}&supplier_id={supX['id']}")
     after = snapshot()
     changed = [k for k in before if before[k] != after[k]]

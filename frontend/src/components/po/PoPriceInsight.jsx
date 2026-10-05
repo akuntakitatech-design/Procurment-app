@@ -25,6 +25,11 @@ const Price = ({ base, unit, alt, altUnit, showAlt, testid }) => {
     </div>
   );
 };
+const NotComparable = ({ testid }) => (
+  <div className="text-xs text-muted-foreground" data-testid={testid} title="Faktor konversi satuan transaksi ini ke satuan dasar tidak tersedia, sehingga harga tidak dibandingkan.">
+    <Badge variant="outline" className="whitespace-nowrap text-[10px]">Tidak dapat dibandingkan</Badge>
+  </div>
+);
 const otherUom = (uomId, baseId) => !!uomId && !!baseId && uomId !== baseId;
 
 /** Riwayat (maks. 5) pembelian Barang + Supplier — dimuat hanya saat "Lihat Riwayat" dibuka. */
@@ -41,7 +46,7 @@ function HistoryPanel({ state, supplierName }) {
         {state.rows.map((h, i) => (
           <tr key={`${h.po_id}-${i}`} className="border-t" data-testid={`po-price-history-row-${i}`}>
             <td className="p-1.5">{fmtDate(h.date)}</td><td className="p-1.5 font-mono text-xs font-semibold">{h.po_no}</td><td className="p-1.5">{h.supplier_name}</td>
-            <td className="p-1.5 text-right tabular-nums">{num(h.qty)}</td><td className="p-1.5">{h.unit || "-"}</td><td className="p-1.5 text-right font-medium tabular-nums">{rupiah(h.unit_net_price)}</td>
+            <td className="p-1.5 text-right tabular-nums">{num(h.qty)}</td><td className="p-1.5">{h.unit || "-"}</td><td className="p-1.5 text-right font-medium tabular-nums">{h.comparable === false ? <NotComparable testid={`po-price-history-nc-${i}`} /> : rupiah(h.unit_net_price)}</td>
           </tr>
         ))}
       </tbody></table>
@@ -102,7 +107,7 @@ export function PoPriceInsightDialog({ row, poDate, currentSupplierId, onClose, 
                       <td className="p-2"><Badge variant="outline" className={`whitespace-nowrap text-[11px] ${STATUS_STYLE[s.status] || ""}`} data-testid={`po-price-insight-status-${s.supplier_code || s.supplier_id}`}>{s.status}</Badge>{s.is_contract && <div className="mt-1 font-mono text-[11px] text-muted-foreground">{s.contract_number} · {s.contract_status}</div>}</td>
                       <td className="p-2 text-right">{s.is_contract ? <Price base={s.contract_price_base} unit={unit} alt={s.contract_price} altUnit={s.contract_uom} showAlt={otherUom(s.contract_uom_id, data.base_uom_id)} testid={`po-price-insight-contract-${s.supplier_code || s.supplier_id}`} /> : <span className="text-muted-foreground">-</span>}</td>
                       <td className="p-2 whitespace-nowrap">{s.is_contract ? (s.effective_end ? fmtDate(s.effective_end) : "Tanpa batas") : "-"}</td>
-                      <td className="p-2 text-right"><Price base={s.last_price_base} unit={unit} alt={s.last_price} altUnit={s.last_unit} showAlt={otherUom(s.last_uom_id, data.base_uom_id)} testid={`po-price-insight-last-${s.supplier_code || s.supplier_id}`} />{s.last_qty != null && <div className="whitespace-nowrap text-[11px] text-muted-foreground">Qty PO {num(s.last_qty)} {s.last_unit}</div>}</td>
+                      <td className="p-2 text-right">{s.last_comparable === false ? <NotComparable testid={`po-price-insight-last-${s.supplier_code || s.supplier_id}`} /> : <Price base={s.last_price_base} unit={unit} alt={s.last_price} altUnit={s.last_unit} showAlt={otherUom(s.last_uom_id, data.base_uom_id)} testid={`po-price-insight-last-${s.supplier_code || s.supplier_id}`} />}{s.last_qty != null && <div className="whitespace-nowrap text-[11px] text-muted-foreground">Qty PO {num(s.last_qty)} {s.last_unit}</div>}</td>
                       <td className="p-2 whitespace-nowrap">{s.last_po_date ? fmtDate(s.last_po_date) : "-"}</td>
                       <td className="p-2 font-mono text-xs font-semibold">{s.last_po_no || "-"}</td>
                       <td className="p-2 text-xs"><div data-testid={`po-price-insight-diff-${s.supplier_code || s.supplier_id}`}>{s.diff_label || "-"}</div>{s.is_lowest && <Badge variant="outline" className="mt-1 gap-1 border-primary/40 text-[10px] text-primary" data-testid={`po-price-insight-lowest-${s.supplier_code || s.supplier_id}`}><TrendingDown className="h-3 w-3" />Harga terendah</Badge>}</td>
@@ -116,7 +121,7 @@ export function PoPriceInsightDialog({ row, poDate, currentSupplierId, onClose, 
               </tbody></table>
             </div>
           )}
-        <p className="text-xs text-muted-foreground">Harga dibandingkan per {unit || "satuan dasar"}, net setelah diskon item dan tanpa PPN. Harga Beli Terakhir diambil dari PO Approved/Final terakhir. Memilih supplier hanya mengubah supplier pada PO yang sedang dibuat, tidak mengubah Supplier Utama barang maupun Kontrak Harga Vendor.</p>
+        <p className="text-xs text-muted-foreground">Harga dibandingkan per {unit || "satuan dasar"}, net setelah diskon item dan alokasi Diskon Final PO, tanpa PPN. Transaksi dengan satuan yang faktor konversinya tidak tersedia ditandai "Tidak dapat dibandingkan". Harga Beli Terakhir diambil dari PO Approved/Final terakhir. Memilih supplier hanya mengubah supplier pada PO yang sedang dibuat, tidak mengubah Supplier Utama barang maupun Kontrak Harga Vendor.</p>
         <DialogFooter><Button variant="outline" onClick={onClose} data-testid="po-price-insight-close">Tutup</Button></DialogFooter>
       </DialogContent>
     </Dialog>
