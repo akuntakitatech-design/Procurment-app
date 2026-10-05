@@ -80,6 +80,7 @@ export default function Dashboard() {
   const [subscription, setSubscription] = useState(null);
   const [expanded, setExpanded] = useState({});
   const nav = useNavigate();
+  const { can } = useAuth();
 
   useEffect(() => {
     Promise.all([
@@ -116,8 +117,8 @@ export default function Dashboard() {
 
   return <div className="space-y-7">
     <PageHeader title="Dashboard" subtitle={`Control center operasional · ${dateText}`}>
-      <Button variant="outline" onClick={() => nav("/mro/new")} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />MRO Baru</Button>
-      <Button onClick={() => nav("/po/new")} className="rounded-xl"><Plus className="mr-2 h-4 w-4" />PO Baru</Button>
+      {can("create", "mro") && <Button variant="outline" onClick={() => nav("/mro/new")} className="rounded-xl" data-testid="dashboard-new-mro-btn"><Plus className="mr-2 h-4 w-4" />MRO Baru</Button>}
+      {can("create", "po") && <Button onClick={() => nav("/po/new")} className="rounded-xl" data-testid="dashboard-new-po-btn"><Plus className="mr-2 h-4 w-4" />PO Baru</Button>}
     </PageHeader>
 
     <SubscriptionBanner subscription={subscription} />

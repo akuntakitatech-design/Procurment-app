@@ -20,7 +20,7 @@ import saas_platform_layer as P
 
 
 INVITE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-ALLOWED_ROLES = {"admin", "director", "manager", "purchasing", "warehouse"}
+ALLOWED_ROLES = {"admin", "director", "manager", "purchasing", "warehouse", "finance"}
 ALLOWED_SCOPES = {"global", "limited"}
 
 
@@ -188,7 +188,7 @@ def install(server):
             raise HTTPException(status_code=400, detail="Role undangan tidak valid")
         if scope not in ALLOWED_SCOPES:
             raise HTTPException(status_code=400, detail="Scope undangan tidak valid")
-        if role in {"admin", "director", "purchasing"}:
+        if role in {"admin", "director", "purchasing", "finance"}:
             scope = "global"
 
         divisions, warehouses = await _validate_scope_refs(db, tenant_id, body.divisions, body.warehouses)
@@ -215,6 +215,7 @@ def install(server):
                 "manager": ["view", "create", "edit", "submit", "approve", "reject", "cancel", "close", "print", "export", "view_all_division", "view_all_warehouse", "view_purchase_price"],
                 "purchasing": ["view", "create", "edit", "submit", "cancel", "print", "export", "upload_attachment", "view_all_division", "view_all_warehouse", "view_purchase_price", "edit_purchase_price"],
                 "warehouse": ["view", "create", "edit", "submit", "print", "upload_attachment", "direct_mi"],
+                "finance": ["view", "print", "export", "upload_attachment", "view_all_division", "view_all_warehouse", "view_purchase_price"],
             }.get(role, [])
 
         doc = {

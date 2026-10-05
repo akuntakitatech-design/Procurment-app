@@ -75,12 +75,30 @@ LEGACY_ACTION = {"view": "view", "create": "create", "edit": "edit", "delete": "
 TRANSLATE = {"direct_mi": ["mi.direct"], "post_stock_opname": ["opname.post"], "stock_adjustment": ["adjustment.create"],
              "spk:view": ["spk.view"], "spk:manage": ["spk.create", "spk.edit"],
              "vendor_contract:view": ["vendor_contracts.view"], "vendor_contract:manage": ["vendor_contracts.create", "vendor_contracts.edit"]}
-ROLE_LABELS = {"admin": "Admin", "director": "Direktur", "manager": "Manajer", "purchasing": "Purchasing", "warehouse": "Gudang"}
+ROLE_LABELS = {"admin": "Admin", "director": "Direktur", "manager": "Manajer", "purchasing": "Purchasing", "warehouse": "Gudang",
+               "finance": "Finance"}
+GLOBAL_DIV_ROLES = ("admin", "director", "purchasing", "finance")   # default cakupan divisi: Semua Divisi
+# Finance: izin default eksplisit (granular, tanpa wildcard). DP Supplier + Invoice Vendor (tanpa hapus) +
+# read-only pendukung untuk menelusuri sumber invoice. Tidak termasuk buat/edit/approve PO, MRO/RO, DO/penerimaan,
+# mutasi stok, edit master, maupun kelola pengguna.
+FINANCE_DEFAULT = frozenset({
+    "supplier_dp.view", "supplier_dp.approve", "supplier_dp.print",
+    "invoice.view", "invoice.create", "invoice.edit", "invoice.pay", "invoice.print",
+    "po.view", "do.view",
+    "suppliers.view", "divisions.view", "projects.view", "units.view",
+    "export", "upload_attachment", "view_purchase_price", "view_all_warehouse",
+})
 _CFG_CACHE: dict = {}
 
 
 def legacy_to_granular(perms, role=None) -> set:
     p, out = set(perms or []), set()
+    if role == "finance":
+        # Finance tidak diturunkan dari legacy "view" generik (yang akan membuka semua modul + users.view).
+        # Izin modul Finance hanya berlaku bila legacy "view" ada; izin khusus mengikuti daftar legacy user.
+        specials = {k for k, _ in SPECIALS}
+        mods = {k for k in FINANCE_DEFAULT if k not in specials} if "view" in p else set()
+        return mods | {k for k in FINANCE_DEFAULT if k in specials and k in p}
     for m in MASTER_SIMPLE:
         out |= {f"{m}.{a}" for a in CRUD if a in p}
     for m, v, mg in (("spk", "spk:view", "spk:manage"), ("vendor_contracts", "vendor_contract:view", "vendor_contract:manage")):
@@ -133,7 +151,7 @@ def install(server):
         return _CFG_CACHE[key]
 
     def role_div_default(role):
-        return {"mode": "all", "divisions": []} if role in ("admin", "director", "purchasing") else {"mode": "selected", "divisions": []}
+        return {"mode": "all", "divisions": []} if role in GLOBAL_DIV_ROLES else {"mode": "selected", "divisions": []}
 
     def derived_overrides(user):
         leg, d = legacy_to_granular(user.get("permissions") or [], user.get("role")), role_default(user.get("role"))
@@ -143,7 +161,7 @@ def install(server):
         perms = user.get("permissions") or []
         if user.get("scope") == "global" or "view_all_division" in perms:
             return {"mode": "all", "divisions": []}
-        if user.get("role") in ("admin", "director", "purchasing"):
+        if user.get("role") in GLOBAL_DIV_ROLES:
             return None
         return {"mode": "selected", "divisions": list(user.get("divisions") or [])}
 
