@@ -4,13 +4,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, ChevronRight, ChevronDown, Info } from "lucide-react";
 import { rupiah, num } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { computePriceStatus, StatusBadgePrice } from "@/components/PoPriceControl";
 import { NumericInput } from "@/components/NumericInput";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { QtyStock } from "@/components/StockInfo";
-import { ItemPicker } from "@/components/ItemPicker";
+import { ItemPicker, itemDisplayName } from "@/components/ItemPicker";
 
-export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null, stockWarehouse = null, itemCreate = null, testidPrefix = "line" }) {
+export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null, stockWarehouse = null, itemCreate = null, testidPrefix = "line", itemLabel = null }) {
   const items = masters.map("items");
   const uoms = masters.map("uoms");
   const taxes = masters.map("taxes");
@@ -104,7 +105,9 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const whOf = (l) => (stockWarehouse ? stockWarehouse(l) : l.warehouse_id || defaults.warehouse_id || "");
   const Stock = ({ l, i }, input) => <QtyStock itemId={l.item_id} warehouseId={whOf(l)} itemName={items[l.item_id]?.name} testid={`${testidPrefix}-stock-${i}`}>{input}</QtyStock>;
   const footer = itemCreate ? (i) => ({ label: "Tambah Barang", testid: `${testidPrefix}-add-item-${i}`, onClick: () => itemCreate((id) => setPick({ i, id })) }) : () => null;
-  const Picker = ({ l, i }) => <ItemPicker items={masters.data.items || []} uoms={uoms} value={l.item_id} onChange={(v) => update(i, { item_id: v })} warehouseId={whOf(l)} disabled={l._locked} onCreate={footer(i)} testid={`${testidPrefix}-item-${i}`} />;
+  // PO: label barang = Nama · Merk · Part Number (tanpa kode), boleh 2 baris agar terbaca jelas.
+  const Picker = ({ l, i }) => <ItemPicker items={masters.data.items || []} uoms={uoms} value={l.item_id} onChange={(v) => update(i, { item_id: v })} warehouseId={whOf(l)} disabled={l._locked} onCreate={footer(i)} testid={`${testidPrefix}-item-${i}`}
+    formatLabel={itemLabel || (poControl ? itemDisplayName : null)} fallbackLabel={[l.item_name, l.item_brand, l.item_part_number].filter(Boolean).join(" · ")} />;
   const updateRef = useRef(update);
   updateRef.current = update;
   useEffect(() => { if (pick && items[pick.id] && linesRef.current[pick.i]) { setPick(null); updateRef.current(pick.i, { item_id: pick.id }); } }, [pick, items]);
@@ -118,11 +121,11 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   if (poControl) {
     const fmtPct = (p) => `${p >= 0 ? "+" : ""}${Number(p).toFixed(2).replace(".", ",")}%`;
     const fmtRp = (v) => `${v >= 0 ? "+" : "-"}${rupiah(Math.abs(v))}`;
-    const head = [["w-[36px]", ""], ["w-[180px]", "Barang"], ["w-[170px]", "Keterangan"], ["w-[80px]", "Qty"], ["w-[110px]", "Satuan"], ["w-[130px]", "Harga Kontrak"], ["w-[170px]", "Harga Satuan"], ["w-[175px]", "Diskon Item"], ["w-[115px]", "Selisih"], ["w-[140px]", "Total"], ["w-[105px]", "Status"], ["w-[40px]", "Aksi"]];
+    const head = [["w-[36px]", ""], ["w-[340px]", "Barang"], ["w-[150px]", "Keterangan"], ["w-[80px]", "Qty"], ["w-[110px]", "Satuan"], ["w-[130px]", "Harga Kontrak"], ["w-[170px]", "Harga Satuan"], ["w-[175px]", "Diskon Item"], ["w-[115px]", "Selisih"], ["w-[140px]", "Total"], ["w-[105px]", "Status"], ["w-[40px]", "Aksi"]];
     const lbl = "mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground";
     return <div className="space-y-3">
       <div className="overflow-x-auto rounded-md border bg-card shadow-sm">
-        <div className="min-w-[1545px]">
+        <div className="min-w-[1685px]">
           <div className="flex items-stretch gap-1.5 border-b bg-muted px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {head.map(([w, t], k) => <div key={k} className={w + " shrink-0"}>{t}</div>)}
           </div>
@@ -144,8 +147,8 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
               {/* PRIMARY ROW — Transaction & Price */}
               <div className="flex items-center gap-1.5">
                 <div className="w-[36px] shrink-0"><button type="button" onClick={toggle} className="flex h-7 w-7 items-center justify-center rounded hover:bg-accent" data-testid={`po-expand-${i}`} title="Detail">{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button></div>
-                <div className="w-[180px] shrink-0">{Picker({ l, i })}</div>
-                <div className="w-[170px] shrink-0"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9 text-sm" placeholder="Keterangan" data-testid={`po-notes-${i}`} /></div>
+                <div className="w-[340px] shrink-0">{Picker({ l, i })}</div>
+                <div className="w-[150px] shrink-0"><Input value={l.notes || ""} onChange={(e) => update(i, { notes: e.target.value })} className="h-9 text-sm" placeholder="Keterangan" data-testid={`po-notes-${i}`} /></div>
                 <div className="w-[80px] shrink-0">{Stock({ l, i }, <NumericInput mode="quantity" value={l.qty} onChange={(v) => update(i, { qty: v })} className="h-9 text-right" data-testid={`po-qty-${i}`} />)}</div>
                 <div className="w-[110px] shrink-0"><Uom l={l} i={i} /></div>
                 <div className="w-[130px] shrink-0 text-sm">{hasC ? <span className="font-semibold tabular-nums">{rupiah(Number(c.contract_price))}</span> : (c && c.out_of_period ? <span className="text-[11px] font-medium text-amber-700" data-testid={`po-contract-period-warn-${i}`}>Kontrak {c.contract_number || ""} di luar periode</span> : <span className="text-xs text-muted-foreground">Tidak ada kontrak</span>)}</div>
@@ -182,7 +185,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
     <div className="border rounded-md overflow-x-auto bg-card shadow-sm">
       <table className="w-full text-sm min-w-[980px]">
         <thead className="bg-muted"><tr className="text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          <th className="p-2 min-w-[210px]">Barang</th><th className="p-2 min-w-[150px]">Keterangan</th><th className="p-2 w-32">Qty</th><th className="p-2 min-w-[145px]">Satuan</th>
+          <th className={cn("p-2", itemLabel ? "min-w-[320px]" : "min-w-[210px]")}>Barang</th><th className="p-2 min-w-[150px]">Keterangan</th><th className="p-2 w-32">Qty</th><th className="p-2 min-w-[145px]">Satuan</th>
           {allocationColumn && <th className="p-2 min-w-[160px]">{allocationColumn.header || "Alokasi SPK"}</th>}
           {fields.warehouse && <th className="p-2 min-w-[140px]">Gudang</th>}{fields.project && <th className="p-2 min-w-[140px]">Proyek</th>}{fields.unit && <th className="p-2 min-w-[140px]">Unit/Aset</th>}
           {showPrice && <><th className="p-2 w-32">Harga / Satuan</th><th className="p-2 w-24">Diskon</th><th className="p-2 min-w-[150px]">Pajak</th><th className="p-2 w-32 text-right">Total</th></>}

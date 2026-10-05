@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearLookupCache } from "@/lib/lookupStore";
 
 // In production the frontend nginx proxies /api to the backend container.
 // A custom backend URL can still be supplied at build time when needed.
@@ -8,8 +9,8 @@ export const API = `${BACKEND_URL}/api`;
 const api = axios.create({ baseURL: API, withCredentials: true });
 
 export const getToken = () => localStorage.getItem("pf_token");
-export const setToken = (t) => { if (t) localStorage.setItem("pf_token", t); };
-export const clearToken = () => localStorage.removeItem("pf_token");
+export const setToken = (t) => { if (t) { if (t !== getToken()) clearLookupCache(); localStorage.setItem("pf_token", t); } };
+export const clearToken = () => { clearLookupCache(); localStorage.removeItem("pf_token"); };
 
 api.interceptors.request.use((config) => {
   const t = getToken();
@@ -19,7 +20,7 @@ api.interceptors.request.use((config) => {
 
 let refreshing = null;
 api.interceptors.response.use(
-  (r) => r,
+  (r) => { if (String(r.config?.method || "get").toLowerCase() !== "get") clearLookupCache(); return r; },
   async (error) => {
     const orig = error.config;
     if (error.response?.status === 401 && !orig._retry && !orig.url.includes("/auth/")) {
