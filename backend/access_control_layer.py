@@ -933,8 +933,7 @@ LOOKUP_FIELDS = {
 def _install_lookup(server, allowed, in_scope):
     app = server.app
 
-    @app.get("/api/lookup/{name}", tags=["access-control"])
-    async def lookup(name: str, q: str = "", active_only: bool = True, limit: int = 0, user=Depends(server.current_user)):
+    async def lookup_rows(name, q, active_only, limit, user):
         # Reference data for forms: Tenant -> functional permission -> Division Scope. Minimal fields only.
         if name not in LOOKUP_REASONS:
             raise HTTPException(404, "Data referensi tidak ditemukan")
@@ -963,3 +962,21 @@ def _install_lookup(server, allowed, in_scope):
             out.append({**{k: r[k] for k in fields if k in r}, "label": label})
         out.sort(key=lambda x: x["label"].lower())
         return out[:limit] if limit and limit > 0 else out
+
+    # Batch dulu (path statis) agar tidak tertangkap /api/lookup/{name}.
+    @app.get("/api/lookup-batch", tags=["access-control"])
+    async def lookup_batch(names: str = "", active_only: bool = True, user=Depends(server.current_user)):
+        """Beberapa data referensi dalam 1 request (mengurangi puluhan request paralel saat membuka form).
+        Aturan izin & cakupan divisi per data SAMA dengan /api/lookup/{name}; data tanpa izin dikembalikan di `denied`."""
+        wanted = [n for n in dict.fromkeys(x.strip() for x in str(names or "").split(",")) if n][:30]
+        data, denied = {}, []
+        for n in wanted:
+            try:
+                data[n] = await lookup_rows(n, "", active_only, 0, user)
+            except HTTPException:
+                denied.append(n)
+        return {"data": data, "denied": denied}
+
+    @app.get("/api/lookup/{name}", tags=["access-control"])
+    async def lookup(name: str, q: str = "", active_only: bool = True, limit: int = 0, user=Depends(server.current_user)):
+        return await lookup_rows(name, q, active_only, limit, user)

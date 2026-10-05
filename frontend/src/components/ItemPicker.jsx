@@ -19,7 +19,10 @@ function loadWarehouseStock(wid) {
 const COLS = [["code", "Kode Barang"], ["name", "Nama Barang"], ["part_number", "Part Number"], ["brand", "Merk"]];
 const LIMIT = 100;
 
-export function ItemPicker({ items, uoms = {}, value, onChange, warehouseId, disabled, testid, onCreate, placeholder = "Pilih barang" }) {
+/** Label barang untuk dokumen pembelian: Nama · Merk · Part Number (tanpa kode). */
+export const itemDisplayName = (it, fallback = "") => (it ? [it.name, it.brand, it.part_number].filter((x) => String(x || "").trim()).join(" · ") : fallback);
+
+export function ItemPicker({ items, uoms = {}, value, onChange, warehouseId, disabled, testid, onCreate, placeholder = "Pilih barang", formatLabel = null, fallbackLabel = "" }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState({ key: "code", dir: 1 });
@@ -27,17 +30,20 @@ export function ItemPicker({ items, uoms = {}, value, onChange, warehouseId, dis
   useEffect(() => { if (open && warehouseId) loadWarehouseStock(warehouseId).then(setStock); else setStock(null); }, [open, warehouseId]);
   const unitOf = (it) => { const u = uoms[it.base_uom_id]; return (u && (u.symbol || u.name || u.code)) || it.unit || "-"; };
   const rows = useMemo(() => {
+    if (!open) return [];   // daftar barang hanya diproses saat picker dibuka (hemat render per baris)
     const n = q.trim().toLowerCase();
     const f = (items || []).filter((it) => !n || COLS.some(([k]) => String(it[k] || "").toLowerCase().includes(n)));
     return f.sort((a, b) => String(a[sort.key] || "").localeCompare(String(b[sort.key] || ""), "id", { numeric: true }) * sort.dir);
-  }, [items, q, sort]);
-  const selected = (items || []).find((it) => it.id === value);
+  }, [items, q, sort, open]);
+  const selected = useMemo(() => (value ? (items || []).find((it) => it.id === value) : null), [items, value]);
+  const text = selected ? (formatLabel ? formatLabel(selected) : `${selected.code ? selected.code + " — " : ""}${selected.name}`) : (value && fallbackLabel) || "";
   const pick = (id) => { onChange(id); setOpen(false); setQ(""); };
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" disabled={disabled} data-testid={testid} className="h-9 w-full justify-between text-sm font-normal">
-          <span className={cn("truncate", !selected && "text-muted-foreground")}>{selected ? `${selected.code ? selected.code + " — " : ""}${selected.name}` : placeholder}</span>
+        <Button variant="outline" role="combobox" disabled={disabled} data-testid={testid} title={text || undefined}
+          className={cn("w-full justify-between text-sm font-normal", formatLabel ? "h-auto min-h-9 py-1.5 text-left disabled:cursor-default disabled:bg-muted/40 disabled:opacity-100" : "h-9")}>
+          <span className={cn(formatLabel ? "line-clamp-2 whitespace-normal break-words leading-snug" : "truncate", !text && "text-muted-foreground")} data-testid={testid ? `${testid}-label` : undefined}>{text || placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
