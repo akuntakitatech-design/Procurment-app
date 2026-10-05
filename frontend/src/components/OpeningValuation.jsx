@@ -33,7 +33,19 @@ export function OpeningValuation() {
     if (wh) params.warehouse_id = wh;
     if (status !== "all") params.status = status;
     api.get("/valuation/opening-candidates", { params })
-      .then((r) => setRows(r.data?.rows || []))
+      .then((r) => {
+        const list = r.data?.rows || [];
+        setRows(list);
+        // Harga Beli dari Import Saldo Awal menjadi nilai awal input (masih Belum Dinilai sampai Tetapkan).
+        setCosts((c) => {
+          const next = { ...c };
+          list.forEach((x) => {
+            const k = `${x.item_id}::${x.warehouse_id}`;
+            if (x.status !== "valued" && x.opening_cost_candidate > 0 && (next[k] === undefined || next[k] === "")) next[k] = String(x.opening_cost_candidate);
+          });
+          return next;
+        });
+      })
       .catch((e) => toast.error(apiError(e.response?.data?.detail)))
       .finally(() => setLoading(false));
   };
@@ -54,7 +66,7 @@ export function OpeningValuation() {
         opening_avg_cost: cost, cutoff_date: cutoff,
       });
       toast.success(`Nilai awal ${r.item_code} ditetapkan pada ${String(cutoff).slice(0, 10)}`);
-      setCosts((c) => ({ ...c, [k]: "" }));
+      setCosts((c) => { const n = { ...c }; delete n[k]; return n; });
       load();
     } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
     finally { setSavingKey(null); }
@@ -111,7 +123,12 @@ export function OpeningValuation() {
               <td className="p-2">{r.base_uom_name || "-"}</td>
               <td className="p-1.5">{valued
                 ? <span className="tabular-nums">{rupiah(r.avg_cost)}</span>
-                : <NumericInput mode="money" value={costs[k] ?? ""} onChange={(v) => setCosts((c) => ({ ...c, [k]: v }))} className="h-9 text-right" placeholder="0" data-testid={`opening-cost-${k}`} />}</td>
+                : <div>
+                  <NumericInput mode="money" value={costs[k] ?? ""} onChange={(v) => setCosts((c) => ({ ...c, [k]: v }))} className="h-9 text-right" placeholder="0" data-testid={`opening-cost-${k}`} />
+                  {r.opening_cost_candidate > 0 && <div className="mt-0.5 text-[11px] text-muted-foreground" data-testid={`opening-cost-source-${k}`}>
+                    {Number(costs[k]) === Number(r.opening_cost_candidate) ? "Dari Harga Beli Saldo Awal" : `Saldo Awal: ${rupiah(r.opening_cost_candidate)}`}
+                  </div>}
+                </div>}</td>
               <td className="p-2 text-right tabular-nums font-semibold" data-testid={`opening-value-${k}`}>{rupiah(liveVal)}</td>
               <td className="p-2">{valued
                 ? <Badge className="bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-0">Sudah Dinilai</Badge>
