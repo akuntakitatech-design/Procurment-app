@@ -352,18 +352,10 @@ def install(server):
         return conflicts
 
     # ------------------------------------------------- Effective Price Resolver (reusable)
-    async def resolve_price(supplier_id: str, item_id: str, uom_id: str, txn_date: str | None = None, qty: float | None = None):
-        """Cari harga kontrak AKTIF yang berlaku untuk Vendor+Item+UOM pada tanggal transaksi.
-
-        Mengabaikan kontrak draft/cancelled dan harga expired (lewat tanggal).
-        Menghormati min_qty (tier) bila qty diberikan. Dipakai CP4 untuk PO (belum di-wire).
-        """
-        d = txn_date or _today()
-        rows = await _db().vendor_contract_items.find(
-            {"supplier_id": supplier_id, "item_id": item_id, "uom_id": uom_id}, {"_id": 0}).to_list(2000)
+    def _pick_price(supplier_id, item_id, uom_id, pairs, d, qty):
+        """Aturan pemilihan harga kontrak (dipakai resolve_price & resolve_item_prices)."""
         candidates = []
-        for it in rows:
-            oc = await _db().vendor_contracts.find_one({"id": it.get("contract_id")}, {"_id": 0})
+        for it, oc in pairs:
             if not oc or oc.get("status") != "active":
                 continue
             s_ex, e_ex = _period(it.get("effective_start"), it.get("effective_end"), oc.get("start_date"), oc.get("end_date"))
@@ -395,6 +387,43 @@ def install(server):
             "resolved_for_date": d,
         }
 
+    async def resolve_price(supplier_id: str, item_id: str, uom_id: str, txn_date: str | None = None, qty: float | None = None):
+        """Cari harga kontrak AKTIF yang berlaku untuk Vendor+Item+UOM pada tanggal transaksi.
+
+        Mengabaikan kontrak draft/cancelled dan harga expired (lewat tanggal).
+        Menghormati min_qty (tier) bila qty diberikan. Dipakai CP4 untuk PO (belum di-wire).
+        """
+        d = txn_date or _today()
+        rows = await _db().vendor_contract_items.find(
+            {"supplier_id": supplier_id, "item_id": item_id, "uom_id": uom_id}, {"_id": 0}).to_list(2000)
+        pairs = []
+        for it in rows:
+            pairs.append((it, await _db().vendor_contracts.find_one({"id": it.get("contract_id")}, {"_id": 0})))
+        return _pick_price(supplier_id, item_id, uom_id, pairs, d, qty)
+
+    async def resolve_item_prices(item_id: str, txn_date: str | None = None, qty_for=None):
+        """Batch (read-only): harga kontrak AKTIF yang berlaku untuk satu barang di SEMUA vendor.
+
+        Aturan identik resolve_price (status active, periode efektif, tier min_qty), satu hasil per
+        (supplier, UOM). 2 query (item kontrak + header kontrak), tanpa N+1. qty_for(uom_id) -> qty
+        untuk tier min_qty (opsional)."""
+        d = txn_date or _today()
+        rows = await _db().vendor_contract_items.find({"item_id": item_id}, {"_id": 0}).to_list(5000)
+        cids = sorted({r.get("contract_id") for r in rows if r.get("contract_id")})
+        heads = {}
+        if cids:
+            heads = {c["id"]: c for c in await _db().vendor_contracts.find({"id": {"$in": cids}}, {"_id": 0}).to_list(len(cids) + 10)}
+        groups = {}
+        for it in rows:
+            if it.get("supplier_id") and it.get("uom_id"):
+                groups.setdefault((it["supplier_id"], it["uom_id"]), []).append((it, heads.get(it.get("contract_id"))))
+        out = []
+        for (sid, uid), pairs in groups.items():
+            res = _pick_price(sid, item_id, uid, pairs, d, qty_for(uid) if qty_for else None)
+            if res:
+                out.append(res)
+        return out
+
     async def period_hint(supplier_id: str, item_id: str, uom_id: str, txn_date: str | None = None):
         """Contract Period Guard: when resolve_price finds NO active price for the date, detect
         whether an ACTIVE contract for this Vendor+Item+UOM actually EXISTS but the PO date falls
@@ -421,6 +450,7 @@ def install(server):
 
     # ekspos untuk CP4
     server.resolve_vendor_contract_price = resolve_price
+    server.resolve_vendor_item_prices = resolve_item_prices
     server.resolve_contract_period_hint = period_hint
 
     # ============================ CONTRACT CRUD ============================

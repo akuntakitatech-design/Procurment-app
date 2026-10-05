@@ -174,3 +174,11 @@ Steps:
 - Opening valuation UI functions with cut-off + safeguards; no qty mutation.
 - Reconciliation reports `ok:true` after the required E2E tests; diagnostics are clean.
 - No regression in existing procurement flows; `CI=true yarn build` passes.
+
+## PO — Informasi Harga & Supplier saat Tarik RO (Status: COMPLETED, lokal, branch feature/po-ro-price-insight)
+- Kolom "Harga" + tombol "Lihat Harga" di popup Tarik RO; popup "Informasi Harga & Supplier" (lazy, per baris RO).
+- Backend read-only: GET /api/pull/ro-for-po/price-insight, GET /api/pull/ro-for-po/price-history (maks 5).
+- Kontrak: resolver Kontrak Harga Vendor existing (batch `resolve_vendor_item_prices`, aturan identik `resolve_price`).
+- Harga Beli Terakhir: PO Approved/Partially Received/Fully Received (tidak cancelled), net setelah diskon item, tanpa PPN, per satuan dasar.
+- Pilih Supplier hanya mengubah supplier PO di form (belum simpan); Supplier Utama & kontrak tidak berubah.
+- Test: tests/po_price_insight_test.py 25/25; regresi PO/RO/receipt/invoice + multi-proses lulus; CI=true yarn build sukses.

@@ -7,7 +7,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Combobox } from "@/components/Combobox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ListTree, Search, Users } from "lucide-react";
+import { ListTree, Search, Tag, Users } from "lucide-react";
+import { PoPriceInsightDialog } from "@/components/po/PoPriceInsight";
 import { toast } from "sonner";
 
 const EPS = 1e-6;
@@ -112,12 +113,20 @@ export function PoSourceDetailDialog({ line, onClose, onChange, readOnly, itemLa
   );
 }
 
+/** Supplier Kontrak ringkas: 1 -> nama, >1 -> "N Supplier Kontrak" (detail via Lihat Harga). */
+const contractCell = (r) => {
+  const c = r.contract_suppliers || [];
+  if (!c.length) return "-";
+  if (c.length === 1) return <span title={c[0].contract_number || ""}>{c[0].supplier_name}</span>;
+  return <Badge variant="outline" className="whitespace-nowrap text-[11px]" title={c.map((x) => x.supplier_name).join(", ")}>{c.length} Supplier Kontrak</Badge>;
+};
+
 const recKey = (r) => r.recommended_supplier?.supplier_id || MANUAL;
 const searchText = (r) => [r.ro_no, r.item_code, r.item_name, r.division_name, r.primary_supplier_name, ...(r.mro_nos || []), r.spk_label,
   ...(r.contract_suppliers || []).map((c) => `${c.supplier_name} ${c.contract_number || ""}`)].join(" ").toLowerCase();
 
 /** Tarik RO — kebutuhan RO dikelompokkan per rekomendasi supplier (Kontrak Aktif -> Supplier Utama -> Pilih Manual). */
-export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, onConfirm }) {
+export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, poDate, onConfirm }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -126,8 +135,10 @@ export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, onConf
   const [sel, setSel] = useState({}); // line_id -> qty
   const [div, setDiv] = useState("");
   const [pickSupplier, setPickSupplier] = useState("");
+  const [pickSupplierName, setPickSupplierName] = useState("");
+  const [priceRow, setPriceRow] = useState(null); // baris untuk popup Informasi Harga & Supplier (lazy)
   const load = () => { setLoading(true); setError(null); api.get("/pull/ro-for-po").then((r) => setRows(r.data || [])).catch((e) => setError(apiError(e.response?.data?.detail))).finally(() => setLoading(false)); };
-  useEffect(() => { if (open) { setSel({}); setQ(""); setGroup(""); setDiv(divisionId || ""); setPickSupplier(""); load(); } }, [open, divisionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) { setSel({}); setQ(""); setGroup(""); setDiv(divisionId || ""); setPickSupplier(""); setPickSupplierName(""); setPriceRow(null); load(); } }, [open, divisionId]); // eslint-disable-line react-hooks/exhaustive-deps
   const lockedDiv = divisionId || div;
   const shown = useMemo(() => rows.filter((r) => (!q || searchText(r).includes(q.toLowerCase())) && (!group || recKey(r) === group)), [rows, q, group]);
   const groups = useMemo(() => {
@@ -153,11 +164,20 @@ export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, onConf
     eligible.filter((r) => r.division_id === d).forEach((r) => { x[r.line_id] = n(r.outstanding_base); });
     if (!Object.keys(x).length) return;
     setDiv(d); setSel(x);
-    if (g.key !== MANUAL) setPickSupplier(g.key);
+    if (g.key !== MANUAL) { setPickSupplier(g.key); setPickSupplierName(g.name); }
+  };
+  // Pilih Supplier dari popup harga: supplier PO mengikuti pilihan, baris ikut dipilih (trace RO->MRO->SPK tetap).
+  const pickFromInsight = (r, s) => {
+    if (blocked(r)) { toast.error("Barang ini dari divisi lain. Satu PO hanya untuk satu Divisi."); return; }
+    if (!lockedDiv) setDiv(r.division_id || "");
+    setSel((c) => (c[r.line_id] != null ? c : { ...c, [r.line_id]: n(r.outstanding_base) }));
+    setPickSupplier(s.supplier_id); setPickSupplierName(s.supplier_name || "");
+    setPriceRow(null);
+    toast.success(`Supplier PO: ${s.supplier_name}`);
   };
   const picked = rows.filter((r) => sel[r.line_id] != null);
   const invalid = picked.some((r) => n(sel[r.line_id]) <= EPS || n(sel[r.line_id]) > n(r.outstanding_base) + EPS);
-  const supName = (id) => rows.find((r) => recKey(r) === id)?.recommended_supplier?.supplier_name;
+  const supName = (id) => pickSupplierName || rows.find((r) => recKey(r) === id)?.recommended_supplier?.supplier_name;
   const confirm = () => {
     if (!picked.length) return;
     if (invalid) { toast.error("Qty ke PO harus > 0 dan tidak melebihi Sisa PO."); return; }
@@ -182,8 +202,8 @@ export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, onConf
                 <div className="flex items-center gap-2"><Users className="h-4 w-4 text-muted-foreground" /><span className="font-semibold">{g.name}</span><Badge variant="outline" className="text-[11px]">{g.source}</Badge><span className="text-xs text-muted-foreground">{g.rows.length} barang</span></div>
                 <Button type="button" size="sm" variant="outline" onClick={() => pickGroup(g)} data-testid={`po-ro-group-pick-${g.key === MANUAL ? "manual" : g.key}`}>{g.key === MANUAL ? "Pilih semua di grup ini" : "Pilih grup & jadikan Supplier PO"}</Button>
               </div>
-              <div className="overflow-x-auto"><table className="w-full min-w-[1350px] text-sm"><thead><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="w-10 p-2" /><th className="p-2">No RO</th><th className="p-2">Divisi</th><th className="p-2">Barang</th><th className="p-2 text-right">Qty RO</th><th className="p-2 text-right">Sudah PO</th><th className="p-2 text-right">Sisa PO</th><th className="p-2">Satuan</th><th className="p-2">Supplier Utama</th><th className="p-2">Supplier Kontrak</th><th className="p-2">MRO Sumber</th><th className="p-2">Alokasi SPK</th><th className="w-32 p-2 text-right">Qty ke PO</th>
+              <div className="overflow-x-auto"><table className="w-full min-w-[1450px] text-sm"><thead><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <th className="w-10 p-2" /><th className="p-2">No RO</th><th className="p-2">Divisi</th><th className="p-2">Barang</th><th className="p-2 text-right">Qty RO</th><th className="p-2 text-right">Sudah PO</th><th className="p-2 text-right">Sisa PO</th><th className="p-2">Satuan</th><th className="p-2">Supplier Utama</th><th className="p-2">Supplier Kontrak</th><th className="p-2">Harga</th><th className="p-2">MRO Sumber</th><th className="p-2">Alokasi SPK</th><th className="w-32 p-2 text-right">Qty ke PO</th>
               </tr></thead><tbody>
                 {g.rows.map((r) => { const on = sel[r.line_id] != null; const dis = blocked(r); const v = sel[r.line_id]; const over = on && (n(v) > n(r.outstanding_base) + EPS || n(v) <= EPS); return (
                   <tr key={r.line_id} className={`border-t ${on ? "bg-primary/5" : ""} ${dis ? "opacity-50" : ""}`} data-testid={`po-ro-row-${r.ro_no}-${r.item_code}`}>
@@ -192,7 +212,8 @@ export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, onConf
                     <td className="p-2"><div className="font-medium">{r.item_name}</div><div className="font-mono text-xs text-muted-foreground">{r.item_code}</div></td>
                     <td className="p-2 text-right tabular-nums">{num(r.qty_ro_base)}</td><td className="p-2 text-right tabular-nums">{num(r.ordered_base)}</td><td className="p-2 text-right font-semibold tabular-nums">{num(r.outstanding_base)}</td>
                     <td className="p-2">{r.base_unit}</td><td className="p-2">{r.primary_supplier_name || "-"}</td>
-                    <td className="p-2 text-xs">{(r.contract_suppliers || []).map((c) => <div key={c.supplier_id}>{c.supplier_name}{c.contract_number ? ` · ${c.contract_number}` : ""}</div>)}{!(r.contract_suppliers || []).length && "-"}</td>
+                    <td className="p-2 text-xs" data-testid={`po-ro-contract-${r.ro_no}-${r.item_code}`}>{contractCell(r)}</td>
+                    <td className="p-2"><Button type="button" size="sm" variant="outline" className="h-8 whitespace-nowrap px-2" onClick={() => setPriceRow(r)} data-testid={`po-ro-price-${r.ro_no}-${r.item_code}`}><Tag className="mr-1 h-3.5 w-3.5" />Lihat Harga</Button></td>
                     <td className="p-2 font-mono text-xs">{(r.mro_nos || []).join(", ") || "-"}</td><td className="p-2 text-xs">{r.spk_label || "-"}</td>
                     <td className="p-1.5 text-right">{on ? <Input type="number" min="0" step="any" value={v} onChange={(e) => setSel((c) => ({ ...c, [r.line_id]: e.target.value }))} className={`h-8 text-right ${over ? "border-destructive ring-1 ring-destructive/40" : ""}`} aria-invalid={over || undefined} data-testid={`po-ro-qty-${r.ro_no}-${r.item_code}`} /> : <span className="text-xs text-muted-foreground">{dis ? "Divisi lain" : "-"}</span>}</td>
                   </tr>); })}
@@ -200,9 +221,10 @@ export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, onConf
             </section>
           ))}
         <DialogFooter className="flex-wrap items-center gap-2 sm:justify-between">
-          <span className="text-sm text-muted-foreground" data-testid="po-ro-picked-summary">{picked.length} barang dipilih{pickSupplier ? ` · Supplier PO: ${supName(pickSupplier)}` : supplierId ? " · Supplier PO tetap" : ""}</span>
+          <span className="text-sm text-muted-foreground" data-testid="po-ro-picked-summary">{picked.length} barang dipilih{pickSupplier ? ` · Supplier PO: ${supName(pickSupplier)}${supplierId && supplierId !== pickSupplier ? " (mengganti supplier PO saat ini)" : ""}` : supplierId ? " · Supplier PO tetap" : ""}</span>
           <div className="flex gap-2"><Button variant="outline" onClick={onClose}>Batal</Button><Button onClick={confirm} disabled={!picked.length || invalid} data-testid="po-ro-confirm">Tambahkan ke PO</Button></div>
         </DialogFooter>
+        {priceRow && <PoPriceInsightDialog row={priceRow} poDate={poDate} currentSupplierId={pickSupplier || supplierId || null} onClose={() => setPriceRow(null)} onPick={(s) => pickFromInsight(priceRow, s)} />}
       </DialogContent>
     </Dialog>
   );
