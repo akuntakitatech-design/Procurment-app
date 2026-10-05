@@ -31,6 +31,7 @@ const MAP = {
   "belum dibayar": "bg-rose-50 text-rose-700 border-rose-200",
   "dibayar sebagian": "bg-amber-50 text-amber-700 border-amber-200",
   lunas: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "belum lunas": "bg-amber-50 text-amber-700 border-amber-200",
   "belum ditagihkan": "bg-slate-100 text-slate-700 border-slate-300",
   "ditagihkan sebagian": "bg-sky-50 text-sky-700 border-sky-200",
   "sudah ditagihkan penuh": "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -40,6 +41,8 @@ const MAP = {
   aktif: "bg-emerald-50 text-emerald-700 border-emerald-200",
   dibatalkan: "bg-slate-200 text-slate-500 line-through border-slate-300",
   sesuai: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "menunggu verifikasi": "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800",
+  "sudah dibayar": "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
   "ada selisih": "bg-orange-50 text-orange-700 border-orange-300",
 };
 

@@ -8,6 +8,8 @@ import { Field } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DoAllocationTable } from "@/components/invoice/DoAllocationTable";
+import { DpAllocationDialog } from "@/components/invoice/DpAllocationDialog";
+import { sumDp } from "@/lib/supplierDp";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,10 +17,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { rupiah, toNum } from "@/lib/format";
 import { todayDate, dateOnly, round2, TOL } from "@/lib/invoice";
 import { AttachmentPanel, uploadPendingAttachments } from "@/components/DocMeta";
-import { ArrowLeft, Paperclip } from "lucide-react";
+import { ArrowLeft, HandCoins, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 
 const EMPTY = { supplier_id: "", invoice_no: "", invoice_date: todayDate(), received_date: todayDate(), due_date: "", tax_amount: "", amount: "", diff_reason: "", notes: "" };
+
+function DpSummary({ amount, dp, paid }) {
+  const rem = round2(amount - dp - paid);
+  const cells = [["Nilai Invoice", amount, "invoice-sum-amount"], ["DP Dialokasikan", dp, "invoice-sum-dp"], ["Sudah Dibayar", paid, "invoice-sum-paid"], ["Sisa Hutang", rem, "invoice-sum-remaining"]];
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-4" data-testid="invoice-dp-summary">
+      {cells.map(([l, v, t]) => <div key={t} className="rounded-lg border p-3"><div className="text-xs text-muted-foreground">{l}</div>
+        <div className={`font-head text-lg font-bold tabular-nums ${t === "invoice-sum-remaining" && v < -0.005 ? "text-destructive" : ""}`} data-testid={t}>{rupiah(v)}</div></div>)}
+    </div>
+  );
+}
 
 function Totals({ allocTotal, amount, diff }) {
   const ok = Math.abs(diff) < TOL;
@@ -44,6 +57,10 @@ export default function InvoiceForm() {
   const [autoAmount, setAutoAmount] = useState(!id);
   const [pending, setPending] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [dpAlloc, setDpAlloc] = useState({});
+  const [dpCands, setDpCands] = useState([]);
+  const [dpOpen, setDpOpen] = useState(false);
+  const [paidTotal, setPaidTotal] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -51,6 +68,8 @@ export default function InvoiceForm() {
       const d = r.data;
       setH({ ...EMPTY, ...d, invoice_date: dateOnly(d.invoice_date), received_date: dateOnly(d.received_date), due_date: dateOnly(d.due_date) });
       setAlloc(Object.fromEntries((d.allocations || []).map((a) => [a.do_id, a.amount])));
+      setDpAlloc(Object.fromEntries((d.dp_allocations || []).map((a) => [a.po_id, a.amount])));
+      setPaidTotal(round2(d.paid_total));
     }).catch((e) => toast.error(apiError(e.response?.data?.detail)));
   }, [id]);
   useEffect(() => {
@@ -60,6 +79,18 @@ export default function InvoiceForm() {
       .then((r) => setRows(r.data)).catch((e) => toast.error(apiError(e.response?.data?.detail))).finally(() => setLoading(false));
   }, [h.supplier_id, id]);
 
+  // Kandidat DP dihitung backend dari DO yang sedang dipilih (PO sumber DO, supplier sama, DP sudah dibayar).
+  const allocKey = JSON.stringify(alloc);
+  useEffect(() => {
+    if (!h.supplier_id) { setDpCands([]); return undefined; }
+    const allocations = Object.entries(alloc).map(([do_id, v]) => ({ do_id, amount: round2(v) })).filter((a) => a.amount > 0);
+    const t = setTimeout(() => {
+      api.post("/vendor-invoices/dp-candidates", { supplier_id: h.supplier_id, invoice_id: id || null, allocations })
+        .then((r) => setDpCands(r.data)).catch(() => setDpCands([]));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [h.supplier_id, id, allocKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dpTotal = sumDp(dpAlloc);
   const allocTotal = useMemo(() => round2(Object.values(alloc).reduce((s, v) => s + toNum(v), 0)), [alloc]);
   const taxAuto = useMemo(() => round2(rows.reduce((s, r) => s + (alloc[r.do_id] !== undefined && r.do_value ? toNum(r.do_tax) * toNum(alloc[r.do_id]) / toNum(r.do_value) : 0), 0)), [rows, alloc]);
   useEffect(() => { if (autoAmount) setH((c) => ({ ...c, amount: allocTotal ? String(allocTotal) : "", tax_amount: allocTotal ? String(taxAuto) : "" })); }, [autoAmount, allocTotal, taxAuto]);
@@ -75,7 +106,8 @@ export default function InvoiceForm() {
     if (Math.abs(diff) >= TOL && !String(h.diff_reason || "").trim()) return toast.error("Total Alokasi DO berbeda dengan Nilai Invoice. Alasan Selisih wajib diisi.");
     const body = { supplier_id: h.supplier_id, invoice_no: h.invoice_no, invoice_date: h.invoice_date, received_date: h.received_date, due_date: h.due_date,
       amount, tax_amount: tax, dpp: round2(amount - tax), diff_reason: h.diff_reason, notes: h.notes,
-      allocations: Object.entries(alloc).map(([do_id, v]) => ({ do_id, amount: round2(v) })) };
+      allocations: Object.entries(alloc).map(([do_id, v]) => ({ do_id, amount: round2(v) })),
+      dp_allocations: Object.entries(dpAlloc).map(([po_id, v]) => ({ po_id, amount: round2(v) })) };
     setSaving(true);
     try {
       const r = id ? await api.put(`/vendor-invoices/${id}`, body) : await api.post("/vendor-invoices", body);
@@ -96,7 +128,7 @@ export default function InvoiceForm() {
       <Card><CardContent className="space-y-6 pt-6">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Field label="Supplier"><div data-testid="invoice-supplier">{id ? <Input value={h.supplier_name || ""} disabled /> :
-            <Combobox options={masters.opts("suppliers", (d) => d.name)} value={h.supplier_id} onChange={(v) => { setAlloc({}); setAutoAmount(true); setH((c) => ({ ...c, supplier_id: v })); }} testid="invoice-supplier-combobox" />}</div></Field>
+            <Combobox options={masters.opts("suppliers", (d) => d.name)} value={h.supplier_id} onChange={(v) => { setAlloc({}); setDpAlloc({}); setAutoAmount(true); setH((c) => ({ ...c, supplier_id: v })); }} testid="invoice-supplier-combobox" />}</div></Field>
           <Field label="No Invoice"><Input value={h.invoice_no} onChange={set("invoice_no")} data-testid="invoice-no-input" /></Field>
           <Field label="Tanggal Invoice"><Input type="date" value={h.invoice_date} onChange={set("invoice_date")} data-testid="invoice-date-input" /></Field>
           <Field label="Tanggal Invoice Diterima"><Input type="date" value={h.received_date} onChange={set("received_date")} data-testid="invoice-received-date-input" /></Field>
@@ -106,11 +138,16 @@ export default function InvoiceForm() {
           <Field label="DPP"><Input value={rupiah(round2(amount - tax))} disabled data-testid="invoice-dpp" /></Field>
         </div>
         <div>
-          <h3 className="mb-2 font-head text-sm font-semibold">DO yang Ditagihkan</h3>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="font-head text-sm font-semibold">DO yang Ditagihkan</h3>
+            {(dpCands.length > 0 || dpTotal > 0) && <Button size="sm" variant="outline" onClick={() => setDpOpen(true)} data-testid="invoice-dp-btn">
+              <HandCoins className="mr-1 h-4 w-4" />DP{dpTotal > 0 && <span className="ml-1.5 rounded-full bg-primary/10 px-2 text-xs font-semibold text-primary">{rupiah(dpTotal)}</span>}</Button>}
+          </div>
           {!h.supplier_id ? <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Pilih Supplier untuk menampilkan DO yang dapat ditagihkan</div>
             : <DoAllocationTable rows={rows} alloc={alloc} setAlloc={setAlloc} loading={loading} />}
         </div>
         <Totals allocTotal={allocTotal} amount={amount} diff={diff} />
+        <DpSummary amount={amount} dp={dpTotal} paid={paidTotal} />
         {Math.abs(diff) >= TOL && <Field label="Alasan Selisih (wajib)"><Textarea value={h.diff_reason} onChange={set("diff_reason")} data-testid="invoice-diff-reason" /></Field>}
         <Field label="Catatan"><Textarea value={h.notes} onChange={set("notes")} data-testid="invoice-notes" /></Field>
         <div className="rounded-lg border bg-muted/10 p-4">
@@ -118,6 +155,7 @@ export default function InvoiceForm() {
           <AttachmentPanel entity="invoice" entityId={id} pending={pending} onPendingChange={setPending} multiple />
         </div>
       </CardContent></Card>
+      <DpAllocationDialog open={dpOpen} onClose={() => setDpOpen(false)} cands={dpCands} value={dpAlloc} onApply={setDpAlloc} invoiceAmount={amount} paidTotal={paidTotal} />
     </div>
   );
 }

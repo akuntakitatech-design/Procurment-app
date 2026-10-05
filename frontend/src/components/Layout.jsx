@@ -10,13 +10,13 @@ import { Input } from "@/components/ui/input";
 import api, { API } from "@/lib/api";
 
 const NAV_MODULES = {
-  "/warehouse": ["mro", "ro", "do", "mi"], "/purchasing": ["po", "invoice"], "/persediaan": ["transfer", "loan", "adjustment", "opname"],
+  "/warehouse": ["mro", "ro", "do", "mi"], "/purchasing": ["po", "invoice", "supplier_dp"], "/persediaan": ["transfer", "loan", "adjustment", "opname"],
   "/master": ["spk", "vendor_contracts", "items", "item_categories", "uoms", "stock_minmax", "suppliers", "supplier_categories", "taxes", "divisions", "contacts", "warehouses", "projects", "units"],
 };
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/warehouse", label: "Gudang", icon: Warehouse, match: ["/warehouse", "/mro", "/ro", "/do", "/mi"] },
-  { to: "/purchasing", label: "Pembelian", icon: ShoppingCart, match: ["/purchasing", "/po", "/invoice"] },
+  { to: "/purchasing", label: "Pembelian", icon: ShoppingCart, match: ["/purchasing", "/po", "/invoice", "/dp-supplier"] },
   { to: "/approval", label: "Approval", icon: ClipboardCheck, match: ["/approval"] },
   { to: "/persediaan", label: "Persediaan", icon: Boxes, match: ["/persediaan", "/transfer", "/loan", "/adjustment", "/opname"] },
   { to: "/laporan", label: "Laporan", icon: BarChart3, match: ["/laporan", "/inventory", "/traceability", "/reports"] },

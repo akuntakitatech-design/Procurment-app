@@ -253,6 +253,9 @@ import access_control_layer  # noqa: E402
 access_control_layer.install(server)
 import vendor_invoice_layer  # noqa: E402
 vendor_invoice_layer.install(server)
+# DP Supplier: setelah Invoice Vendor (membungkus ulang lampiran/audit/PO cancel-edit) dan sebelum isolasi tenant.
+import supplier_dp_layer  # noqa: E402
+supplier_dp_layer.install(server)
 tenant_isolation_layer.install(server)
 
 # The subscription gate runs after isolation so it can enforce lifecycle access on every tenant
