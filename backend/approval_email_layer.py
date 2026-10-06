@@ -246,6 +246,14 @@ def install(server):
         )
         return await _refresh(app, module, did, user)
 
+    # Dipakai Pengajuan Approval 2 (po_approval2_layer) agar approve massal = state identik approve individual.
+    server.approval_approve_current = approve_current
+
+    def ensure_not_level2_batch(step):
+        from po_approval2_layer import APPROVAL2_ONLY_MSG, is_level2_po_task
+        if is_level2_po_task(step):
+            raise HTTPException(409, APPROVAL2_ONLY_MSG)
+
     # Replace submit workflow for each approval-capable module.
     for module in SUPPORTED_MODULES:
         path = f"/api/{module}/{{did}}/submit"
@@ -372,6 +380,7 @@ def install(server):
             raise HTTPException(404, "Approval tidak ditemukan")
         if step.get("status") != "Pending":
             raise HTTPException(400, "Approval ini tidak lagi menunggu tindakan")
+        ensure_not_level2_batch(step)
         return await approve_current(step["module"], step["document_id"], (body or {}).get("note"), user)
 
     @app.post("/api/approvals/{approval_id}/reject", tags=["approval"])
@@ -381,4 +390,5 @@ def install(server):
             raise HTTPException(404, "Approval tidak ditemukan")
         if step.get("status") != "Pending":
             raise HTTPException(400, "Approval ini tidak lagi menunggu tindakan")
+        ensure_not_level2_batch(step)
         return await reject_current(step["module"], step["document_id"], (body or {}).get("reason") or "Ditolak", user)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import api, { API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Upload, Trash2, FileText, History, Clock } from "lucide-react";
@@ -29,8 +29,10 @@ export async function uploadPendingAttachments(entity, entityId, files, category
   return { uploaded, failed };
 }
 
-export function AttachmentPanel({ entity, entityId, pending, onPendingChange, multiple = false, canUpload = true, canDelete = true }) {
+export function AttachmentPanel({ entity, entityId, pending, onPendingChange, multiple = false, canUpload = true, canDelete = true, onFilesChange }) {
   const [files, setFiles] = useState([]);
+  const filesCb = useRef(onFilesChange);
+  filesCb.current = onFilesChange;
   const [uploading, setUploading] = useState(false);
   // Pending mode is active when the document has no ID yet AND the parent form
   // opted in by providing onPendingChange (e.g. a brand-new MRO being created).
@@ -39,7 +41,7 @@ export function AttachmentPanel({ entity, entityId, pending, onPendingChange, mu
 
   const load = useCallback(() => {
     if (!entityId) { setFiles([]); return; }
-    api.get(`/attachments?entity=${entity}&entity_id=${entityId}`).then((r) => setFiles(r.data));
+    api.get(`/attachments?entity=${entity}&entity_id=${entityId}`).then((r) => { setFiles(r.data); filesCb.current?.(r.data || []); });
   }, [entity, entityId]);
   useEffect(() => { load(); }, [load]);
 
@@ -122,7 +124,10 @@ export function AttachmentPanel({ entity, entityId, pending, onPendingChange, mu
   );
 }
 
-export function AuditPanel({ entity, entityId }) {
+// Label aksi audit yang ditambahkan fitur Pengajuan Approval 2 (aksi lain tetap tampil apa adanya).
+const AUDIT_LABELS = { approval2_batch_add: "Masuk Pengajuan Approval 2", approval2_batch_approve: "Approval 2 via batch" };
+
+export function AuditPanel({ entity, entityId, labels }) {
   const [logs, setLogs] = useState([]);
   useEffect(() => { if (entityId) api.get(`/audit?entity=${entity}&entity_id=${entityId}`).then((r) => setLogs(r.data)); else setLogs([]); }, [entity, entityId]);
   return (
@@ -133,7 +138,7 @@ export function AuditPanel({ entity, entityId }) {
         <div key={l.id} className="flex items-start gap-3 border-l-2 border-primary/40 pl-3 py-1">
           <History className="h-4 w-4 mt-0.5 text-muted-foreground" />
           <div className="text-sm">
-            <span className="font-medium capitalize">{l.action}</span> oleh <span className="font-medium">{l.user_name || l.user}</span>
+            <span className="font-medium capitalize">{labels?.[l.action] || AUDIT_LABELS[l.action] || l.action}</span> oleh <span className="font-medium">{l.user_name || l.user}</span>
             {l.reason && <span className="text-muted-foreground"> — {l.reason}</span>}
             <div className="text-xs text-muted-foreground">{fmtDateTime(l.at)}</div>
           </div>
