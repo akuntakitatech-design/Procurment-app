@@ -650,6 +650,7 @@ def po_dp_source(existing, body):
 async def create_po(body: dict, user=Depends(current_user)):
     require(user, "create")
     lines_in = body.get("lines", [])
+    await assert_line_unit_prices(lines_in)
     computed, totals = compute_po_totals(body, lines_in)
     dp = compute_po_dp(body, totals["grand_total"])  # validasi sebelum nomor/tulis apa pun
     did = gid(); no = await next_number("PO")
@@ -706,6 +707,38 @@ async def _po_required_approvers(amount):
         if rule.get("max") is None or amount <= rule["max"]:
             return rule.get("approvers", [])
     return []
+
+
+PO_PRICE_REQUIRED_MSG = "Harga Satuan wajib diisi (lebih dari 0)"
+
+
+async def assert_line_unit_prices(lines, po_no=None):
+    """Hard-block: setiap baris barang PO wajib punya Harga Satuan > 0 (kosong/0/negatif ditolak).
+    Dipanggil di titik terdalam (setelah cek akses/sumber) pada simpan, edit, submit, dan approve PO."""
+    bad = []
+    for i, line in enumerate(lines or []):
+        if not isinstance(line, dict) or not line.get("item_id"):
+            continue
+        try:
+            price = float(line.get("price") if line.get("price") not in (None, "") else 0)
+        except (TypeError, ValueError):
+            price = 0.0
+        if price <= 0:
+            bad.append((i + 1, line))
+    if not bad:
+        return
+    ids = list({l.get("item_id") for _, l in bad})
+    items = {x["id"]: x for x in await db.items.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(ids) + 1)}
+    rows = ", ".join(f"baris {n} ({(items.get(l.get('item_id')) or {}).get('name') or l.get('item_name') or 'barang'})" for n, l in bad)
+    raise HTTPException(400, f"{f'PO {po_no}: ' if po_no else ''}{PO_PRICE_REQUIRED_MSG}. Periksa {rows}.")
+
+
+async def assert_po_unit_prices(did: str):
+    po = await db.po.find_one({"id": did}, {"_id": 0, "no": 1})
+    if not po:
+        return
+    lines = await db.po_lines.find({"po_id": did}, {"_id": 0, "item_id": 1, "price": 1}).to_list(5000)
+    await assert_line_unit_prices(lines, po.get("no"))
 
 
 async def assert_po_price_reason(did: str):
