@@ -483,7 +483,10 @@ async def enrich_pull_rows(server, rows):
         return rows
     pos = await _docs_no(server, "po", [r.get("po_id") for r in rows])
     batch, _, _ = await po_receipt_batch(server, list(pos.values()))
-    rows = [r for r in rows if (batch.get(r.get("po_id")) or {}).get("document_status") not in ("Closed", "Cancelled", "Rejected")]
+    import source_reservation_layer as _SR
+    keep = await _SR.current_do_po_ids(server)  # Edit DO: "Closed" karena DO ini sendiri tidak menutup picker
+    rows = [r for r in rows if (st := (batch.get(r.get("po_id")) or {}).get("document_status")) not in ("Closed", "Cancelled", "Rejected")
+            or (st == "Closed" and r.get("po_id") in keep)]
     pol_ids = [r.get("line_id") for r in rows]
     pols = await server.db.po_lines.find({"id": {"$in": pol_ids}}, {"_id": 0}).to_list(100000) if pol_ids else []
     pol_by = {p["id"]: p for p in pols}

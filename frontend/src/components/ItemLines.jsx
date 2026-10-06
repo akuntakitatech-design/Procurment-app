@@ -157,7 +157,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
                 <div className="w-[115px] shrink-0 text-xs tabular-nums" data-testid={`po-variance-${i}`}>{showVar ? <span className={r.varRp > 0 ? "text-amber-700" : r.varRp < 0 ? "text-emerald-700" : "text-muted-foreground"}>{fmtRp(r.varRp)}<br />{fmtPct(r.varPct)}</span> : <span className="text-muted-foreground">—</span>}</div>
                 <div className="w-[140px] shrink-0 text-right text-sm font-semibold tabular-nums" data-testid={`po-total-${i}`}>{rupiah(total(l))}</div>
                 <div className="w-[105px] shrink-0">{status === "Belum dihitung" ? <span data-testid={`po-status-${i}`} className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Belum dihitung</span> : <StatusBadgePrice status={status} testid={`po-status-${i}`} />}{reasonMissing && <div className="mt-0.5 text-[10px] font-semibold text-amber-700" data-testid={`po-reason-required-${i}`}>Alasan diperlukan</div>}</div>
-                <div className="w-[40px] shrink-0"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
+                <div className="w-[40px] shrink-0"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))} aria-label="Hapus baris" data-testid={`po-remove-${i}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
               </div>
               {/* SECONDARY ROW — Reference & Operational (labelled) */}
               <div className="mt-2 flex items-end gap-2 pl-[44px]">
@@ -202,7 +202,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
             {fields.project && <td className="p-1.5"><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></td>}
             {fields.unit && <td className="p-1.5"><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit" /></td>}
             {showPrice && <><td className="p-1.5"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v })} className="h-9 text-right" />{priceAccessory && priceAccessory(l, i)}</td><td className="p-1.5"><NumericInput mode="money" value={l.discount} onChange={(v) => update(i, { discount: v })} className="h-9 text-right" /></td><td className="p-1.5"><Combobox options={taxOpts} value={l.tax_id || ""} onChange={(v) => update(i, { tax_id: v })} /></td><td className="p-2 text-right tabular-nums">{rupiah(total(l))}</td></>}
-            <td className="p-1.5"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))}><Trash2 className="h-4 w-4 text-destructive" /></Button></td>
+            <td className="p-1.5"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))} aria-label="Hapus baris" data-testid={`${testidPrefix}-remove-${i}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></td>
           </tr>)}</tbody>
         {showPrice && lines.length > 0 && <tfoot><tr className="border-t bg-muted/50 font-semibold"><td colSpan={colCount - 2} className="p-2 text-right">Grand Total</td><td className="p-2 text-right tabular-nums">{rupiah(grand)}</td><td></td></tr></tfoot>}
       </table>

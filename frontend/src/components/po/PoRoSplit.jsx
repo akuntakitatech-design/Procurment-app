@@ -10,6 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { ListTree, Search, Tag, Users } from "lucide-react";
 import { PoPriceInsightDialog } from "@/components/po/PoPriceInsight";
 import { toast } from "sonner";
+import { applyPoReservation, mergePulledIntoPo, pullParams } from "@/lib/sourceReservation";
+export { applyPoReservation, mergePulledIntoPo };
 
 const EPS = 1e-6;
 const n = (v) => Number(v) || 0;
@@ -126,8 +128,8 @@ const searchText = (r) => [r.ro_no, r.item_code, r.item_name, r.division_name, r
   ...(r.contract_suppliers || []).map((c) => `${c.supplier_name} ${c.contract_number || ""}`)].join(" ").toLowerCase();
 
 /** Tarik RO — kebutuhan RO dikelompokkan per rekomendasi supplier (Kontrak Aktif -> Supplier Utama -> Pilih Manual). */
-export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, poDate, onConfirm }) {
-  const [rows, setRows] = useState([]);
+export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, poDate, onConfirm, formLines = [], currentDocId = null }) {
+  const [raw, setRaw] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [q, setQ] = useState("");
@@ -137,7 +139,9 @@ export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, poDate
   const [pickSupplier, setPickSupplier] = useState("");
   const [pickSupplierName, setPickSupplierName] = useState("");
   const [priceRow, setPriceRow] = useState(null); // baris untuk popup Informasi Harga & Supplier (lazy)
-  const load = () => { setLoading(true); setError(null); api.get("/pull/ro-for-po").then((r) => setRows(r.data || [])).catch((e) => setError(apiError(e.response?.data?.detail))).finally(() => setLoading(false)); };
+  const load = () => { setLoading(true); setError(null); api.get("/pull/ro-for-po", { params: pullParams(currentDocId) }).then((r) => setRaw(r.data || [])).catch((e) => setError(apiError(e.response?.data?.detail))).finally(() => setLoading(false)); };
+  // Sisa efektif = sisa untuk dokumen ini - qty sumber RO yang sudah dipakai di form PO aktif.
+  const rows = useMemo(() => applyPoReservation(raw, formLines), [raw, formLines]);
   useEffect(() => { if (open) { setSel({}); setQ(""); setGroup(""); setDiv(divisionId || ""); setPickSupplier(""); setPickSupplierName(""); setPriceRow(null); load(); } }, [open, divisionId]); // eslint-disable-line react-hooks/exhaustive-deps
   const lockedDiv = divisionId || div;
   const shown = useMemo(() => rows.filter((r) => (!q || searchText(r).includes(q.toLowerCase())) && (!group || recKey(r) === group)), [rows, q, group]);
@@ -210,7 +214,7 @@ export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, poDate
                     <td className="p-2"><Checkbox checked={on} disabled={dis} onCheckedChange={() => toggle(r)} aria-label={`Pilih ${r.item_name}`} data-testid={`po-ro-select-${r.ro_no}-${r.item_code}`} /></td>
                     <td className="p-2 font-mono text-xs font-semibold">{r.ro_no}</td><td className="p-2">{r.division_name || "-"}</td>
                     <td className="p-2"><div className="font-medium">{r.item_name}</div><div className="font-mono text-xs text-muted-foreground">{r.item_code}</div></td>
-                    <td className="p-2 text-right tabular-nums">{num(r.qty_ro_base)}</td><td className="p-2 text-right tabular-nums">{num(r.ordered_base)}</td><td className="p-2 text-right font-semibold tabular-nums">{num(r.outstanding_base)}</td>
+                    <td className="p-2 text-right tabular-nums">{num(r.qty_ro_base)}</td><td className="p-2 text-right tabular-nums">{num(r.ordered_base)}</td><td className="p-2 text-right font-semibold tabular-nums" data-testid={`po-ro-sisa-${r.ro_no}-${r.item_code}`}>{num(r.outstanding_base)}{n(r.reserved_base) > EPS && <div className="text-[11px] font-normal text-muted-foreground" data-testid={`po-ro-reserved-${r.ro_no}-${r.item_code}`}>di form: {num(r.reserved_base)}</div>}</td>
                     <td className="p-2">{r.base_unit}</td><td className="p-2">{r.primary_supplier_name || "-"}</td>
                     <td className="p-2 text-xs" data-testid={`po-ro-contract-${r.ro_no}-${r.item_code}`}>{contractCell(r)}</td>
                     <td className="p-2"><Button type="button" size="sm" variant="outline" className="h-8 whitespace-nowrap px-2" onClick={() => setPriceRow(r)} data-testid={`po-ro-price-${r.ro_no}-${r.item_code}`}><Tag className="mr-1 h-3.5 w-3.5" />Lihat Harga</Button></td>
