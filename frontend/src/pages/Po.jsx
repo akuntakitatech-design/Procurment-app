@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PO_PRICE_REQUIRED_MSG, isPriceMissing, missingPriceRows } from "@/lib/poPrice";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useServerList } from "@/lib/serverList";
@@ -55,7 +56,7 @@ const poPreviewTotals=(lines,h)=>{const dOf=(l)=>{const t=l.discount_type||"amou
 export function PoForm(){
   const{id}=useParams();const nav=useNavigate();const{can}=useAuth();const masters=useMasters();const[quickSup,setQuickSup]=useState(false);
   const[h,setH]=useState({date:todayISO(),supplier_id:"",supplier_ref:"",buyer_contact_id:"",division_id:"",payment_term:"",delivery_term:"",currency:"IDR",supplier_bank_id:"",default_tax_id:"",eta:null,default_warehouse_id:"",default_project_id:"",default_unit_id:"",spk:"",tax_inclusive:false,final_discount_type:"amount",final_discount_value:0,dp_enabled:false,dp_type:"percentage",dp_value:"",payment_notes:"",supplier_notes:"",internal_notes:"",document_message:null});
-  const[lines,setLines]=useState([]);const[doc,setDoc]=useState(null);const[pull,setPull]=useState(false);const[editing,setEditing]=useState(false);const isNew=!id;const canPrice=can("view_purchase_price");
+  const[priceErr,setPriceErr]=useState(false);const[lines,setLines]=useState([]);const[doc,setDoc]=useState(null);const[pull,setPull]=useState(false);const[editing,setEditing]=useState(false);const isNew=!id;const canPrice=can("view_purchase_price");
   const alloc=useDocAllocations("po",id);const[allocLine,setAllocLine]=useState(null);
   const [pending,setPending]=useState([]); // attachments chosen before first save
   const { confirm, dialog } = useCompletenessWarning();
@@ -87,6 +88,7 @@ export function PoForm(){
   const itemsMap0=masters.map("items");
   const poCtl={
     contractOf:(i)=>priceCtl[i],
+    priceInvalid:(l)=>priceErr&&isPriceMissing(l),
     history:(l,i)=><PriceHistory itemId={l.item_id} uomId={l.uom_id} supplierId={h.supplier_id} itemName={itemsMap0[l.item_id]?.name||l.item_name}/>,
     sourceText:(l)=>l._sourceLabel||((l.ro_refs||[]).map(m=>`${m.ro_no}${m.mro_no?" / "+m.mro_no:""}`).join(", ")),
   };
@@ -111,7 +113,7 @@ export function PoForm(){
   const linesForSave=()=>lines.map((l,i)=>{const c=priceCtl[i];const hasC=c&&c.found&&Number(c.contract_price)>0;const pn=Number(l.price)||0;const r=computePriceStatus(c,effUnit(l,pn));let status=r.status;if(hasC&&!(pn>0))status="Belum dihitung";return {...l,contract_price_snapshot:hasC?Number(c.contract_price):null,contract_number_snapshot:hasC?(c.contract_number||null):null,price_variance:(hasC&&pn>0)?r.varRp:null,price_variance_pct:(hasC&&pn>0)?r.varPct:null,price_status:status,price_change_reason:l.price_change_reason||null};});
   const doSave=async()=>{const bad=lines.findIndex(l=>!roLineValid(l));if(bad>=0){toast.error(`Item ${bad+1}: total Rincian sumber RO harus sama dengan Qty PO dan tidak melebihi Sisa.`);setSrcDetail(bad);return;}
     try{const outLines=linesForSave().map(l=>(l._roSources||[]).length?{...l,sources:roPayloadSources(l)}:l);if(isNew){const res=await api.post("/po",{...h,lines:outLines});const pid=res.data.id;await saveDocumentMessage("po",pid,h.document_message);let failed=[];if(pending.length){const up=await uploadPendingAttachments("po",pid,pending);failed=up.failed;setPending(failed);}if(failed.length)toast.error(`PO berhasil disimpan sebagai Draft, tetapi lampiran "${failed.map(f=>f.name).join(", ")}" gagal diunggah. Silakan coba kembali.`);else toast.success("PO tersimpan");nav(`/po/${pid}`);}else{await api.put(`/transactions/po/${id}`,{...h,lines:outLines});await saveDocumentMessage("po",id,h.document_message);toast.success("Perubahan PO tersimpan. Approval direset dan PO kembali Draft.");load();}}catch(e){toast.error(apiError(e.response?.data?.detail));}};
-  const save=()=>{if(canPrice){const dpc=computeDp(h,poPreviewTotals(lines,h).grand);if(dpc.error){toast.error(dpc.error);return;}}const w=buildTxnWarnings({h,lines,headerFields:HEADER_FIELDS.po,itemFields:ITEM_FIELDS.po});const extra=[];(lines||[]).forEach((l,i)=>{const c=priceCtl[i];if(c&&c.found&&Number(c.contract_price)>0&&Number(l.price)>0&&computePriceStatus(c,effUnit(l,Number(l.price)||0)).status==="Price Override"&&!String(l.price_change_reason||"").trim())extra.push(`Item ${i+1}: alasan perubahan harga belum diisi (Harga Efektif setelah Diskon Item berbeda dari Harga Kontrak).`);});const merged=extra.length?{...w,items:[...(w.items||[]),...extra],hasAny:true}:w;confirm(merged,doSave);};
+  const save=()=>{const miss=missingPriceRows(lines);if(miss.length){setPriceErr(true);toast.error(`${PO_PRICE_REQUIRED_MSG}. Periksa baris ${miss.join(", ")}.`);return;}if(canPrice){const dpc=computeDp(h,poPreviewTotals(lines,h).grand);if(dpc.error){toast.error(dpc.error);return;}}const w=buildTxnWarnings({h,lines,headerFields:HEADER_FIELDS.po,itemFields:ITEM_FIELDS.po});const extra=[];(lines||[]).forEach((l,i)=>{const c=priceCtl[i];if(c&&c.found&&Number(c.contract_price)>0&&Number(l.price)>0&&computePriceStatus(c,effUnit(l,Number(l.price)||0)).status==="Price Override"&&!String(l.price_change_reason||"").trim())extra.push(`Item ${i+1}: alasan perubahan harga belum diisi (Harga Efektif setelah Diskon Item berbeda dari Harga Kontrak).`);});const merged=extra.length?{...w,items:[...(w.items||[]),...extra],hasAny:true}:w;confirm(merged,doSave);};
   const act=async(path,body)=>{try{await api.post(`/po/${id}/${path}`,body||{});toast.success("Berhasil");load();}catch(e){toast.error(apiError(e.response?.data?.detail));}};
   const approvedForEmail=["Approved","Partially Received","Fully Received"].includes(doc?.status);
   const[emailOpen,setEmailOpen]=useState(false);const sendEmail=()=>{if(approvedForEmail)setEmailOpen(true);};

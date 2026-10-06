@@ -289,6 +289,7 @@ def install(server):
                     raise HTTPException(404, "PO tidak ditemukan")
                 if _cancelled(po) or not _waiting(po):
                     raise HTTPException(409, f"PO {po.get('no')} tidak lagi menunggu approval")
+                await DPM.assert_po_unit_prices(po["id"])  # Harga Satuan wajib > 0
                 rows.append((t, po))
             busy = await active_membership(task_ids)
             if busy:
@@ -400,6 +401,7 @@ def install(server):
                                                              {"_id": 0, "id": 1}, sort=[("seq", 1)])
                 if not current or current["id"] != t["id"]:
                     raise HTTPException(409, f"Tahap approval PO {po.get('no')} berubah, muat ulang halaman")
+                await DPM.assert_po_unit_prices(po["id"])  # Harga Satuan wajib > 0 (sebelum mutasi apa pun)
                 final = bool(spk.get("would_be_final")) and await spk["would_be_final"](po["id"])
                 if final and spk.get("guard"):
                     await spk["guard"](po["id"])  # HARD_BLOCK budget SPK, sama seperti approve individual

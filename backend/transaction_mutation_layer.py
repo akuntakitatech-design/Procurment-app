@@ -250,6 +250,7 @@ async def _replace(server, module, did, body, user):
     if module == "po":
         # DP divalidasi terhadap Grand Total BARU sebelum ada perubahan apa pun (blok Save).
         import doc_procurement as _dp
+        await _dp.assert_line_unit_prices([ln for ln, _s, _u in prepared])  # Harga Satuan wajib > 0
         _c, _t = _dp.compute_po_totals(normalized, [ln for ln, _s, _u in prepared])
         _dp.compute_po_dp(_dp.po_dp_source(doc, normalized), _t["grand_total"])
 

@@ -179,6 +179,9 @@ def install(server):
         if not step:
             raise HTTPException(400, "Tidak ada tahap approval yang menunggu")
         await ensure_assignee(step, user)
+        if module == "po":
+            import doc_procurement as _dp
+            await _dp.assert_po_unit_prices(did)  # Harga Satuan wajib > 0 sebelum mutasi approval
         patch = {
             "status": "Approved",
             "acted_by": user.get("name") or user.get("email"),
@@ -274,6 +277,7 @@ def install(server):
                 # without routing through doc_procurement.submit_po). Also log override reasons.
                 if kind == "po":
                     import doc_procurement as _dp
+                    await _dp.assert_po_unit_prices(did)  # Harga Satuan wajib > 0
                     _overrides = await _dp.assert_po_price_reason(did)
                     await _dp.log_po_price_overrides(did, user, _overrides)
                 cfg = await _module_config(server, kind)
