@@ -22,6 +22,7 @@ ENTITY_COLLECTIONS = {
     "loan_return": "loan_returns",
     "adjustment": "adjustments",
     "opname": "opname",
+    "po_approval2_batch": "po_approval2_batches",  # bukti persetujuan Pengajuan Approval 2 PO
 }
 
 ALLOWED_EXTENSIONS = {

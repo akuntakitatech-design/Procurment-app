@@ -22,6 +22,7 @@ import Users from "@/pages/Users";
 import Settings from "@/pages/Settings";
 import Reports from "@/pages/Reports";
 import TraceabilityPage from "@/pages/Traceability";
+import Approval2Batch from "@/pages/Approval2Batch";
 import Approval from "@/pages/Approval";
 import Verify from "@/pages/Verify";
 import { MroList, MroForm } from "@/pages/Mro";
@@ -88,6 +89,7 @@ function App() {
               <Route path="/print-layouts" element={<Protected><PrintLayouts /></Protected>} />
               <Route path="/excel-import" element={<Protected><ExcelImport /></Protected>} />
               <Route path="/approval" element={<Protected><Approval /></Protected>} />
+              <Route path="/approval/approval2/:id" element={<Protected><Approval2Batch /></Protected>} />
               <Route path="/mro" element={<Protected><MroList /></Protected>} />
               <Route path="/mro/new" element={<Protected><MroForm /></Protected>} />
               <Route path="/mro/:id" element={<Protected><MroForm /></Protected>} />

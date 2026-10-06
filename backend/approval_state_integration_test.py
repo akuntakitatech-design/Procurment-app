@@ -1,4 +1,12 @@
-"""Disposable integration test for MRO/RO/PO approval lifecycle state."""
+"""Disposable integration test for MRO/RO/PO approval lifecycle state.
+
+Mode lingkungan:
+- default (docker/Mongo): setting approval diatur via pymongo (TEST_MONGO_URL).
+- APPROVAL_TEST_CONFIG=api: setting approval diatur via API standar PUT /api/settings/approval_modules (MariaDB lokal).
+- APPROVAL_TEST_REGISTER_TENANT=1: admin = tenant sekali pakai via /api/saas/register (bukan tenant-dev).
+
+PO Level 2 diproses via Pengajuan Approval 2 (batch): approve individual Level 2 harus ditolak.
+"""
 from integrity_master_fixture import fill_required  # noqa: E402
 import os
 import sys
@@ -6,7 +14,6 @@ import time
 import uuid
 
 import requests
-from pymongo import MongoClient
 
 
 API = os.environ.get("TEST_API_URL", "http://approval-test-api:8000/api").rstrip("/")
@@ -14,6 +21,11 @@ ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "approval-admin@example.test")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "ApprovalAdmin!123")
 MONGO_URL = os.environ.get("TEST_MONGO_URL", "mongodb://approval-test-mongodb:27017")
 DB_NAME = os.environ.get("TEST_DB_NAME", "procurement_approval_state_test")
+CONFIG_MODE = os.environ.get("APPROVAL_TEST_CONFIG", "mongo")
+REGISTER_TENANT = os.environ.get("APPROVAL_TEST_REGISTER_TENANT") == "1"
+APPROVAL2_MSG = "Approval Level 2 PO diproses melalui Pengajuan Approval 2."
+PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+       b"\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7V\xbd\xfa\x00\x00\x00\x00IEND\xaeB`\x82")
 
 
 def check(condition, message):
@@ -71,7 +83,27 @@ def create_user(admin, email, password, division_id):
     return r.json()
 
 
-def configure_approval(email1, email2):
+def register_tenant_admin(run):
+    email = f"approval-admin-{run}@example.com"
+    r = requests.post(f"{API}/saas/register", json={
+        "company_name": f"Approval State {run}", "pic_name": "Approval Admin", "email": email, "whatsapp": "+628123456789",
+        "workspace_slug": f"approval-state-{run}", "plan_code": "starter", "password": ADMIN_PASSWORD, "address": "Test",
+        "terms_accepted": True}, timeout=30)
+    check(r.status_code == 200 and r.json().get("ok"), "Tenant sekali pakai untuk uji approval dibuat")
+    return login(email, ADMIN_PASSWORD)
+
+
+def configure_approval(email1, email2, admin=None):
+    modules = {
+        "mro": {"enabled": True, "levels": [{"level": 1, "email": email1}, {"level": 2, "email": email2}]},
+        "ro": {"enabled": True, "levels": [{"level": 1, "email": email1}]},
+        "po": {"enabled": True, "levels": [{"level": 1, "email": email1}, {"level": 2, "email": email2}]},
+    }
+    if CONFIG_MODE == "api":
+        r = admin.put(f"{API}/settings/approval_modules", json={"modules": modules}, timeout=15)
+        check(r.status_code == 200, "Setting approval_modules disimpan via API settings")
+        return
+    from pymongo import MongoClient
     client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=10000)
     db = client[DB_NAME]
     for _ in range(30):
@@ -82,7 +114,7 @@ def configure_approval(email1, email2):
     else:
         raise AssertionError("Setting approval_modules belum tersedia")
 
-    modules = {
+    modules_legacy = {
         "mro": {
             "enabled": True,
             "levels": [
@@ -102,6 +134,7 @@ def configure_approval(email1, email2):
             ],
         },
     }
+    assert modules_legacy == modules
     db.settings.update_one({"_id": cfg["_id"]}, {"$set": {"modules": modules}})
     client.close()
 
@@ -118,7 +151,7 @@ def task_for(session, document_id, status=None):
 def main():
     wait_api()
     run = uuid.uuid4().hex[:8]
-    admin = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+    admin = register_tenant_admin(run) if REGISTER_TENANT else login(ADMIN_EMAIL, ADMIN_PASSWORD)
 
     division = create_master(admin, "divisions", {"code": f"AP{run}", "name": f"Approval Divisi {run}"})
     warehouse = create_master(admin, "warehouses", {"code": f"AW{run}", "name": f"Approval Gudang {run}", "division_id": division["id"]})
@@ -130,16 +163,17 @@ def main():
     password1 = "ApproverOne!123"
     password2 = "ApproverTwo!123"
     create_user(admin, email1, password1, division["id"])
-    create_user(admin, email2, password2, division["id"])
+    approver2_user = create_user(admin, email2, password2, division["id"])
     approver1 = login(email1, password1)
     approver2 = login(email2, password2)
-    configure_approval(email1, email2)
+    configure_approval(email1, email2, admin)
     check(True, "Approval MRO/RO/PO dikonfigurasi untuk pengujian")
 
     # MRO: two-level sequential approval, wrong assignee blocked, approved cannot re-submit.
     mro = admin.post(
         f"{API}/mro",
         json={
+            "no": f"MRO-AP-{run}",
             "date": "2026-09-18",
             "division_id": division["id"],
             "default_warehouse_id": warehouse["id"],
@@ -148,7 +182,7 @@ def main():
         },
         timeout=15,
     )
-    check(mro.status_code == 200, "MRO approval test dibuat")
+    check(mro.status_code == 200, f"MRO approval test dibuat{'' if mro.status_code == 200 else f'(HTTP {mro.status_code} {mro.text[:300]})'}")
     mro_id = mro.json()["id"]
     mro_submit = admin.post(f"{API}/mro/{mro_id}/submit", timeout=15)
     check(mro_submit.status_code == 200 and mro_submit.json().get("status") == "Waiting Approval", "MRO masuk Waiting Approval")
@@ -179,7 +213,7 @@ def main():
         },
         timeout=15,
     )
-    check(ro.status_code == 200, "RO approval test dibuat")
+    check(ro.status_code == 200, f"RO approval test dibuat{'' if ro.status_code == 200 else f'(HTTP {ro.status_code} {ro.text[:300]})'}")
     ro_id = ro.json()["id"]
     check(admin.post(f"{API}/ro/{ro_id}/submit", timeout=15).status_code == 200, "RO disubmit ke approval")
     ro_task = task_for(approver1, ro_id, "Pending")
@@ -223,7 +257,7 @@ def main():
         },
         timeout=15,
     )
-    check(po.status_code == 200 and po.json().get("status") == "Draft", "PO dibuat sebagai Draft")
+    check(po.status_code == 200 and po.json().get("status") == "Draft", f"PO dibuat sebagai Draft{'' if po.status_code == 200 else f'(HTTP {po.status_code} {po.text[:300]})'}")
     po_id = po.json()["id"]
     po_submit = admin.post(f"{API}/po/{po_id}/submit", timeout=15)
     check(po_submit.status_code == 200 and po_submit.json().get("status") == "Waiting Approval", "PO masuk Waiting Approval")
@@ -235,10 +269,28 @@ def main():
     po_task2 = task_for(approver2, po_id, "Pending")
     check(po_task2 is not None, "PO Level 2 tersedia")
     po_l2 = approver2.post(f"{API}/approvals/{po_task2['id']}/approve", json={"note": "PO L2 OK"}, timeout=15)
-    check(po_l2.status_code == 200 and po_l2.json().get("status") == "Approved", "PO menjadi Approved setelah Level 2")
+    check(po_l2.status_code == 409 and po_l2.json().get("detail") == APPROVAL2_MSG, "PO Level 2 individual ditolak (diproses via Pengajuan Approval 2)")
+    check(admin.get(f"{API}/po/{po_id}", timeout=15).json().get("status") == "Waiting Approval", "PO tetap Waiting Approval setelah penolakan individual")
+    eligible = approver2.get(f"{API}/approval2/po/eligible", timeout=15).json()
+    check(any(r.get("approval_task_id") == po_task2["id"] for r in eligible), "PO Level 2 muncul di Pengajuan Approval 2")
+    batch = approver2.post(f"{API}/approval2/po/batches", json={"title": "Approval State Test", "submission_date": "2026-09-18",
+                                                                "approval_task_ids": [po_task2["id"]]}, timeout=15)
+    check(batch.status_code == 200 and batch.json().get("status") == "Draft", "Pengajuan Approval 2 dibuat")
+    bid = batch.json()["id"]
+    check(approver2.post(f"{API}/approval2/po/batches/{bid}/submit", json={}, timeout=15).json().get("status") == "Diajukan", "Pengajuan diajukan (export)")
+    grant = admin.put(f"{API}/access/users/{approver2_user['id']}", json={"overrides": {"upload_attachment": "allow"},
+                                                                          "division_override": {"mode": "selected", "divisions": [division["id"]]}}, timeout=15)
+    check(grant.status_code == 200, "Approver Level 2 diberi izin upload lampiran")
+    up = approver2.post(f"{API}/attachments", files={"file": ("wa.png", PNG, "image/png")},
+                        data={"entity": "po_approval2_batch", "entity_id": bid, "category": "Lainnya", "note": ""}, timeout=30)
+    check(up.status_code == 200, "Bukti persetujuan pimpinan diunggah")
+    item_id = batch.json()["items"][0]["id"]
+    done = approver2.post(f"{API}/approval2/po/batches/{bid}/approve", json={"item_ids": [item_id]}, timeout=30)
+    check(done.status_code == 200 and done.json().get("status") == "Selesai", "Approve Terpilih via batch berhasil")
+    check(admin.get(f"{API}/po/{po_id}", timeout=15).json().get("status") == "Approved", "PO menjadi Approved setelah Level 2 (batch)")
     check(admin.post(f"{API}/po/{po_id}/submit", timeout=15).status_code == 409, "PO Approved tidak dapat disubmit ulang")
 
-    print("\nRESULT: PASS - approval sequential, assignee, reject/revise, cancel stale-task, dan status MRO/RO/PO konsisten.")
+    print("\nRESULT: PASS - approval sequential, assignee, reject/revise, cancel stale-task, PO Level 2 via Pengajuan Approval 2, dan status MRO/RO/PO konsisten.")
     return 0
 
 

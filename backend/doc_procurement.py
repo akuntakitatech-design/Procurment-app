@@ -669,7 +669,8 @@ async def create_po(body: dict, user=Depends(current_user)):
         "subtotal_after_item_discount": totals["subtotal_after_item_discount"],
         "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
         "grand_total": grand, **dp, "status": "Draft", "cancelled": False,
-        "created_by": user.get("email"), "created_at": now_iso()})
+        "created_by": user.get("email"), "created_by_name": user.get("name") or user.get("email"),
+        "created_at": now_iso()})
     for l, c in zip(lines_in, computed):
         lid = gid()
         await db.po_lines.insert_one({"id": lid, "po_id": did, "item_id": l["item_id"],
