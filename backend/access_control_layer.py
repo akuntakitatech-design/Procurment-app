@@ -353,6 +353,8 @@ def install(server):
         if not visible(mod, await doc_divisions(mod, doc), alw) and did not in await assigned(mod, user):
             raise HTTPException(403, "Dokumen ini berada di luar cakupan divisi Anda.")
 
+    server.require_doc_access = require_doc  # dipakai validasi current_doc_id pada pull sumber
+
     async def require_body(mod, body, user):
         alw = allowed(user)
         if alw is None or not isinstance(body, dict):

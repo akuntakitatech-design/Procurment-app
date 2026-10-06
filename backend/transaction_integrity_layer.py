@@ -113,6 +113,12 @@ def install(server):
         rows = await server.db.allocations.find(
             {"source_line_id": source_line_id, "target_type": target_type}, {"_id": 0}
         ).to_list(5000)
+        # Tarik sumber saat Edit: allocation milik dokumen yang sedang diedit (current_doc_id yang sudah
+        # divalidasi tenant/divisi) tidak dihitung, agar tidak terjadi double subtraction di picker.
+        import source_reservation_layer as _SR
+        excluded = _SR.excluded_doc(target_type)
+        if excluded:
+            rows = [r for r in rows if r.get("target_doc_id") != excluded]
         if not rows:
             return 0
         collection_name = TARGET_COLLECTIONS.get(target_type)

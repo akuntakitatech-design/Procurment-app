@@ -480,7 +480,8 @@ def install(server):
                 if not rl:
                     continue
                 head = await ctx.head("ro", rl.get("ro_id")) or {}
-                st = await ro_line_state(ctx, rl, None)
+                import source_reservation_layer as _SR
+                st = await ro_line_state(ctx, rl, _SR.excluded_doc("po"))
                 it = await ctx.item(rl.get("item_id"))
                 u = await server.db.uoms.find_one({"id": it.get("base_uom_id")}, {"_id": 0}) if it.get("base_uom_id") else None
                 prim = m["suppliers"].get(it.get("primary_supplier_id"), {}) if it.get("primary_supplier_id") else {}

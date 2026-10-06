@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api, { apiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,8 +14,13 @@ import { Search, X, AlertTriangle } from "lucide-react";
  * second modal/page just to pull source documents. The picker now lives inside
  * the same transaction workspace and closes after selected rows are inserted.
  */
-export function PullDialog({ open, onClose, url, title, columns, idKey = "line_id", qtyKey = "outstanding", onConfirm }) {
-  const [rows, setRows] = useState([]);
+/**
+ * transform(rows) — opsional: mis. kurangi sisa dengan qty yang sedang dipakai di form aktif
+ * (sumber dengan sisa efektif <= 0 disembunyikan). Dihitung ulang setiap render agar mengikuti form.
+ * params — query string tambahan (mis. current_doc_id saat Edit).
+ */
+export function PullDialog({ open, onClose, url, title, columns, idKey = "line_id", qtyKey = "outstanding", onConfirm, transform = null, params = null }) {
+  const [raw, setRaw] = useState([]);
   const [sel, setSel] = useState({});
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,18 +32,19 @@ export function PullDialog({ open, onClose, url, title, columns, idKey = "line_i
     setQ("");
     setError("");
     setLoading(true);
-    setRows([]);
-    api.get(url)
+    setRaw([]);
+    api.get(url, params ? { params } : undefined)
       .then((r) => {
-        setRows(Array.isArray(r.data) ? r.data : []);
+        setRaw(Array.isArray(r.data) ? r.data : []);
         setError("");
       })
       .catch((e) => {
-        setRows([]);
+        setRaw([]);
         setError(apiError(e.response?.data?.detail));
       })
       .finally(() => setLoading(false));
-  }, [open, url]);
+  }, [open, url, params?.current_doc_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => (transform ? transform(raw) : raw), [raw, transform]);
 
   if (!open) return null;
 
