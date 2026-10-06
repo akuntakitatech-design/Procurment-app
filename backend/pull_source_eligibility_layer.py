@@ -127,6 +127,11 @@ async def _po_rows(server, supplier_id, user):
     if supplier_id:
         query["supplier_id"] = supplier_id
     docs = await server.db.po.find(query, {"_id": 0}).to_list(3000)
+    # Edit DO: PO yang sudah diterima penuh OLEH DO INI tetap boleh tampil (sisa dihitung tanpa DO ini).
+    import source_reservation_layer as _SR
+    for d in await _SR.current_do_pos(server, supplier_id):
+        if d["id"] not in {x["id"] for x in docs}:
+            docs.append(d)
     for d in docs:
         lines = await server.db.po_lines.find({"po_id": d["id"]}, {"_id": 0}).to_list(2000)
         for line in lines:

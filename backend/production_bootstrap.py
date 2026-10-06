@@ -249,8 +249,13 @@ po_ro_split_layer.install(server)
 # Informasi Harga & Supplier saat Tarik RO (read-only, on-demand). Sebelum access control.
 import po_price_insight_layer  # noqa: E402
 po_price_insight_layer.install(server)
+# Source picker: agregasi sumber MI + named lock DO/MI (di dalam access control).
+import source_reservation_layer  # noqa: E402
+source_reservation_layer.install_guards(server)
 import access_control_layer  # noqa: E402
 access_control_layer.install(server)
+# Pull sumber + current_doc_id (Edit: allocation dokumen ini tidak dihitung dua kali). Setelah access control.
+source_reservation_layer.install_pulls(server)
 import vendor_invoice_layer  # noqa: E402
 vendor_invoice_layer.install(server)
 # DP Supplier: setelah Invoice Vendor (membungkus ulang lampiran/audit/PO cancel-edit) dan sebelum isolasi tenant.

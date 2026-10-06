@@ -154,18 +154,30 @@ async def _allocated_elsewhere(server, source_line_id, target_type, current_did)
 
 
 async def _validate_sources(server, module, did, specs, item_id):
+    await _validate_sources_total(server, module, did, [(specs, item_id)])
+
+
+async def _validate_sources_total(server, module, did, groups):
+    """Validasi sumber SELURUH payload: qty diagregasi per baris sumber sebelum dibandingkan dengan
+    sisa (allocation dokumen ini dikecualikan). Dua baris target dari sumber yang sama dengan total
+    melebihi sisa ditolak walaupun masing-masing baris masih di bawah sisa."""
     if module not in ("ro", "po", "do", "mi"):
         return
     source_coll = {"ro": "mro_lines", "po": "ro_lines", "do": "po_lines", "mi": "mro_lines"}[module]
     target_type = module
-    for source_type, source_line_id, source_doc_id, qty in specs:
-        row = await getattr(server.db, source_coll).find_one({"id": source_line_id}, {"_id": 0})
-        if not row:
-            raise HTTPException(400, "Sumber transaksi tidak ditemukan")
-        if row.get("item_id") != item_id:
-            raise HTTPException(400, "Barang berbeda dengan sumber transaksi")
+    total, rows = {}, {}
+    for specs, item_id in groups:
+        for source_type, source_line_id, source_doc_id, qty in specs:
+            row = rows.get(source_line_id) or await getattr(server.db, source_coll).find_one({"id": source_line_id}, {"_id": 0})
+            if not row:
+                raise HTTPException(400, "Sumber transaksi tidak ditemukan")
+            if row.get("item_id") != item_id:
+                raise HTTPException(400, "Barang berbeda dengan sumber transaksi")
+            rows[source_line_id] = row
+            total[source_line_id] = total.get(source_line_id, 0.0) + float(qty or 0)
+    for source_line_id, qty in total.items():
         elsewhere = await _allocated_elsewhere(server, source_line_id, target_type, did)
-        available = float(row.get("qty") or 0) - elsewhere
+        available = float(rows[source_line_id].get("qty") or 0) - elsewhere
         if qty > available + 1e-6:
             from receipt_control_layer import over_allowed
             if not (module == "do" and over_allowed(source_line_id)):
@@ -232,8 +244,8 @@ async def _replace(server, module, did, body, user):
         if line.get("qty") is not None and float(line.get("qty") or 0) <= 0 and module not in ("adjustment", "opname"):
             continue
         specs = await _source_specs(server, module, line, line.get("qty"))
-        await _validate_sources(server, module, did, specs, line.get("item_id"))
         prepared.append((line, specs, uom_metas[idx] if idx < len(uom_metas) else None))
+    await _validate_sources_total(server, module, did, [(specs, line.get("item_id")) for line, specs, _ in prepared])
 
     if module == "po":
         # DP divalidasi terhadap Grand Total BARU sebelum ada perubahan apa pun (blok Save).

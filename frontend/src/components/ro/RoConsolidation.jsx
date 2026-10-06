@@ -9,6 +9,8 @@ import { Combobox } from "@/components/Combobox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ListTree, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
+import { applyRoReservation, mergeRoPicked, pullParams, roFormReservation } from "@/lib/sourceReservation";
+export { applyRoReservation };
 
 const EPS = 1e-6;
 const n = (v) => Number(v) || 0;
@@ -21,6 +23,7 @@ const sourceFromPull = (r) => ({
   spk: r.spk || [], non_spk_qty: r.non_spk_qty, spk_label: r.spk_label || "Non-SPK",
   project_id: r.project_id, project_name: r.project_name, unit_id: r.unit_id, unit_name: r.unit_name, warehouse_id: r.warehouse_id, source_header: r.source_header || null,
   mro_qty: n(r.requested_base ?? r.requested), sudah_ro: n(r.processed_base ?? r.processed), sisa: n(r.outstanding_base ?? r.outstanding), qty: 0,
+  db_sisa: n(r._db_outstanding_base ?? r.outstanding_base ?? r.outstanding), reserved: n(r._reserved_base),
 });
 
 /** Kelompokkan baris MRO per Divisi + Barang (MRO/SPK/Proyek/Unit boleh berbeda). Supplier bukan kunci grouping. */
@@ -55,27 +58,9 @@ export function spkSummary(sources, onlyTaken = true) {
   return { text: head ? (non ? `${head} + Non-SPK` : head) : "Non-SPK", title: [...names, ...(non ? ["Non-SPK"] : [])].join(", ") };
 }
 
-/** Gabungkan grup hasil Tarik MRO ke baris RO terkonsolidasi (kunci: Barang; Divisi sudah satu per RO). */
-export function mergePicked(current, picked, defaults = {}) {
-  const out = current.map((l) => ({ ...l, sources: [...(l.sources || [])] }));
-  for (const g of picked) {
-    const hit = out.find((l) => l._consolidated && l.item_id === g.item_id);
-    if (hit) {
-      const have = new Set(hit.sources.map((s) => s.line_id));
-      hit.sources = [...hit.sources, ...g.sources.filter((s) => !have.has(s.line_id))].sort(byMroDate);
-      hit.qty = +sum(hit.sources, "qty").toFixed(6);
-      continue;
-    }
-    const uniq = (k) => { const v = [...new Set(g.sources.map((s) => s[k] || ""))]; return v.length === 1 ? v[0] : ""; };
-    out.push({
-      _key: `c-${g.key}-${Date.now()}`, _consolidated: true, item_id: g.item_id, item_code: g.item_code, item_name: g.item_name,
-      division_id: g.division_id, division_name: g.division_name, unit: g.base_unit, uom_id: g.base_uom_id, conversion_factor: 1,
-      warehouse_id: uniq("warehouse_id") || defaults.warehouse_id || "", project_id: uniq("project_id"), unit_id: uniq("unit_id"),
-      qty: +sum(g.sources, "qty").toFixed(6), sources: g.sources, notes: "",
-    });
-  }
-  return out;
-}
+/** Gabungkan grup hasil Tarik MRO ke baris RO terkonsolidasi (kunci: Barang; Divisi sudah satu per RO).
+ *  Sumber MRO yang sama ditarik lagi -> qty ditambahkan ke rincian sumber existing (bukan baris/sumber kedua). */
+export const mergePicked = mergeRoPicked;
 
 /** Baris RO hasil GET -> state form. Qty/rincian selalu satuan dasar (normalisasi UOM existing). */
 export const fromSavedLine = (l) => (l.sources || []).length ? {
@@ -98,16 +83,19 @@ export const lineIsValid = (l) => {
   return n(l.qty) > EPS && Math.abs(t.alloc - n(l.qty)) <= EPS && (l.sources || []).every((s) => n(s.qty) <= n(s.sisa) + EPS);
 };
 
-export function RoSourcePickerDialog({ open, onClose, divisionId, onConfirm }) {
-  const [rows, setRows] = useState(null);
+export function RoSourcePickerDialog({ open, onClose, divisionId, onConfirm, formLines = [], currentDocId = null }) {
+  const [raw, setRaw] = useState(null);
   const [q, setQ] = useState("");
   const [div, setDiv] = useState(divisionId || "");
   const [sel, setSel] = useState(new Set());
   useEffect(() => {
     if (!open) return;
-    setRows(null); setSel(new Set()); setQ(""); setDiv(divisionId || "");
-    api.get("/pull/mro-for-ro").then((r) => setRows(consolidatePulled(r.data))).catch((e) => { setRows([]); toast.error(apiError(e.response?.data?.detail)); });
-  }, [open, divisionId]);
+    setRaw(null); setSel(new Set()); setQ(""); setDiv(divisionId || "");
+    api.get("/pull/mro-for-ro", { params: pullParams(currentDocId) }).then((r) => setRaw(r.data || [])).catch((e) => { setRaw([]); toast.error(apiError(e.response?.data?.detail)); });
+  }, [open, divisionId, currentDocId]);
+  // Sisa efektif = sisa untuk dokumen ini - qty yang sudah dipakai di form RO aktif (dihitung ulang setiap form berubah).
+  const reserved = useMemo(() => roFormReservation(formLines), [formLines]);
+  const rows = useMemo(() => (raw === null ? null : consolidatePulled(applyRoReservation(raw, reserved))), [raw, reserved]);
   const divOptions = useMemo(() => {
     const m = new Map(); (rows || []).forEach((g) => g.division_id && m.set(g.division_id, g.division_name || "-"));
     return [...m.entries()].map(([value, label]) => ({ value, label }));
@@ -139,7 +127,7 @@ export function RoSourcePickerDialog({ open, onClose, divisionId, onConfirm }) {
                 <td className="p-2"><Checkbox checked={sel.has(g.key)} onCheckedChange={() => toggle(g)} aria-label={`Pilih ${g.item_name}`} data-testid={`ro-source-select-${g.item_code}`} /></td>
                 <td className="p-2"><div className="font-medium">{g.item_name}</div><div className="font-mono text-xs text-muted-foreground">{g.item_code}</div></td>
                 <td className="p-2">{g.division_name || "-"}</td>
-                <td className="p-2 text-right tabular-nums">{num(t.need)}</td><td className="p-2 text-right tabular-nums">{num(t.done)}</td><td className="p-2 text-right font-semibold tabular-nums">{num(t.sisa)}</td>
+                <td className="p-2 text-right tabular-nums">{num(t.need)}</td><td className="p-2 text-right tabular-nums">{num(t.done)}</td><td className="p-2 text-right font-semibold tabular-nums" data-testid={`ro-source-sisa-${g.item_code}`}>{num(t.sisa)}{sum(g.sources, "reserved") > EPS && <div className="text-[11px] font-normal text-muted-foreground" data-testid={`ro-source-reserved-${g.item_code}`}>di form: {num(sum(g.sources, "reserved"))}</div>}</td>
                 <td className="p-2">{g.base_unit}</td>
                 <td className="p-2 text-right" title={g.sources.map((x) => x.mro_no).join(", ")}>{t.mro} MRO</td>
                 <td className="p-2 text-xs" title={s.title}>{s.text}</td>
