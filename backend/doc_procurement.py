@@ -1306,6 +1306,17 @@ def _require_value(user):
         raise HTTPException(403, "Tidak memiliki akses nilai persediaan")
 
 
+VALUATION_ACTION_MSG = "Tidak diizinkan: memerlukan izin Lihat Harga Beli dan Penyesuaian Stok"
+
+
+def _require_valuation_action(user):
+    """Operasi yang menetapkan / mensimulasikan ulang nilai persediaan (Tetapkan, Tetapkan Massal, Dry Run &
+    Apply Revaluasi): wajib KEDUA izin view_purchase_price AND stock_adjustment (engine izin existing, custom role
+    ikut). Dipanggil sebelum membaca/menulis data apa pun."""
+    if not (has_perm(user or {}, "view_purchase_price") and has_perm(user or {}, "stock_adjustment")):
+        raise HTTPException(403, VALUATION_ACTION_MSG)
+
+
 @api.get("/reports/valuation-summary")
 async def valuation_summary(item_id: str = None, warehouse_id: str = None, user=Depends(current_user)):
     _require_value(user)
@@ -1560,8 +1571,7 @@ async def opening_candidates(q: str = None, warehouse_id: str = None, status: st
 async def post_opening_valuation(body: dict, user=Depends(current_user)):
     """Controlled Opening Inventory Valuation: establishes opening average/value for EXISTING
     physical qty WITHOUT adding stock. Does not duplicate physical quantity."""
-    if not _is_admin_like(user) and not has_perm(user, "view_purchase_price"):
-        raise HTTPException(403, "Tidak diizinkan")
+    _require_valuation_action(user)
     item_id = body.get("item_id"); wh = body.get("warehouse_id")
     cost = float(body.get("opening_avg_cost") or 0)
     cutoff = body.get("cutoff_date") or body.get("date") or now_iso()

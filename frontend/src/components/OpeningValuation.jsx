@@ -6,10 +6,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { OpeningStatusBadge } from "@/components/OpeningCorrection";
+import { eligibleKeys, keysPayload, massEligible, massPreview, rowKey, toggleKey, valuationAccess } from "@/lib/openingValuation";
 import { Combobox } from "@/components/Combobox";
 import { DatePicker, Field } from "@/components/DatePicker";
 import { NumericInput } from "@/components/NumericInput";
-import { Warehouse, Save, Search, Info } from "lucide-react";
+import { Warehouse, Save, Search, Info, Layers, CheckCircle2 } from "lucide-react";
 import { num, rupiah, todayISO } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -17,7 +21,10 @@ import { toast } from "sonner";
 // physical stock as of a cut-off date. It does NOT add or change physical quantity.
 export function OpeningValuation() {
   const masters = useMasters(); const { can } = useAuth();
-  const canPrice = can("view_purchase_price");
+  // Melihat nilai = view_purchase_price; Tetapkan / Tetapkan Massal = view_purchase_price AND stock_adjustment.
+  const { canView: canPrice, canApply } = valuationAccess(can);
+  const [sel, setSel] = useState(() => new Set());
+  const [massOpen, setMassOpen] = useState(false); const [massStatus, setMassStatus] = useState(null); const [massBusy, setMassBusy] = useState(false);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState(""); const [wh, setWh] = useState(""); const [status, setStatus] = useState("all");
@@ -36,6 +43,8 @@ export function OpeningValuation() {
       .then((r) => {
         const list = r.data?.rows || [];
         setRows(list);
+        const ok = eligibleKeys(list);
+        setSel((cur) => new Set([...cur].filter((k) => ok.has(k))));
         // Harga Beli dari Import Saldo Awal menjadi nilai awal input (masih Belum Dinilai sampai Tetapkan).
         setCosts((c) => {
           const next = { ...c };
@@ -54,7 +63,25 @@ export function OpeningValuation() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wh, status]);
 
-  const keyOf = (r) => `${r.item_id}::${r.warehouse_id}`;
+  const keyOf = rowKey;
+  const eligible = useMemo(() => eligibleKeys(rows), [rows]);
+  const allOn = eligible.size > 0 && [...eligible].every((k) => sel.has(k));
+  const openMass = async () => {
+    setMassOpen(true); setMassStatus(null);
+    try { const r = await api.get("/valuation/opening-status"); setMassStatus(r.data); }
+    catch (e) { setMassOpen(false); toast.error(apiError(e.response?.data?.detail)); }
+  };
+  const preview = useMemo(() => massPreview(massStatus?.rows, sel), [massStatus, sel]);
+  const doMass = async () => {
+    setMassBusy(true);
+    try {
+      const r = await api.post("/valuation/opening-mass/apply", { keys: keysPayload(new Set(preview.apply.map(rowKey))) });
+      toast.success(`${r.data.applied} pool ditetapkan nilai awalnya dari Import Saldo Awal`);
+      if (r.data.skipped?.length) toast.warning(`${r.data.skipped.length} pool dilewati`);
+      setMassOpen(false); setSel(new Set()); load();
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
+    finally { setMassBusy(false); }
+  };
   const post = async (r) => {
     const k = keyOf(r);
     const cost = Number(costs[k]);
@@ -100,30 +127,40 @@ export function OpeningValuation() {
       </Field>
     </div>
 
+    {canApply && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2" data-testid="opening-mass-toolbar">
+      <div className="text-sm text-muted-foreground"><b className="text-foreground" data-testid="opening-mass-selected-count">{num(sel.size)}</b> dipilih dari {num(eligible.size)} pool siap ditetapkan (nilai dari Import Saldo Awal)</div>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={() => setSel(allOn ? new Set() : new Set(eligible))} disabled={!eligible.size} data-testid="opening-mass-select-all">{allOn ? "Batal pilih semua" : "Pilih semua yang siap"}</Button>
+        <Button size="sm" onClick={openMass} disabled={!sel.size} data-testid="opening-mass-apply-btn"><Layers className="h-3.5 w-3.5 mr-1" />Terapkan Massal ({num(sel.size)})</Button>
+      </div>
+    </div>}
+
     <div className="border rounded-md overflow-x-auto bg-card">
       <table className="w-full text-sm min-w-[920px]">
         <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+          {canApply && <th className="p-2 w-10"><Checkbox checked={allOn} onCheckedChange={() => setSel(allOn ? new Set() : new Set(eligible))} disabled={!eligible.size} aria-label="Pilih semua yang siap" data-testid="opening-select-all" /></th>}
           <th className="p-2 min-w-[220px]">Barang</th><th className="p-2">Gudang</th>
           <th className="p-2 text-right">Qty Existing</th><th className="p-2">Satuan Dasar</th>
           <th className="p-2 w-44">Opening Average Cost</th><th className="p-2 text-right">Opening Inventory Value</th>
-          <th className="p-2">Status</th><th className="p-2 w-24"></th>
+          <th className="p-2">Status</th>{canApply && <th className="p-2 w-24"></th>}
         </tr></thead>
         <tbody>
-          {loading && <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">Memuat…</td></tr>}
-          {!loading && rows.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">Tidak ada stok fisik yang perlu dinilai</td></tr>}
+          {loading && <tr><td colSpan={canApply ? 9 : 7} className="p-6 text-center text-muted-foreground">Memuat…</td></tr>}
+          {!loading && rows.length === 0 && <tr><td colSpan={canApply ? 9 : 7} className="p-8 text-center text-muted-foreground">Tidak ada stok fisik yang perlu dinilai</td></tr>}
           {!loading && rows.map((r) => {
             const k = keyOf(r);
             const valued = r.status === "valued";
             const blocked = !valued && !!r.opening_blocked_reason;
-            const liveCost = valued ? r.avg_cost : Number(costs[k] || 0);
-            const liveVal = valued ? r.inventory_value : (r.opening_import_qty ?? r.qty_existing) * (Number(costs[k]) || 0);
-            return <tr key={k} className="border-t" data-testid={`opening-row-${k}`}>
+            const liveVal = valued ? r.inventory_value : (r.opening_import_qty ?? r.qty_existing) * (Number(canApply ? costs[k] : r.opening_cost_candidate) || 0);
+            const canPick = massEligible(r);
+            return <tr key={k} className={`border-t ${sel.has(k) ? "bg-primary/5" : ""}`} data-testid={`opening-row-${k}`}>
+              {canApply && <td className="p-2">{canPick && <Checkbox checked={sel.has(k)} onCheckedChange={() => setSel((c) => toggleKey(c, k))} aria-label={`Pilih ${r.item_code}`} data-testid={`opening-select-${k}`} />}</td>}
               <td className="p-2"><div className="font-medium">{r.item_name}</div><div className="font-mono text-[11px] text-muted-foreground">{r.item_code}</div></td>
               <td className="p-2">{r.warehouse_name}</td>
               <td className="p-2 text-right tabular-nums font-semibold">{num(r.qty_existing)}{r.opening_import_qty != null && r.opening_import_qty !== r.qty_existing && <div className="text-[11px] font-normal text-muted-foreground" data-testid={`opening-import-qty-${k}`}>Saldo awal: {num(r.opening_import_qty)}</div>}</td>
               <td className="p-2">{r.base_uom_name || "-"}</td>
-              <td className="p-1.5">{valued
-                ? <span className="tabular-nums">{rupiah(r.avg_cost)}</span>
+              <td className="p-1.5">{valued || !canApply
+                ? <span className="tabular-nums" data-testid={`opening-cost-ro-${k}`}>{rupiah(valued ? r.avg_cost : (r.opening_cost_candidate || 0))}</span>
                 : <div>
                   <NumericInput mode="money" value={costs[k] ?? ""} onChange={(v) => setCosts((c) => ({ ...c, [k]: v }))} className="h-9 text-right" placeholder="0" data-testid={`opening-cost-${k}`} />
                   {r.opening_cost_candidate > 0 && <div className="mt-0.5 text-[11px] text-muted-foreground" data-testid={`opening-cost-source-${k}`}>
@@ -135,11 +172,40 @@ export function OpeningValuation() {
                 ? <Badge className="bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-0">Sudah Dinilai</Badge>
                 : <div><Badge variant="outline" className="text-amber-600 border-amber-500/40">Belum Dinilai</Badge>
                   {blocked && <div className="mt-1 max-w-[260px] text-[11px] leading-4 text-destructive" data-testid={`opening-blocked-${k}`}>{r.opening_blocked_reason}</div>}</div>}</td>
-              <td className="p-1.5 text-right">{!valued && <Button size="sm" onClick={() => post(r)} disabled={blocked || savingKey === k || !(Number(costs[k]) > 0)} data-testid={`opening-save-${k}`}><Save className="h-3.5 w-3.5 mr-1" />{savingKey === k ? "…" : "Tetapkan"}</Button>}</td>
+              {canApply && <td className="p-1.5 text-right">{!valued && <Button size="sm" onClick={() => post(r)} disabled={blocked || savingKey === k || !(Number(costs[k]) > 0)} data-testid={`opening-save-${k}`}><Save className="h-3.5 w-3.5 mr-1" />{savingKey === k ? "…" : "Tetapkan"}</Button>}</td>}
             </tr>;
           })}
         </tbody>
       </table>
     </div>
+
+    <Dialog open={massOpen} onOpenChange={setMassOpen}>
+      <DialogContent className="max-w-4xl" data-testid="opening-mass-dialog">
+        <DialogHeader><DialogTitle>Terapkan Massal Nilai Saldo Awal</DialogTitle>
+          <DialogDescription>Nilai diambil dari Import Saldo Awal Persediaan (Σ nilai / Σ qty saldo awal) dan dicatat pada tanggal saldo awal. Pool yang sudah memiliki mutasi tidak ikut (perlu Revaluasi Saldo Awal).</DialogDescription></DialogHeader>
+        {!massStatus ? <div className="p-6 text-center text-sm text-muted-foreground">Memuat preview…</div> : <>
+          <div className="flex flex-wrap gap-4 text-sm">
+            <span data-testid="opening-mass-preview-apply">Akan ditetapkan: <b>{num(preview.apply.length)}</b></span>
+            <span data-testid="opening-mass-preview-skip">Dilewati: <b>{num(preview.skip.length + preview.missing.length)}</b></span>
+            <span data-testid="opening-mass-preview-value">Total nilai: <b>{rupiah(preview.value)}</b></span>
+          </div>
+          <div className="max-h-[50vh] overflow-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-muted text-left text-xs text-muted-foreground"><tr>
+                <th className="px-3 py-2">Item</th><th className="px-3 py-2">Gudang</th><th className="px-3 py-2 text-right">Qty Saldo Awal</th>
+                <th className="px-3 py-2 text-right">Harga Saldo Awal</th><th className="px-3 py-2 text-right">Nilai Saldo Awal</th><th className="px-3 py-2">Status</th></tr></thead>
+              <tbody>{[...preview.apply, ...preview.skip].map((r) => <tr key={rowKey(r)} className="border-t" data-testid={`opening-mass-row-${rowKey(r)}`}>
+                <td className="px-3 py-2">{r.item_code} — {r.item_name}</td><td className="px-3 py-2">{r.warehouse_name}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{r.opening_qty != null ? num(r.opening_qty) : "—"}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{r.opening_cost != null ? rupiah(r.opening_cost) : "—"}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{r.opening_value != null ? rupiah(r.opening_value) : "—"}</td>
+                <td className="px-3 py-2"><OpeningStatusBadge status={r.status} label={r.status_label} />{r.status !== "ready" && r.reason && <div className="mt-1 text-[11px] text-muted-foreground">{r.reason}</div>}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </>}
+        <DialogFooter><Button variant="outline" onClick={() => setMassOpen(false)} data-testid="opening-mass-cancel">Batal</Button>
+          <Button onClick={doMass} disabled={massBusy || !preview.apply.length} data-testid="opening-mass-confirm"><CheckCircle2 className="mr-1.5 h-4 w-4" />{massBusy ? "Menetapkan…" : `Tetapkan ${num(preview.apply.length)} pool`}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>;
 }

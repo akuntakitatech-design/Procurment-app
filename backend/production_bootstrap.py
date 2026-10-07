@@ -3,6 +3,7 @@
 The original Emergent-generated app seeds demo warehouses/items/opening stock and writes
 admin test credentials to disk on startup. Production disables both behaviours by default.
 """
+import importlib
 import os
 
 os.environ.setdefault("PROCUREFLOW_ENTRY", "bootstrap")
@@ -271,6 +272,7 @@ import user_profile_layer  # noqa: E402
 user_profile_layer.install(server)  # Profil Saya + Ganti Password (rotasi sesi)
 import control_center_layer  # noqa: E402
 control_center_layer.install(server)  # Dashboard Procurement & Finance v1 (reporting/ reusable)
+importlib.import_module("opening_correction_layer").install(server)  # Tetapkan Massal + Revaluasi Saldo Awal / Valuation Replay
 tenant_isolation_layer.install(server)
 
 # The subscription gate runs after isolation so it can enforce lifecycle access on every tenant

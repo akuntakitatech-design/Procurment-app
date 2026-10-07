@@ -164,7 +164,11 @@ def main():
           and abs(a1["inventory_value"] - 1880000) < 0.01, a1)
 
     # --- warehouse / division scope
-    ua = mk_user("purchasing", divs=[M["div"]["id"]])
+    # Aksi Tetapkan wajib view_purchase_price AND stock_adjustment (engine izin existing; bukan nama role).
+    up = mk_user("purchasing", overrides={"adjustment.create": "deny", "adjustment.post": "deny"}, divs=[M["div"]["id"]])
+    sc, r = tetapkan(A, wh2, 70000, up)
+    check("izin: punya Lihat Harga Beli tanpa Penyesuaian Stok -> Tetapkan 403", sc == 403, (sc, r))
+    ua = mk_user("purchasing", overrides={"adjustment.create": "allow", "adjustment.post": "allow"}, divs=[M["div"]["id"]])
     sc, Ca = cands(ua)
     check("scope: user Divisi Teknik tidak melihat Gudang C (Divisi B)", sc == 200 and (A["id"], whC["id"]) not in Ca and (A["id"], wh2["id"]) in Ca, list(Ca)[:3] if isinstance(Ca, dict) else Ca)
     sc, r = tetapkan(A, whC, 70000, ua)

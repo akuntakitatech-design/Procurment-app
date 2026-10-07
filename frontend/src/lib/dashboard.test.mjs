@@ -86,6 +86,15 @@ check("Label kelompok: 'Posisi s/d' (Procurement/Finance/Perlu Ditindaklanjuti) 
   && ["Procurement — {posLabel}", "Finance — {posLabel}", "Aktivitas Pembelian — {actLabel}", "Perlu Ditindaklanjuti — {posLabel}"].every((t) => dash.includes(t)));
 check("Kartu aktivitas: Total PO, PO Disetujui, DP Sudah Dibayar", ['k: "po_all"', 'k: "approved"', 'k: "dp_paid"'].every((t) => dash.includes(t)));
 check("Peringatan pool historis belum dapat direkonstruksi", dash.includes("unreconstructable_pools") && dash.includes("pool persediaan historis belum dapat direkonstruksi"));
+const unv = readFileSync(new URL("../components/dashboard/UnvaluedStockDialog.jsx", import.meta.url), "utf8");
+const oc = readFileSync(new URL("../components/OpeningCorrection.jsx", import.meta.url), "utf8");
+check("Label 'belum bernilai' clickable membuka detail", dash.includes("setUnvaluedOpen(true)") && dash.includes("<UnvaluedStockDialog"));
+check("Detail belum bernilai: kolom Kode|Barang|Gudang|Qty|Avg Cost|Nilai Saat Ini|Kandidat Opening|Status",
+  ["Kode", "Barang", "Gudang", "Qty", "Avg Cost", "Nilai Saat Ini", "Kandidat Opening", "Status"].every((t) => unv.includes(`>${t}</th>`)) && unv.includes("/valuation/opening-status"));
+check("Tetapkan Massal preview: Item|Gudang|Qty Awal|Harga Awal|Nilai Awal|Status + ringkasan", ["Item", "Gudang", "Qty Awal", "Harga Awal", "Nilai Awal", "Status"].every((t) => oc.includes(`>${t}</th>`))
+  && ["Bisa ditetapkan", "Perlu Revaluasi (tidak ikut)", "Tidak Ada Nilai Sumber"].every((t) => oc.includes(t)));
+check("Revaluasi: Dry Run wajib sebelum apply + frasa konfirmasi", oc.includes("/valuation/replay/dry-run") && oc.includes("fingerprint: dry.fingerprint") && oc.includes("confirm_phrase")
+  && ["Nilai persediaan sebelum", "Nilai opening dimasukkan", "Nilai sesudah replay", "Transaksi terdampak", "Transaksi keluar terdampak", "HPP terdampak"].every((t) => oc.includes(t)));
 check("Chip drill-down meneruskan rf_asof & label Posisi s/d", chip.includes('"rf_asof"') && chip.includes("Posisi s/d"));
 
 console.log(fail ? `\n${fail} FAILED` : `\n${n}/${n} passed`);
