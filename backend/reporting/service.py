@@ -22,15 +22,18 @@ async def _none():
 
 async def _inventory(server, user, f, perm):
     """KPI Persediaan dari ringkasan canonical per BARANG aktif (stock_summary = Master Barang = Inventory).
-    Snapshot (tidak dipengaruhi periode); ikut filter Divisi dashboard. Nilai Persediaan = Σ item_warehouse.total_value
-    dari engine valuation/MWA existing, hanya bila berhak `view_purchase_price`."""
+    Jumlah/status stok = snapshot hari ini; ikut filter Divisi dashboard. Nilai Persediaan = engine valuation/MWA existing
+    PER TANGGAL AKHIR FILTER (valuation ledger; hari ini = Valuation Summary), hanya bila berhak `view_purchase_price`."""
     import stock_summary as SS
     try:
-        res = await SS.compute(server, user, division_id=f.division_id or "", active="Aktif", with_value=bool(perm["price"]))
+        res = await SS.compute(server, user, division_id=f.division_id or "", active="Aktif", with_value=bool(perm["price"]),
+                               value_as_of=f.date_to)
     except Exception:  # noqa: BLE001 — bagian opsional, jangan gagalkan dashboard
         return None
     return {"stock": SS.dashboard_stock(res["summary"]), "warehouse_count": res["warehouse_count"],
-            "inventory_value": res.get("inventory_value") if perm["price"] else None}
+            "inventory_value": res.get("inventory_value") if perm["price"] else None,
+            "inventory_value_as_of": res.get("inventory_value_as_of") if perm["price"] else None,
+            "unvalued_items": res.get("unvalued_items") if perm["price"] else None}
 
 
 async def build(server, user, date_from=None, date_to=None, division_id=None, project_id=None, supplier_id=None, period=None):

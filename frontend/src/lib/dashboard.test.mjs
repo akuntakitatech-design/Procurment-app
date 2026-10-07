@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ATTENTION_TABS, attentionRows, ccParams, compactRupiah, drillLink, inventoryLink, monthLabel, periodRange, statusLabel, STATUS_META } from "./dashboard.js";
+import { ATTENTION_TABS, attentionRows, ccParams, compactRupiah, drillLink, inventoryLink, asOfLabel, monthLabel, periodRange, statusLabel, STATUS_META } from "./dashboard.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (p) => readFileSync(join(here, p), "utf8");
@@ -63,6 +63,9 @@ const inv = src("../pages/Inventory.jsx");
 check("Inventory memakai /inventory/item-stock (bukan agregasi /inventory/position)", inv.includes("/inventory/item-stock") && !inv.includes("/inventory/position") && !/function stockStatus/.test(inv));
 check("Inventory menampilkan 'Belum ada stok' untuk sel tanpa record", inv.includes("Belum ada stok"));
 check("Dashboard KPI Persediaan dari d.inventory.stock (Jumlah Item/Habis/Menipis/Overstock)", ["\"total\"", "\"out_of_stock\"", "\"low_stock\"", "\"overstock\""].every((k) => dash.includes(k)) && dash.includes("inventory_value != null"));
+
+check("asOfLabel format tanggal per", asOfLabel("2026-09-30") === "30/09/2026" && asOfLabel(null) === "hari ini");
+check("Dashboard menampilkan tanggal per & info belum bernilai", dash.includes("inventory_value_as_of") && dash.includes("unvalued_items") && dash.includes("belum bernilai"));
 
 console.log(fail ? `\n${fail} FAILED` : `\n${n}/${n} passed`);
 process.exit(fail ? 1 : 0);

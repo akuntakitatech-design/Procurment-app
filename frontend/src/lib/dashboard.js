@@ -122,3 +122,9 @@ export function inventoryLink(kind, f = {}) {
   const qs = p.toString();
   return qs ? `/inventory?${qs}` : "/inventory";
 }
+
+// "2026-09-30" -> "30/09/2026" (tanggal Nilai Persediaan per akhir filter)
+export function asOfLabel(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "hari ini";
+}

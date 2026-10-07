@@ -1,6 +1,7 @@
 """MRO, RO, PO, DO, MI + PO approval workflow."""
 import asyncio
 from fastapi import Depends, HTTPException
+from stock_summary import missing_average
 from server import (api, db, gid, now_iso, clean, current_user, require, has_perm,
                     is_global, audit, notify, next_number, alloc_out, create_alloc,
                     post_ledger, stock_balance)
@@ -1389,7 +1390,7 @@ async def valuation_reconcile(user=Depends(current_user)):
             diagnostics.append({**nm(r), "type": "negative_value", "inventory_value": val})
         if abs(phys) < 1e-9 and abs(val) > 1e-6:
             diagnostics.append({**nm(r), "type": "zero_qty_nonzero_value", "inventory_value": val})
-        if phys > 1e-6 and avg <= 0:
+        if missing_average(phys, avg):  # rule bersama dgn info 'belum bernilai' Dashboard (stock_summary)
             diagnostics.append({**nm(r), "type": "missing_average", "physical_qty": phys, "inventory_value": val})
 
     # duplicate source_key

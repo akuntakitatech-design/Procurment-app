@@ -13,7 +13,7 @@ import { StatusDonut } from "@/components/dashboard/StatusDonut";
 import { TopSuppliers } from "@/components/dashboard/TopSuppliers";
 import { AttentionTable } from "@/components/dashboard/AttentionTable";
 import { FinanceMonitor } from "@/components/dashboard/FinanceMonitor";
-import { PERIODS, ccParams, compactRupiah, drillLink, inventoryLink, periodText } from "@/lib/dashboard";
+import { PERIODS, asOfLabel, ccParams, compactRupiah, drillLink, inventoryLink, periodText } from "@/lib/dashboard";
 import { rupiah } from "@/lib/format";
 import {
   AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Clock3, FileClock, FileWarning, Hourglass, HandCoins,
@@ -184,9 +184,12 @@ export default function Dashboard() {
         {[["total", "Jumlah Item", "text-slate-800"], ["out_of_stock", "Stok Habis", "text-[#A34B4B]"], ["low_stock", "Stok Menipis", "text-[#9A6A22]"], ["overstock", "Overstock", "text-[#5B5A8C]"]].map(([k, l, c]) =>
           <button key={k} type="button" onClick={() => nav(inventoryLink(k, f))} className="flex items-baseline gap-1.5 rounded-md hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3D5A80]/40" data-testid={`dash-inventory-${k}`}>
             <span className="text-xs text-slate-400">{l}</span><b className={`tabular-nums ${c}`} data-testid={`dash-inventory-${k}-value`}>{d.inventory.stock[k] ?? 0}</b></button>)}
-        {d.inventory.inventory_value != null && <span className="flex items-baseline gap-1.5" data-testid="dash-inventory-value" title={rupiah(d.inventory.inventory_value)}>
-          <span className="text-xs text-slate-400">Nilai Persediaan</span><b className="tabular-nums text-slate-800">{compactRupiah(d.inventory.inventory_value)}</b></span>}
-        <span className="ml-auto text-[11px] text-slate-400">Snapshot barang aktif · ikut filter Divisi · tidak dipengaruhi periode/project/supplier</span>
+        {d.inventory.inventory_value != null && <span className="flex items-baseline gap-1.5" data-testid="dash-inventory-value" title={`${rupiah(d.inventory.inventory_value)} — engine valuation/MWA (valuation ledger)`}>
+          <span className="text-xs text-slate-400">Nilai Persediaan per <span data-testid="dash-inventory-value-asof">{asOfLabel(d.inventory.inventory_value_as_of)}</span></span>
+          <b className="tabular-nums text-slate-800" data-testid="dash-inventory-value-amount">{compactRupiah(d.inventory.inventory_value)}</b></span>}
+        {d.inventory.unvalued_items > 0 && <span className="rounded-full bg-[#9A6A22]/10 px-2 py-0.5 text-[11px] text-[#9A6A22]" data-testid="dash-inventory-unvalued">
+          {d.inventory.unvalued_items} barang punya stok tetapi belum bernilai</span>}
+        <span className="ml-auto text-[11px] text-slate-400">Jumlah & status stok: snapshot hari ini · nilai: per tanggal akhir filter · ikut filter Divisi</span>
       </div>}
     </div>}
   </div>;
