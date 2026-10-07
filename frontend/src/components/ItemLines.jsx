@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Combobox } from "@/components/Combobox";
+import { MasterProjectCombobox, MasterUnitCombobox } from "@/components/MasterRefCombobox";
+import { inlinePrefill } from "@/lib/masterInline";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, ChevronRight, ChevronDown, Info } from "lucide-react";
@@ -11,7 +13,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { QtyStock } from "@/components/StockInfo";
 import { ItemPicker, itemDisplayName } from "@/components/ItemPicker";
 
-export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null, stockWarehouse = null, itemCreate = null, testidPrefix = "line", itemLabel = null }) {
+export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null, stockWarehouse = null, itemCreate = null, testidPrefix = "line", itemLabel = null, division = null }) {
+  const unitPrefill = () => inlinePrefill("units", { division_id: division });
   const items = masters.map("items");
   const uoms = masters.map("uoms");
   const taxes = masters.map("taxes");
@@ -164,8 +167,8 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
                 <div className="w-[220px]"><div className={lbl}>MRO / RO</div><div className="flex h-9 items-center truncate font-mono text-[11px] text-muted-foreground" data-testid={`po-source-${i}`}>{poControl.sourceText && poControl.sourceText(l) ? poControl.sourceText(l) : <span className="italic">—</span>}</div></div>
                 <div className="w-[260px]"><div className={lbl}>Alokasi SPK</div><div data-testid={`po-alloc-${i}`}>{allocationColumn ? allocationColumn.render(l, i) : null}</div></div>
                 <div className="w-[150px]"><div className={lbl}>Gudang</div><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></div>
-                <div className="w-[150px]"><div className={lbl}>Proyek</div><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></div>
-                <div className="w-[150px]"><div className={lbl}>Unit / Aset</div><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit/Aset" /></div>
+                <div className="w-[150px]"><div className={lbl}>Proyek</div><MasterProjectCombobox masters={masters} options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" testid={`${testidPrefix}-project-${i}`} /></div>
+                <div className="w-[150px]"><div className={lbl}>Unit / Aset</div><MasterUnitCombobox masters={masters} options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit/Aset" prefill={unitPrefill} testid={`${testidPrefix}-unit-${i}`} /></div>
                 <div className="w-[160px]"><div className={lbl}>Pajak</div><Combobox dense options={taxOpts} value={l.tax_id || ""} onChange={(v) => update(i, { tax_id: v })} /></div>
               </div>
               {/* EXPANDED DETAIL */}
@@ -199,8 +202,8 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
             <td className="p-1.5"><Uom l={l} i={i} /></td>
             {allocationColumn && <td className="p-1.5 align-middle">{allocationColumn.render(l, i)}</td>}
             {fields.warehouse && <td className="p-1.5"><Combobox options={whOpts} value={l.warehouse_id || ""} onChange={(v) => update(i, { warehouse_id: v })} placeholder="Gudang" /></td>}
-            {fields.project && <td className="p-1.5"><Combobox options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" /></td>}
-            {fields.unit && <td className="p-1.5"><Combobox options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit" /></td>}
+            {fields.project && <td className="p-1.5"><MasterProjectCombobox masters={masters} options={projOpts} value={l.project_id || ""} onChange={(v) => update(i, { project_id: v })} placeholder="Proyek" testid={`${testidPrefix}-project-${i}`} /></td>}
+            {fields.unit && <td className="p-1.5"><MasterUnitCombobox masters={masters} options={unitOpts} value={l.unit_id || ""} onChange={(v) => update(i, { unit_id: v })} placeholder="Unit" prefill={unitPrefill} testid={`${testidPrefix}-unit-${i}`} /></td>}
             {showPrice && <><td className="p-1.5"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v })} className="h-9 text-right" />{priceAccessory && priceAccessory(l, i)}</td><td className="p-1.5"><NumericInput mode="money" value={l.discount} onChange={(v) => update(i, { discount: v })} className="h-9 text-right" /></td><td className="p-1.5"><Combobox options={taxOpts} value={l.tax_id || ""} onChange={(v) => update(i, { tax_id: v })} /></td><td className="p-2 text-right tabular-nums">{rupiah(total(l))}</td></>}
             <td className="p-1.5"><Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))} aria-label="Hapus baris" data-testid={`${testidPrefix}-remove-${i}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></td>
           </tr>)}</tbody>

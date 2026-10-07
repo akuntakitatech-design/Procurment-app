@@ -2,6 +2,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { MasterCreateProvider } from "@/components/MasterRefCombobox";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { Layout } from "@/components/Layout";
 import BrandingHead from "@/components/BrandingHead";
@@ -73,6 +74,7 @@ function App() {
           <AuthProvider>
             <BrandingHead />
             <Toaster position="top-right" />
+            <MasterCreateProvider>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/daftar" element={<RegisterTenant />} />
@@ -132,6 +134,7 @@ function App() {
               <Route path="/profile" element={<Protected><Profile /></Protected>} />
               <Route path="/settings" element={<Protected><Settings /></Protected>} />
             </Routes>
+            </MasterCreateProvider>
           </AuthProvider>
         </BrowserRouter>
       </div>
