@@ -3,6 +3,7 @@ import { PO_PRICE_REQUIRED_MSG, isPriceMissing, missingPriceRows } from "@/lib/p
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useServerList } from "@/lib/serverList";
+import { useReportParams } from "@/components/dashboard/ReportFilterChip";
 import { useMasters } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
@@ -46,8 +47,8 @@ import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
 const RECEIPT_OPTS=["Semua","Belum Diterima","Diterima Sebagian","Diterima Penuh","Over Receipt"];
 const EMAIL_OK=["Approved","Partially Received","Fully Received"];
-export function PoList(){const{can}=useAuth();const[rf,setRf]=useState("Semua");const list=useServerList("/po",{f_receipt_status:rf==="Semua"?"":rf});const[emailPo,setEmailPo]=useState(null);const load=()=>list.reload();
-  const filters=<select value={rf} onChange={e=>setRf(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm" data-testid="po-receipt-filter">{RECEIPT_OPTS.map(o=><option key={o} value={o}>{o==="Semua"?"Semua Status Penerimaan":o==="Over Receipt"?"Penerimaan Berlebih":o}</option>)}</select>;
+export function PoList(){const{can}=useAuth();const[rf,setRf]=useState("Semua");const rp=useReportParams();const list=useServerList("/po",{f_receipt_status:rf==="Semua"?"":rf,...rp.params});const[emailPo,setEmailPo]=useState(null);const load=()=>list.reload();
+  const filters=<>{rp.chip}<select value={rf} onChange={e=>setRf(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm" data-testid="po-receipt-filter">{RECEIPT_OPTS.map(o=><option key={o} value={o}>{o==="Semua"?"Semua Status Penerimaan":o==="Over Receipt"?"Penerimaan Berlebih":o}</option>)}</select></>;
   return <><DocList txType="po" createPath="/po/new" basePath="/po" module="po" printType="PO" printOpts={{title:"PURCHASE ORDER",showPrice:can("view_purchase_price")}} onReload={load} testidPrefix="po" server={list} emptyText="Belum ada data" filters={filters} resetKey={rf} minWidth={1700}
     canEditRow={r=>["Closed","Cancelled"].includes(r.document_status)?`PO ${r.document_status} tidak dapat diedit`:true} onEmail={r=>setEmailPo(r.id)} emailEligible={r=>EMAIL_OK.includes(r.status)}
     columns={[noCol("No. PO"),dateCol(fmtDate),{key:"supplier_name",label:"Supplier"},traceCol("mro"),traceCol("ro"),traceCol("project"),traceCol("division"),traceCol("spk"),{key:"buyer_contact_name",label:"Buyer"},{key:"grand_total",label:"Nilai",num:true,render:r=>r.grand_total==null?"***":rupiah(r.grand_total)},{key:"document_status",label:"Status Dokumen",status:true},{key:"receipt_status",label:"Status Penerimaan",status:true}]}/>

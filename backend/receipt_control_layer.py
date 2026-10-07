@@ -344,7 +344,7 @@ def _spk_join(entries):
 async def _lineage(server, module, lines):
     """Per line: {'mro': set(no), 'ro': set(no), 'po': set(no), 'mro_docs': set(id)}."""
     res = {l["id"]: {"mro": set(), "ro": set(), "po": set(), "mro_docs": set(), "ro_docs": set()} for l in lines if l.get("id")}
-    chain_po = chain_ro = chain_mro = {}
+    chain_po = chain_ro = {}
     if module == "do":
         chain_po = {l["id"]: [l.get("po_line_id")] for l in lines if l.get("po_line_id")}
         pos = await _docs_no(server, "po", [l.get("po_id") for l in lines])
@@ -427,6 +427,7 @@ async def enrich_list(server, module, rows):
         hproj = r.get("default_project_id") or r.get("project_id")
         mro_s, ro_s, po_s, proj_s, div_s, spk_s, wh_s, unit_s, req_s = (set() for _ in range(9))
         div_ids = {r["division_id"]} if r.get("division_id") else set()
+        proj_ids = {hproj} if hproj else set()
         if hdiv:
             div_s.add(hdiv)
         items = []
@@ -443,6 +444,8 @@ async def enrich_list(server, module, rows):
                 if module in ("po", "do", "mi", "ro") and nm("divisions", md.get("division_id")):
                     div_s.add(nm("divisions", md.get("division_id")))
             pname = nm("projects", l.get("project_id") or hproj)
+            if l.get("project_id"):
+                proj_ids.add(l["project_id"])
             if pname:
                 proj_s.add(pname)
             if nm("warehouses", l.get("warehouse_id")):
@@ -477,6 +480,7 @@ async def enrich_list(server, module, rows):
         r["trace_project"] = ", ".join(_uniq(proj_s))
         r["trace_division"] = ", ".join(_uniq(div_s))
         r["trace_division_ids"] = sorted(div_ids)
+        r["trace_project_ids"] = sorted(proj_ids)  # id Project header + baris (filter Dashboard/Laporan)
         r["trace_spk"] = ", ".join(_uniq(spk_s))
         r["trace_warehouse"] = ", ".join(_uniq(wh_s))
         r["trace_unit"] = ", ".join(_uniq(unit_s))

@@ -1,0 +1,59 @@
+// Node test (no deps): node frontend/src/lib/dashboard.test.mjs
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { ATTENTION_TABS, attentionRows, ccParams, compactRupiah, drillLink, monthLabel, periodRange, statusLabel, STATUS_META } from "./dashboard.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const src = (p) => readFileSync(join(here, p), "utf8");
+let fail = 0, n = 0;
+const check = (name, cond, info = "") => { n++; console.log(`${cond ? "PASS" : "FAIL"} ${name}${!cond && info ? " — " + JSON.stringify(info) : ""}`); if (!cond) fail++; };
+const T = new Date(2026, 9, 7); // 7 Okt 2026
+
+check("Default periode = bulan berjalan", JSON.stringify(periodRange("this_month", T)) === JSON.stringify({ date_from: "2026-10-01", date_to: "2026-10-31" }));
+check("Bulan lalu", periodRange("last_month", T).date_from === "2026-09-01" && periodRange("last_month", T).date_to === "2026-09-30");
+check("3 bulan terakhir", periodRange("last_3", T).date_from === "2026-08-01");
+check("Tahun ini", periodRange("this_year", T).date_to === "2026-12-31");
+check("Semua periode -> period=all", ccParams({ period: "all" }, T).period === "all" && !("date_from" in ccParams({ period: "all" }, T)));
+check("ccParams membuang filter kosong", JSON.stringify(ccParams({ period: "this_month", division_id: "d1", project_id: "", supplier_id: "" }, T)) ===
+  JSON.stringify({ date_from: "2026-10-01", date_to: "2026-10-31", division_id: "d1" }));
+check("Rupiah ringkas M / jt / rb", compactRupiah(3_420_000_000) === "Rp 3,42 M" && compactRupiah(985_000_000) === "Rp 985 jt" && compactRupiah(12_000) === "Rp 12 rb");
+check("Nilai tanpa izin = ***", compactRupiah(null) === "***");
+check("Label bulan", monthLabel("2026-10") === "Okt 26");
+for (const [k, l] of [["Waiting Approval 1", "Menunggu Approval 1"], ["Ready Approval 2", "Siap Diajukan Approval 2"], ["Waiting Approval 2", "Menunggu Approval 2"],
+  ["Approved", "Disetujui"], ["Closed", "Ditutup"], ["Rejected", "Ditolak"], ["Cancelled", "Dibatalkan"], ["Draft", "Draft"]])
+  check(`Label donut ${k} -> ${l}`, statusLabel(k) === l);
+check("Warna donut tidak neon (semua hex muted terdefinisi)", Object.values(STATUS_META).every((m) => /^#[0-9A-F]{6}$/i.test(m.color)));
+
+const f = { period: "this_month", division_id: "d1", project_id: "p1", supplier_id: "s1" };
+const q = (u) => new URLSearchParams(u.split("?")[1] || "");
+const a1 = drillLink("waiting_a1", f, {}, T);
+check("Drill Menunggu Approval 1 -> PO list rf_kind + filter global", a1.startsWith("/po?") && q(a1).get("rf_kind") === "waiting_a1" && q(a1).get("rf_division_id") === "d1"
+  && q(a1).get("rf_project_id") === "p1" && q(a1).get("rf_supplier_id") === "s1" && q(a1).get("date_from") === "2026-10-01", a1);
+check("Drill Siap Approval 2 (berhak A2) -> PO list rf_kind (count = kartu)", q(drillLink("ready_a2", f, { approval2: true }, T)).get("rf_kind") === "ready_a2" && drillLink("ready_a2", f, { approval2: true }, T).startsWith("/po?"));
+check("Drill Siap Approval 2 tanpa hak Approval 2 -> PO list", q(drillLink("ready_a2", f, {}, T)).get("rf_kind") === "ready_a2");
+check("Drill Menunggu Approval 2 -> PO list rf_kind=waiting_a2", q(drillLink("waiting_a2", f, { approval2: true }, T)).get("rf_kind") === "waiting_a2" && drillLink("waiting_a2", f, { approval2: true }, T).startsWith("/po?"));
+check("Drill PO Belum Diterima", q(drillLink("not_received", f, {}, T)).get("rf_kind") === "not_received");
+check("Drill PO Terlambat", q(drillLink("late", f, {}, T)).get("rf_kind") === "late");
+check("Drill Invoice Belum Dibayar -> Vendor Invoice rf_kind=unpaid", drillLink("unpaid", f, {}, T).startsWith("/invoice?") && q(drillLink("unpaid", f, {}, T)).get("rf_kind") === "unpaid");
+check("Drill Sisa Hutang -> monitoring hutang (invoice sisa > 0)", q(drillLink("payable", f, {}, T)).get("rf_kind") === "unpaid");
+check("Drill Jatuh Tempo / Lewat Jatuh Tempo", q(drillLink("due_soon", f, {}, T)).get("rf_kind") === "due_soon" && q(drillLink("overdue", f, {}, T)).get("rf_kind") === "overdue");
+check("Drill Invoice Belum Diterima -> tab Status Penagihan DO", q(drillLink("invoice_unbilled", f, {}, T)).get("tab") === "do" && q(drillLink("invoice_unbilled", f, {}, T)).get("rf_kind") === "unbilled");
+check("Drill MRO Belum Diproses (supplier tidak relevan)", drillLink("mro_open", f, {}, T).startsWith("/mro?") && !q(drillLink("mro_open", f, {}, T)).get("rf_supplier_id"));
+check("Drill DP -> DP Supplier", drillLink("dp_unallocated", f, {}, T) === "/dp-supplier");
+const att = { rows: [{ key: "a", tabs: ["unpaid", "due"] }, { key: "b", tabs: ["approval"] }] };
+check("Tab attention memfilter baris", attentionRows(att, "due").length === 1 && attentionRows(att, "all").length === 2);
+check("Tab finance ditandai (disembunyikan tanpa izin)", ATTENTION_TABS.filter((t) => t.finance).map((t) => t.key).join() === "unbilled,unpaid,due");
+
+const dash = src("../pages/Dashboard.jsx");
+check("Dashboard memakai satu endpoint control-center (bukan dashboard kedua)", dash.includes('api.get("/dashboard/control-center"') && !dash.includes('api.get("/dashboard-premium")'));
+check("Filter Periode/Divisi/Project/Supplier/Reset ada", ["dash-filter-period", "dash-filter-division", "dash-filter-project", "dash-filter-supplier", "dash-filter-reset"].every((t) => dash.includes(t)));
+check("Section Finance hanya bila backend mengirim finance", /\{F && <>/.test(dash));
+check("Animasi hanya opacity/transform", !/transition-all/.test(dash + src("../components/dashboard/KpiCard.jsx")));
+const chip = src("../components/dashboard/ReportFilterChip.jsx");
+check("Drill-down list membaca rf_* dari URL", ["rf_kind", "rf_division_id", "rf_project_id", "rf_supplier_id"].every((k) => chip.includes(k)));
+for (const p of ["../pages/Po.jsx", "../pages/Mro.jsx", "../pages/Ro.jsx", "../pages/InvoiceMonitoring.jsx"])
+  check(`List ${p.split("/").pop()} mendukung filter drill-down`, src(p).includes("useReportParams()"));
+
+console.log(fail ? `\n${fail} FAILED` : `\n${n}/${n} passed`);
+process.exit(fail ? 1 : 0);

@@ -691,6 +691,21 @@ def install(server):
         except HTTPException:
             return False
 
+    async def filter_visible(mod, rows, user):
+        """Saring baris yang SUDAH di-enrich (RC.enrich_list) dengan aturan visible_ids yang sama (Dashboard/Laporan)."""
+        alw = allowed(user)
+        if alw is None:
+            return list(rows or [])
+        whd = {w["id"]: w.get("division_id") for w in await db().warehouses.find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(5000)} \
+            if mod in WAREHOUSE_DOCS else {}
+        ok_ids, out = await assigned(mod, user), []
+        for r in rows or []:
+            divs = set(r.get("trace_division_ids") or []) | ({r["division_id"]} if r.get("division_id") else set())
+            divs |= {whd.get(r.get(k)) for k in ("warehouse_id", "from_warehouse_id", "to_warehouse_id") if whd.get(r.get(k))}
+            if visible(mod, divs, alw) or r.get("id") in ok_ids:
+                out.append(r)
+        return out
+
     async def visible_ids(mod, user):
         """Ids of documents the user may see (None = all). Multi-division docs need every division in scope."""
         alw = allowed(user)
@@ -698,15 +713,7 @@ def install(server):
             return None
         docs = await getattr(db(), COLL[mod]).find({}, {"_id": 0}).to_list(100000)
         rows = await RC.enrich_list(server, mod, docs) if docs else []
-        whd = {w["id"]: w.get("division_id") for w in await db().warehouses.find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(5000)} \
-            if mod in WAREHOUSE_DOCS else {}
-        ok_ids, out = await assigned(mod, user), set()
-        for r in rows:
-            divs = set(r.get("trace_division_ids") or []) | ({r["division_id"]} if r.get("division_id") else set())
-            divs |= {whd.get(r.get(k)) for k in ("warehouse_id", "from_warehouse_id", "to_warehouse_id") if whd.get(r.get(k))}
-            if visible(mod, divs, alw) or r.get("id") in ok_ids:
-                out.add(r.get("id"))
-        return out
+        return {r.get("id") for r in await filter_visible(mod, rows, user)}
 
     AUDIT_MOD = {"mro": "mro", "ro": "ro", "po": "po", "do": "do", "mi": "mi", "transfer": "transfer", "transfers": "transfer",
                  "loan": "loan", "loans": "loan", "adjustment": "adjustment", "adjustments": "adjustment", "opname": "opname"}
@@ -736,6 +743,7 @@ def install(server):
         return out
 
     server.ACCESS_DOC_VISIBLE, server.ACCESS_VISIBLE_IDS, server.ACCESS_AUDIT_FILTER = doc_visible, visible_ids, audit_filter
+    server.ACCESS_FILTER_VISIBLE = filter_visible
 
     def mk_verify(orig):
         async def ep(body: dict, user=Depends(server.current_user)):

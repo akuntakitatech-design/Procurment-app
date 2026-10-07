@@ -269,6 +269,8 @@ import supplier_document_layer  # noqa: E402
 supplier_document_layer.install(server)  # Dokumen Supplier via attachment engine existing
 import user_profile_layer  # noqa: E402
 user_profile_layer.install(server)  # Profil Saya + Ganti Password (rotasi sesi)
+import control_center_layer  # noqa: E402
+control_center_layer.install(server)  # Dashboard Procurement & Finance v1 (reporting/ reusable)
 tenant_isolation_layer.install(server)
 
 # The subscription gate runs after isolation so it can enforce lifecycle access on every tenant

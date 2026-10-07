@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useServerList } from "@/lib/serverList";
+import { useReportParams } from "@/components/dashboard/ReportFilterChip";
 import { useMasters } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
@@ -34,8 +35,8 @@ import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
 export function RoList() {
-  const list=useServerList("/ro"); const load=()=>list.reload();
-  return <DocList txType="ro" createPath="/ro/new" basePath="/ro" module="ro" printType="RO" printOpts={{title:"REQUEST ORDER"}} onReload={load} testidPrefix="ro" server={list} minWidth={1200} columns={[noCol("No. RO"),dateCol(fmtDate),{key:"requester",label:"Pemohon"},traceCol("mro"),traceCol("project"),{key:"division_name",label:"Divisi"},traceCol("spk"),{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;
+  const rp=useReportParams(); const list=useServerList("/ro",rp.params); const load=()=>list.reload();
+  return <DocList txType="ro" createPath="/ro/new" basePath="/ro" module="ro" printType="RO" printOpts={{title:"REQUEST ORDER"}} onReload={load} testidPrefix="ro" server={list} filters={rp.chip} minWidth={1200} columns={[noCol("No. RO"),dateCol(fmtDate),{key:"requester",label:"Pemohon"},traceCol("mro"),traceCol("project"),{key:"division_name",label:"Divisi"},traceCol("spk"),{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;
 }
 
 export function RoForm() {

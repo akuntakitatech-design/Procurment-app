@@ -16,7 +16,7 @@ LISTS = {"/api/mro": "mro", "/api/ro": "ro", "/api/po": "po", "/api/do": "do", "
          "/api/vendor-invoices": "invoice", "/api/vendor-invoices/do-billing": "do_billing"}
 SIZES = (25, 50, 100)
 DATE_FIELD = {"invoice": "invoice_date"}
-NO_SEARCH = {"id", "tenant_id", "items", "lines", "trace_division_ids", "lifecycle"}
+NO_SEARCH = {"id", "tenant_id", "items", "lines", "trace_division_ids", "trace_project_ids", "lifecycle"}
 
 
 def _split(v):
@@ -137,6 +137,8 @@ def install(server):
             async def listing(request: Request, user=Depends(server.current_user)):
                 rows = await orig(user=user)
                 qp = dict(request.query_params)
+                if getattr(server, "REPORT_LIST_FILTER", None) and any(k.startswith("rf_") and v for k, v in qp.items()):
+                    rows = await server.REPORT_LIST_FILTER(module, rows or [], qp)  # drill-down Dashboard (predikat sama)
                 if "page" not in qp:
                     return rows
                 return await paginate(module, rows, qp)

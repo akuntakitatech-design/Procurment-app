@@ -184,6 +184,9 @@ def install(server):
                 "trace_po": join(ts, "trace_po"), "trace_ro": join(ts, "trace_ro"), "trace_mro": join(ts, "trace_mro"),
                 "trace_spk": join(ts, "trace_spk"), "trace_project": join(ts, "trace_project"),
                 "trace_division": join(ts, "trace_division"),
+                # id lineage (mengikuti DO/PO sumber) untuk filter Dashboard/Laporan
+                "trace_division_ids": sorted({x for t in ts for x in t.get("trace_division_ids") or []}),
+                "trace_project_ids": sorted({x for t in ts for x in t.get("trace_project_ids") or []}),
                 "dp_allocated_total": round(float(i.get("dp_allocated_total") or 0), 2),
                 # Sisa Hutang = Nilai Invoice - DP Dialokasikan - Pembayaran Invoice Aktual (paid_total TIDAK memuat DP)
                 "remaining": round(float(i.get("amount") or 0) - float(i.get("dp_allocated_total") or 0) - float(i.get("paid_total") or 0), 2),
@@ -361,12 +364,20 @@ def install(server):
                         "supplier_name": sups.get(d.get("supplier_id")), "po_nos": t.get("trace_po"), "ro_nos": t.get("trace_ro"),
                         "mro_nos": t.get("trace_mro"), "project": t.get("trace_project"), "division": t.get("trace_division"),
                         "spk": t.get("trace_spk"), "do_value": v, "do_net": vals[d["id"]]["net"], "do_tax": vals[d["id"]]["tax"],
-                        "billed": b, "remaining": round(v - b, 2), "billing_status": bill_status(v, b)})
+                        "billed": b, "remaining": round(v - b, 2), "billing_status": bill_status(v, b),
+                        "trace_division_ids": t.get("trace_division_ids") or [], "trace_project_ids": t.get("trace_project_ids") or []})
         return out
 
     @app.get("/api/vendor-invoices/do-billing", tags=["vendor-invoice"])
     async def do_billing(user=Depends(cu)):
         return await do_billing_rows(user)
+
+    async def report_invoices(user):
+        return await enrich(await visible_invoices(user))
+
+    # Engine dipakai ulang oleh Dashboard/Laporan (reporting/) — satu sumber angka dengan list & summary Invoice.
+    server.VENDOR_INVOICE_REPORT = {"invoices": report_invoices, "do_billing": do_billing_rows,
+                                    "EPS": EPS, "TOL": TOL, "BILL": BILL, "PAY": PAY}
 
     @app.get("/api/vendor-invoices/eligible-dos", tags=["vendor-invoice"])
     async def eligible_dos(supplier_id: str, invoice_id: str = None, user=Depends(cu)):
