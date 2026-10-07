@@ -10,6 +10,7 @@ import { Combobox } from "@/components/Combobox";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { TrendChart } from "@/components/dashboard/TrendChart";
 import { StatusDonut } from "@/components/dashboard/StatusDonut";
+import { UnvaluedStockDialog } from "@/components/dashboard/UnvaluedStockDialog";
 import { TopSuppliers } from "@/components/dashboard/TopSuppliers";
 import { AttentionTable } from "@/components/dashboard/AttentionTable";
 import { FinanceMonitor } from "@/components/dashboard/FinanceMonitor";
@@ -61,6 +62,7 @@ export default function Dashboard() {
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [unvaluedOpen, setUnvaluedOpen] = useState(false);
   const [subscription, setSubscription] = useState(null);
   const [updated, setUpdated] = useState(null);
 
@@ -210,13 +212,14 @@ export default function Dashboard() {
           <span className="flex items-baseline gap-1.5" data-testid="dash-inventory-value" title={`${rupiah(d.inventory.inventory_value)} — engine valuation/MWA, termasuk barang nonaktif yang masih bersaldo`}>
             <span className="text-xs text-slate-500">Nilai Persediaan per <span className="font-medium text-slate-700" data-testid="dash-inventory-value-asof">{asOfLabel(d.inventory.inventory_value_as_of)}</span></span>
             <b className="tabular-nums text-slate-800" data-testid="dash-inventory-value-amount">{compactRupiah(d.inventory.inventory_value)}</b></span>
-          {d.inventory.unvalued_items > 0 && <span className="rounded-full bg-[#9A6A22]/10 px-2 py-0.5 text-[11px] text-[#9A6A22]" data-testid="dash-inventory-unvalued">
-            {d.inventory.unvalued_items} barang punya stok tetapi belum bernilai</span>}
+          {d.inventory.unvalued_items > 0 && <button type="button" onClick={() => setUnvaluedOpen(true)} className="rounded-full bg-[#9A6A22]/10 px-2 py-0.5 text-[11px] text-[#9A6A22] underline-offset-2 transition-colors hover:bg-[#9A6A22]/20 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A6A22]/40" data-testid="dash-inventory-unvalued">
+            {d.inventory.unvalued_items} barang punya stok tetapi belum bernilai</button>}
           {d.inventory.unreconstructable_pools > 0 && <span className="flex items-center gap-1 rounded-full bg-[#9A6A22]/10 px-2 py-0.5 text-[11px] text-[#9A6A22]" data-testid="dash-inventory-unreconstructable"
             title={`${d.inventory.unreconstructable_items} barang punya stok lama tanpa saldo awal / riwayat valuation sebelum tanggal ini. Nilainya tidak diasumsikan (tidak memakai nilai saat ini), sehingga angka historis belum lengkap.`}>
             <AlertTriangle className="h-3 w-3" />{d.inventory.unreconstructable_pools} pool persediaan historis belum dapat direkonstruksi</span>}
         </div>}
       </div>}
     </div>}
+    {d?.inventory?.unvalued_items > 0 && <UnvaluedStockDialog open={unvaluedOpen} onOpenChange={setUnvaluedOpen} divisionId={f.division_id} />}
   </div>;
 }
