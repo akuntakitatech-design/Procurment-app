@@ -23,43 +23,55 @@ if not BASE:
         pass
 API = f"{BASE}/api"
 
-ADMIN_EMAIL = "agustrnt@gmail.com"
-ADMIN_PASSWORD = "admin123"
+# Tenant throwaway (tidak memakai/mengubah data tenant live). Kredensial dibuat acak per sesi test.
+_RUN = uuid.uuid4().hex[:8]
+ADMIN_EMAIL = f"bt_{_RUN}@example.com"
+ADMIN_PASSWORD = f"Bt-{uuid.uuid4().hex[:12]}!9"
 
 
 @pytest.fixture(scope="session")
 def client():
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
-    r = s.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
-    assert r.status_code == 200, f"login failed: {r.status_code} {r.text}"
-    data = r.json()
-    token = data.get("token")
-    assert token, f"No token in response: {data}"
+    r = s.post(f"{API}/saas/register", json={
+        "company_name": f"BT {_RUN}", "pic_name": "QA", "email": ADMIN_EMAIL, "whatsapp": "+628123456789",
+        "workspace_slug": f"bt-{_RUN}", "plan_code": "starter", "password": ADMIN_PASSWORD,
+        "address": "x", "terms_accepted": True})
+    assert r.status_code == 200, f"register failed: {r.status_code} {r.text}"
+    token = r.json().get("token")
+    if not token:
+        r = s.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+        assert r.status_code == 200, f"login failed: {r.status_code} {r.text}"
+        token = r.json().get("token")
+    assert token, "No token"
     s.headers.update({"Authorization": f"Bearer {token}"})
     return s
 
 
 @pytest.fixture(scope="session")
 def master(client):
-    warehouses = client.get(f"{API}/master/warehouses").json()
-    items = client.get(f"{API}/master/items").json()
-    suppliers = client.get(f"{API}/master/suppliers").json()
-    projects = client.get(f"{API}/master/projects").json()
-    assert warehouses and items and suppliers
-    def find_item(code):
-        for it in items:
-            if it.get("code") == code:
-                return it
-        return items[0]
-    return {
-        "wh": warehouses[0],
-        "wh2": warehouses[1] if len(warehouses) > 1 else warehouses[0],
-        "item": find_item("SP001"),
-        "item2": find_item("SP002"),
-        "supplier": suppliers[0],
-        "project": projects[0] if projects else None,
-    }
+    def mk(coll, body):
+        r = client.post(f"{API}/master/{coll}", json=body)
+        assert r.status_code == 200, f"seed {coll}: {r.status_code} {r.text}"
+        return r.json()
+    wh = mk("warehouses", {"code": f"WA{_RUN}", "name": "Gudang A", "is_active": True})
+    wh2 = mk("warehouses", {"code": f"WB{_RUN}", "name": "Gudang B", "is_active": True})
+    div = mk("divisions", {"code": f"DV{_RUN}", "name": "Divisi Teknik"})
+    cat = mk("item_categories", {"code": f"KC{_RUN}", "name": "Kategori Umum"})
+    uom = mk("uoms", {"code": f"PCS{_RUN}", "name": "Pieces"})
+    scat = mk("supplier_categories", {"code": f"KS{_RUN}", "name": "Kategori Supplier"})
+    ref = {"category_id": cat["id"], "division_id": div["id"], "base_uom_id": uom["id"], "unit": "PCS", "is_active": True}
+    item = mk("items", {"code": f"SP001{_RUN}", "name": "Sparepart 1", **ref})
+    item2 = mk("items", {"code": f"SP002{_RUN}", "name": "Sparepart 2", **ref})
+    sup = mk("suppliers", {"code": f"SX{_RUN}", "name": "Supplier X", "supplier_category_id": scat["id"]})
+    prj = mk("projects", {"code": f"PA{_RUN}", "name": "Project A"})
+    for it in (item, item2):
+        r = client.post(f"{API}/adjustments", json={"warehouse_id": wh["id"], "division_id": div["id"], "reason": "stok awal",
+                                                    "lines": [{"item_id": it["id"], "adjustment": 500, "approved_unit_cost": 1000}]})
+        assert r.status_code == 200, f"seed stok: {r.text}"
+    r = client.put(f"{API}/settings/mi", json={"mi_mode": "mro_plus_direct"})
+    assert r.status_code == 200, f"settings MI: {r.text}"
+    return {"wh": wh, "wh2": wh2, "item": item, "item2": item2, "supplier": sup, "project": prj, "div": div}
 
 
 def test_auth_me(client):
@@ -98,6 +110,8 @@ def test_full_lifecycle(client, master):
 
     # 1) Create MRO (submitted immediately)
     mro_payload = {
+        "no": f"MRO-BT-{uuid.uuid4().hex[:6]}",
+        "division_id": master["div"]["id"],
         "default_warehouse_id": wh["id"],
         "default_project_id": project["id"] if project else None,
         "notes": "TEST_MRO auto",
@@ -159,8 +173,9 @@ def test_full_lifecycle(client, master):
 
     r = client.post(f"{API}/po/{po_id}/submit")
     assert r.status_code in (200, 201), f"PO submit: {r.text}"
-    r = client.post(f"{API}/po/{po_id}/approve", json={"note": "ok"})
-    assert r.status_code in (200, 201), f"PO approve: {r.text}"
+    if client.get(f"{API}/po/{po_id}").json().get("status") != "Approved":  # tanpa tahap approval: submit langsung Approved
+        r = client.post(f"{API}/po/{po_id}/approve", json={"note": "ok"})
+        assert r.status_code in (200, 201), f"PO approve: {r.text}"
     # keep approving in case of multi-step until approved
     for _ in range(5):
         d = client.get(f"{API}/po/{po_id}").json()
@@ -203,6 +218,7 @@ def test_full_lifecycle(client, master):
         "unit": p["unit"],
         "warehouse_id": p.get("warehouse_id") or wh["id"],
         "project_id": p.get("project_id"),
+        "mro_id": mro_id,
         "mro_line_id": p["line_id"],
     } for p in mi_pulls]
 
@@ -240,6 +256,7 @@ def test_transfer(client, master):
     payload = {
         "from_warehouse_id": master["wh"]["id"],
         "to_warehouse_id": master["wh2"]["id"],
+        "division_id": master["div"]["id"],
         "lines": [{"item_id": master["item"]["id"], "qty": 1, "unit": master["item"].get("unit", "PCS")}],
         "notes": "TEST_TRANSFER",
     }
@@ -250,6 +267,7 @@ def test_transfer(client, master):
 def test_adjustment(client, master):
     payload = {
         "warehouse_id": master["wh"]["id"],
+        "division_id": master["div"]["id"],
         "lines": [{"item_id": master["item"]["id"], "adjustment": 1, "reason": "TEST"}],
         "notes": "TEST_ADJ",
         "reason": "test",
@@ -262,6 +280,7 @@ def test_direct_mi(client, master):
     payload = {
         "default_warehouse_id": master["wh"]["id"],
         "source_type": "Direct",
+        "division_id": master["div"]["id"],
         "lines": [{"item_id": master["item"]["id"], "qty": 1,
                    "unit": master["item"].get("unit", "PCS"),
                    "warehouse_id": master["wh"]["id"]}],

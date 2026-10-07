@@ -48,7 +48,15 @@ def mk_user(name, divs):
     email = f"a2_{name}_{uuid.uuid4().hex[:6]}@example.com"
     sc, u = call("POST", "users", {"email": email, "password": PW, "name": f"QA {name}", "role": "manager"}, 200)
     call("PUT", f"access/users/{u['id']}", {"overrides": {}, "division_override": {"mode": "selected", "divisions": divs}}, 200)
-    return U(email)
+    o = U(email)
+    o.uid = u["id"]
+    o.divs = divs
+    return o
+
+
+def set_ov(usr, overrides):
+    """Override izin user via sistem Hak Akses existing (Ikuti Role / Izinkan / Tolak)."""
+    call("PUT", f"access/users/{usr.uid}", {"overrides": overrides, "division_override": {"mode": "selected", "divisions": usr.divs}}, 200)
 
 
 def line(M, item, qty, price, tax=11, discount=0, project="pa"):
@@ -128,7 +136,8 @@ def main():
     check("PO Rejected tidak muncul", p8["id"] not in ids)
     check("Status awal Siap Diajukan", all(ids[p["id"]]["submission_status"] == "Siap Diajukan" for p in [p1, p2]))
     sc, el1 = a1("GET", "approval2/po/eligible")
-    check("User bukan assignee Level 2 tidak melihat task", sc == 200 and not el1, el1)
+    check("User bukan assignee (divisi sama, po_approval2.view) melihat task tetapi tidak dapat approve",
+          sc == 200 and p1["id"] in {r["po_id"] for r in el1} and not any(r["can_approve"] for r in el1), el1)
     sc, el3 = a3("GET", "approval2/po/eligible")
     check("User divisi lain (bukan assignee) tidak melihat PO", sc == 200 and not el3, el3)
     sc, el_all = admin("GET", "approval2/po/eligible?scope=all")
@@ -159,8 +168,10 @@ def main():
     check("Batch wajib punya submission date", sc == 400, sc)
     sc, _ = a2("POST", "approval2/po/batches", {"title": "Project PHR Duri", "submission_date": "2026-10-06", "approval_task_ids": []})
     check("Batch wajib minimal 1 PO", sc == 400, sc)
+    set_ov(a1, {"po_approval2.submit": "deny"})
     sc, _ = a1("POST", "approval2/po/batches", {"title": "X", "submission_date": "2026-10-06", "approval_task_ids": batch_ids[:1]})
-    check("User bukan assignee tidak bisa membuat batch untuk task orang lain", sc == 403, sc)
+    check("User tanpa po_approval2.submit tidak bisa membuat batch", sc == 403, sc)
+    set_ov(a1, {})
     sc, _ = a2("POST", "approval2/po/batches", {"title": "X", "submission_date": "2026-10-06", "approval_task_ids": [task(a1, p6["id"], 1)["id"]]})
     check("Task Level 1 tidak dapat masuk batch", sc in (403, 409), sc)
     sc, B = a2("POST", "approval2/po/batches", {"title": "Project PHR Duri", "submission_date": "2026-10-06", "approval_task_ids": batch_ids})

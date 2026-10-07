@@ -165,13 +165,13 @@ def main():
     seed = s.post(f"{API}/adjustments", json={
         "date": today, "warehouse_id": wh_main["id"], "division_id": div["id"],
         "adj_type": "Saldo E2E", "reason": "Seed disposable E2E",
-        "lines": [{"item_id": item_stock["id"], "adjustment": 20, "reason": "Saldo awal E2E"}],
+        "lines": [{"item_id": item_stock["id"], "adjustment": 20, "approved_unit_cost": 1000, "reason": "Saldo awal E2E"}],
     }, timeout=20)
     check(seed.status_code == 200, "Saldo awal warehouse 20 pcs berhasil dibuat")
     check(near(position(s, item_stock["id"], wh_main["id"]), 20), "Stok awal gudang utama 20 pcs")
 
     tr = s.post(f"{API}/transfers", json={
-        "date": today, "from_warehouse_id": wh_main["id"], "to_warehouse_id": wh_site["id"],
+        "date": today, "from_warehouse_id": wh_main["id"], "to_warehouse_id": wh_site["id"], "division_id": div["id"],
         "notes": f"FULL-E2E-{run}",
         "lines": [{"item_id": item_stock["id"], "qty": 5, "unit": "pcs"}],
     }, timeout=20)
@@ -180,7 +180,7 @@ def main():
     check(near(position(s, item_stock["id"], wh_site["id"]), 5), "Stok site setelah transfer 5")
 
     loan_r = s.post(f"{API}/loans", json={
-        "date": today, "from_warehouse_id": wh_main["id"], "to_warehouse_id": wh_site["id"],
+        "date": today, "from_warehouse_id": wh_main["id"], "to_warehouse_id": wh_site["id"], "division_id": div["id"],
         "requester": "E2E Tester", "notes": f"FULL-E2E-{run}",
         "lines": [{"item_id": item_stock["id"], "qty": 4, "unit": "pcs"}],
     }, timeout=20)

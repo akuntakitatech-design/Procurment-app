@@ -16,7 +16,8 @@ import { toast } from "sonner";
 const ROUTES = { mro: "/mro/", ro: "/ro/", po: "/po/" };
 
 export default function Approval() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
+  const canA2 = can("po_approval2.view");
   const nav = useNavigate();
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
@@ -83,12 +84,12 @@ export default function Approval() {
       <button onClick={() => setView("processed")} data-testid="approval-tab-processed" className={`rounded-xl border bg-card p-4 text-left ${view === "processed" ? "border-primary ring-1 ring-primary/20" : ""}`}>
         <div className="text-2xl font-bold">{processed}</div><div className="text-sm font-semibold">Sudah Diproses</div><div className="text-xs text-muted-foreground">Approved / Rejected</div>
       </button>
-      <button onClick={() => setView("approval2")} data-testid="approval-tab-approval2" className={`rounded-xl border bg-card p-4 text-left ${view === "approval2" ? "border-primary ring-1 ring-primary/20" : ""}`}>
+      {canA2 && <button onClick={() => setView("approval2")} data-testid="approval-tab-approval2" className={`rounded-xl border bg-card p-4 text-left ${view === "approval2" ? "border-primary ring-1 ring-primary/20" : ""}`}>
         <div className="flex items-center gap-2 text-2xl font-bold">{level2}<Layers className="h-4 w-4 text-muted-foreground" /></div><div className="text-sm font-semibold">Pengajuan Approval 2</div><div className="text-xs text-muted-foreground">PO Level 2 via batch pimpinan</div>
-      </button>
+      </button>}
     </div>
 
-    {view === "approval2" ? <Approval2Panel scope={isAdmin ? scope : "mine"} onChanged={load} /> : <>
+    {view === "approval2" && canA2 ? <Approval2Panel scope={isAdmin ? scope : "mine"} onChanged={load} /> : <>
     <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
       <div className="relative max-w-md flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari modul, nomor dokumen, pemohon/supplier, approver..." className="pl-9" /></div>
       <div className="flex flex-wrap gap-2">

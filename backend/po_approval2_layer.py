@@ -87,6 +87,17 @@ def install(server):
     def is_admin(user):
         return user.get("role") == "admin"
 
+    # Izin granular Approval 2 (sistem hak akses existing: Role default + override Ikuti Role/Izinkan/Tolak)
+    P_VIEW, P_SUBMIT, P_APPROVE, P_PRINT = ("po_approval2.view", "po_approval2.submit",
+                                            "po_approval2.approve", "po_approval2.print")
+
+    def can(user, key):
+        return bool(server.has_perm(user, key))
+
+    def div_ok(user, po):
+        """Scope Divisi ketat (tanpa bypass penugasan) untuk aksi Approval 2."""
+        return bool(po) and (is_admin(user) or Division._division_allowed(server, user, po.get("division_id")))
+
     def me(user):
         return _norm(user.get("email"))
 
@@ -159,8 +170,9 @@ def install(server):
     # ------------------------------------------------------------------ eligible tasks
     async def pending_l2_tasks(user, scope="mine"):
         q = {"module": "po", "seq": 2, "status": "Pending"}
-        if not (is_admin(user) and scope == "all"):
+        if is_admin(user) and scope != "all":
             q["approver_email"] = me(user)
+        # Non-admin: seluruh Level 2 Pending lalu disaring (ditugaskan ke saya ATAU PO dalam scope Divisi).
         return await db().approval_tasks.find(q, {"_id": 0}).to_list(5000)
 
     async def active_membership(task_ids):
@@ -172,7 +184,7 @@ def install(server):
 
     @app.get("/api/approval2/po/eligible", tags=["approval2"])
     async def eligible(scope: str = Query("mine"), user=Depends(cu)):
-        need(user, "po.view", "melihat PO")
+        need(user, P_VIEW, "melihat Approval 2 PO")
         tasks = await pending_l2_tasks(user, scope)
         member = await active_membership([t["id"] for t in tasks])
         out = []
@@ -180,13 +192,14 @@ def install(server):
             po = await db().po.find_one({"id": t.get("document_id")}, {"_id": 0})
             if not po or _cancelled(po) or not _waiting(po):
                 continue
-            if not await po_in_scope(user, po, t):
+            assigned = _norm(t.get("approver_email")) == me(user)
+            if not (assigned or div_ok(user, po)):
                 continue
             snap = await po_snapshot(po)
             m = member.get(t["id"])
             out.append({**snap, "approval_task_id": t["id"], "approver_email": t.get("approver_email"),
                         "approver_name": t.get("approver_name"), "level": t.get("level"),
-                        "can_approve": _norm(t.get("approver_email")) == me(user),
+                        "can_approve": assigned and can(user, P_APPROVE),
                         "submission_status": SUBMITTED if m else READY,
                         "batch_id": (m or {}).get("batch_id"), "batch_no": (m or {}).get("batch_no")})
         out.sort(key=lambda r: (r["submission_status"] != READY, str(r.get("po_no") or "")))
@@ -210,10 +223,16 @@ def install(server):
         ids = [i.get("approval_task_id") for i in items]
         if not ids:
             return False
-        return bool(await db().approval_tasks.find_one({"id": {"$in": ids}, "approver_email": me(user)}, {"_id": 0, "id": 1}))
+        if await db().approval_tasks.find_one({"id": {"$in": ids}, "approver_email": me(user)}, {"_id": 0, "id": 1}):
+            return True
+        for i in items:  # PO pada pengajuan berada dalam scope Divisi user
+            po = await db().po.find_one({"id": i.get("po_id")}, {"_id": 0, "division_id": 1})
+            if div_ok(user, po):
+                return True
+        return False
 
     async def load_batch(batch_id, user):
-        need(user, "po.view", "melihat PO")
+        need(user, P_VIEW, "melihat Approval 2 PO")
         b = await db()[COLL_BATCH].find_one({"id": str(batch_id or "").strip()}, {"_id": 0})
         if not b:
             raise HTTPException(404, MSG_NOT_FOUND)
@@ -239,7 +258,8 @@ def install(server):
             visible = bool(po) and await po_in_scope(user, po, t)
             row = {**it, "display_status": status, "po_status": (po or {}).get("status"),
                    "task_status": (t or {}).get("status"),
-                   "can_approve": status == IT_PENDING and bool(t) and _norm(t.get("approver_email")) == me(user)}
+                   "can_approve": status == IT_PENDING and bool(t) and _norm(t.get("approver_email")) == me(user)
+                   and can(user, P_APPROVE) and div_ok(user, po)}
             if not visible and not is_admin(user):
                 continue
             out.append(row)
@@ -259,8 +279,7 @@ def install(server):
     # ------------------------------------------------------------------ create batch
     @app.post("/api/approval2/po/batches", tags=["approval2"])
     async def create_batch(body: dict, user=Depends(cu)):
-        need(user, "po.view", "melihat PO")
-        need(user, "po.approve", "mengajukan Approval 2 PO")
+        need(user, P_SUBMIT, "mengajukan Approval 2 PO")
         body = body or {}
         title = re.sub(r"\s+", " ", str(body.get("title") or "")).strip()
         if not title:
@@ -279,14 +298,19 @@ def install(server):
         async with RS.source_line_locks(server, task_ids, LOCK_PREFIX):
             rows = []
             for tid in task_ids:
+                # tenant (proxy) -> po_approval2.submit (di atas) -> scope Divisi -> lolos Approval 1 -> L2 Pending -> aturan batch
                 t = await db().approval_tasks.find_one({"id": tid}, {"_id": 0})
+                if not t or _norm(t.get("module")) != "po":
+                    raise HTTPException(404, "PO tidak ditemukan")
+                po = await db().po.find_one({"id": t.get("document_id")}, {"_id": 0})
+                if not po or not div_ok(user, po):
+                    raise HTTPException(404, "PO tidak ditemukan")
                 if not is_level2_po_task(t) or t.get("status") != "Pending":
                     raise HTTPException(409, "Hanya PO dengan Approval Level 2 Pending yang dapat diajukan")
-                if not is_admin(user) and _norm(t.get("approver_email")) != me(user):
-                    raise HTTPException(403, f"Approval {t.get('document_no') or ''} ditugaskan ke user lain")
-                po = await db().po.find_one({"id": t.get("document_id")}, {"_id": 0})
-                if not po or not await po_in_scope(user, po, t):
-                    raise HTTPException(404, "PO tidak ditemukan")
+                earlier = await db().approval_tasks.find_one({"module": "po", "document_id": po["id"], "status": "Pending",
+                                                              "seq": {"$lt": 2}}, {"_id": 0, "id": 1})
+                if earlier:
+                    raise HTTPException(409, f"PO {po.get('no')} belum lolos Approval Level 1")
                 if _cancelled(po) or not _waiting(po):
                     raise HTTPException(409, f"PO {po.get('no')} tidak lagi menunggu approval")
                 await DPM.assert_po_unit_prices(po["id"])  # Harga Satuan wajib > 0
@@ -344,8 +368,12 @@ def install(server):
     @app.post("/api/approval2/po/batches/{batch_id}/submit", tags=["approval2"])
     async def submit_batch(batch_id: str, body: dict = None, user=Depends(cu)):
         """Dipanggil saat Export JPEG. Idempoten: tidak membuat batch baru & tidak mengubah approval."""
+        # Draft -> Diajukan: po_approval2.submit. Export ulang batch yang sudah diajukan: po_approval2.print (atau submit).
+        if not (can(user, P_PRINT) or can(user, P_SUBMIT)):
+            raise HTTPException(403, "Anda tidak memiliki izin untuk mengekspor JPEG Approval 2 PO")
         b, items = await load_batch(batch_id, user)
-        need(user, "po.approve", "mengajukan Approval 2 PO")
+        if b.get("status") == ST_DRAFT:
+            need(user, P_SUBMIT, "mengajukan Approval 2 PO")
         patch = {"export_count": int(b.get("export_count") or 0) + 1, "last_exported_at": server.now_iso()}
         if b.get("status") == ST_DRAFT:
             patch.update({"status": ST_SUBMITTED, "submitted_at": server.now_iso()})
@@ -358,7 +386,7 @@ def install(server):
     # ------------------------------------------------------------------ approve terpilih
     @app.post("/api/approval2/po/batches/{batch_id}/approve", tags=["approval2"])
     async def approve_batch(batch_id: str, body: dict = None, user=Depends(cu)):
-        need(user, "po.approve", "menyetujui PO")
+        need(user, P_APPROVE, "menyetujui Approval 2 PO")
         b, items = await load_batch(batch_id, user)
         body = body or {}
         if b.get("status") == ST_DRAFT:
@@ -393,8 +421,10 @@ def install(server):
                 if _norm(t.get("approver_email")) != me(user):
                     raise HTTPException(403, f"Approval {it.get('po_no')} ditugaskan ke {t.get('approver_email') or 'user lain'}")
                 po = await db().po.find_one({"id": it["po_id"]}, {"_id": 0})
-                if not po or not await po_in_scope(user, po, t):
+                if not po:
                     raise HTTPException(404, "PO tidak ditemukan")
+                if not div_ok(user, po):
+                    raise HTTPException(403, f"PO {po.get('no')} berada di luar scope Divisi Anda")
                 if _cancelled(po) or not _waiting(po) or _norm(po.get("status")) in {"approved", "rejected"}:
                     raise HTTPException(409, f"PO {po.get('no')} tidak lagi menunggu approval")
                 current = await db().approval_tasks.find_one({"module": "po", "document_id": po["id"], "status": "Pending"},
@@ -471,7 +501,8 @@ def install(server):
                 return await orig_up(request, file, entity, entity_id, category, note)
             user = await cu(request)
             server.require(user, "upload_attachment")
-            need(user, "po.approve", "mengunggah bukti Approval 2")
+            if not (can(user, P_APPROVE) or can(user, P_SUBMIT)):
+                raise HTTPException(403, "Anda tidak memiliki izin untuk mengunggah bukti Approval 2")
             b, _items = await att_batch(entity_id, user)
             name = str(file.filename or "").rsplit("/", 1)[-1]
             ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
@@ -514,7 +545,8 @@ def install(server):
         async def delete_att(aid: str, user=Depends(cu)):
             rec = await db().attachments.find_one({"id": aid, "is_deleted": False}, {"_id": 0})
             if rec and rec.get("entity") == ENTITY:
-                need(user, "po.approve", "menghapus bukti Approval 2")
+                if not (can(user, P_APPROVE) or can(user, P_SUBMIT)):
+                    raise HTTPException(403, "Anda tidak memiliki izin untuk menghapus bukti Approval 2")
                 b, _items = await att_batch(rec["entity_id"], user)
                 # Soft delete metadata saja: referensi pada PO yang sudah di-approve tetap utuh.
                 await db().attachments.update_one({"id": aid}, {"$set": {"is_deleted": True, "deleted_by": user.get("email"),

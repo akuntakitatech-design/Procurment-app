@@ -10,9 +10,12 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Field } from "@/components/DatePicker";
 import { A2_READY, batchTotals, fmtA2Date, fmtPpn, fmtRp, isoToday, searchEligible, selectableRows, toggleId } from "@/lib/approval2";
 import { FilePlus2, Search, Layers } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 
 export function Approval2Panel({ scope = "mine", onChanged }) {
+  const { can } = useAuth();
+  const canSubmit = can("po_approval2.submit");
   const nav = useNavigate();
   const [rows, setRows] = useState([]);
   const [batches, setBatches] = useState([]);
@@ -66,7 +69,7 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative w-full sm:w-80"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari No PO, supplier, project, PIC..." className="pl-9" data-testid="approval2-search" /></div>
-          <Button disabled={sel.length === 0} onClick={() => { setDate(isoToday()); setOpen(true); }} data-testid="approval2-create-open"><FilePlus2 className="h-4 w-4 mr-2" />Buat Pengajuan Approval 2{sel.length ? ` (${sel.length})` : ""}</Button>
+          {canSubmit && <Button disabled={sel.length === 0} onClick={() => { setDate(isoToday()); setOpen(true); }} data-testid="approval2-create-open"><FilePlus2 className="h-4 w-4 mr-2" />Buat Pengajuan Approval 2{sel.length ? ` (${sel.length})` : ""}</Button>}
         </div>
       </div>
       <div className="overflow-x-auto">

@@ -59,3 +59,18 @@ export const searchEligible = (rows = [], q = "") => {
   if (!s) return rows;
   return rows.filter((r) => `${r.po_no || ""} ${r.supplier_name || ""} ${r.project_text || ""} ${r.pic_name || ""}`.toLowerCase().includes(s));
 };
+
+// Izin granular Approval 2 (Hak Akses existing). `can` = useAuth().can (cek key penuh `po_approval2.<aksi>`).
+export const A2_PERM = { view: "po_approval2.view", submit: "po_approval2.submit", approve: "po_approval2.approve", print: "po_approval2.print" };
+export function a2Access(can, status) {
+  const has = (k) => !!(typeof can === "function" && can(A2_PERM[k]));
+  const view = has("view"), submit = has("submit"), approve = has("approve"), print = has("print");
+  const draft = status === "Draft";
+  return {
+    view, submit, approve, print,
+    // Draft -> Diajukan butuh submit; export ulang batch yang sudah diajukan cukup print (atau submit).
+    canExport: view && (draft ? submit : (print || submit)),
+    canPreview: view && (print || submit),
+    canUploadEvidence: view && (approve || submit),
+  };
+}

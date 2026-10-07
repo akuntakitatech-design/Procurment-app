@@ -6,6 +6,11 @@ import time
 import uuid
 
 import requests
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+# fixture: tanggal hari ini (backdate guard valuasi menolak posting mundur relatif transaksi terakhir)
+TODAY = _dt.now(_tz.utc).date().isoformat()
+DUE = (_dt.now(_tz.utc) + _td(days=7)).date().isoformat()
 
 API = os.environ.get("TEST_API_URL", "http://loan-return-uom-api:8000/api").rstrip("/")
 ADMIN_EMAIL = os.environ["ADMIN_EMAIL"]
@@ -87,19 +92,20 @@ def main():
     })
 
     opening = s.post(f"{API}/adjustments", json={
-        "date": "2026-09-21",
+        "date": TODAY,
         "warehouse_id": wh_a["id"],
         "division_id": div["id"],
         "adj_type": "Saldo Awal Test",
         "reason": "Loan return UOM integrity",
-        "lines": [{"item_id": item["id"], "adjustment": 120, "reason": "opening"}],
+        "lines": [{"item_id": item["id"], "adjustment": 120, "approved_unit_cost": 1000, "reason": "opening"}],
     }, timeout=15)
     check(opening.status_code == 200, "Saldo awal 120 pcs berhasil dibuat")
 
     loan_r = s.post(f"{API}/loans", json={
-        "date": "2026-09-21",
+        "date": TODAY,
         "from_warehouse_id": wh_a["id"],
         "to_warehouse_id": wh_b["id"],
+        "division_id": div["id"],
         "requester": "UOM Tester",
         "notes": "2 box = 24 pcs",
         "lines": [{
@@ -122,7 +128,7 @@ def main():
     check(near(stock(s, item["id"], wh_b["id"]), 24), "Stok peminjam menjadi 24 pcs")
 
     ret_r = s.post(f"{API}/loans/{loan_id}/return", json={
-        "date": "2026-09-21",
+        "date": TODAY,
         "notes": "Return 1 box",
         "lines": [{"loan_line_id": line_id, "qty": 1}],
     }, timeout=15)
@@ -138,7 +144,7 @@ def main():
     check(near(docs[0]["lines"][0].get("qty"), 12), "Return line menyimpan qty dasar 12 pcs")
 
     edit = s.put(f"{API}/loan-returns/{rid}", json={
-        "date": "2026-09-21",
+        "date": TODAY,
         "notes": "Edit return menjadi setengah box",
         "lines": [{"loan_line_id": line_id, "qty": 0.5}],
     }, timeout=15)
@@ -158,7 +164,7 @@ def main():
     check(near(stock(s, item["id"], wh_b["id"]), 24), "Delete return mengembalikan stok peminjam 24 pcs")
 
     full = s.post(f"{API}/loans/{loan_id}/return", json={
-        "date": "2026-09-21",
+        "date": TODAY,
         "notes": "Full return 2 box",
         "lines": [{"loan_line_id": line_id, "qty": 2}],
     }, timeout=15)

@@ -5,6 +5,11 @@ import sys
 import time
 import uuid
 import requests
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+# fixture: tanggal hari ini (backdate guard valuasi menolak posting mundur relatif transaksi terakhir)
+TODAY = _dt.now(_tz.utc).date().isoformat()
+DUE = (_dt.now(_tz.utc) + _td(days=7)).date().isoformat()
 
 API = os.environ.get("TEST_API_URL", "http://stock-adjustment-api:8000/api").rstrip("/")
 ADMIN_EMAIL = os.environ["ADMIN_EMAIL"]
@@ -69,15 +74,17 @@ def detail(s, did):
 
 def adj_payload(wh, div, item, delta, kind="Barang Rusak", reason="Kerusakan fisik"):
     return {
-        "date": "2026-09-20", "warehouse_id": wh, "division_id": div,
+        "date": TODAY, "warehouse_id": wh, "division_id": div,
         "adj_type": kind, "reason": reason, "notes": "STOCK ADJUSTMENT INTEGRITY TEST",
-        "lines": [{"item_id": item, "adjustment": delta, "reason": reason}],
+        "lines": [{"item_id": item, "adjustment": delta, **({"approved_unit_cost": 1000} if delta > 0 else {}), "reason": reason}],
     }
 
 
 def main():
     wait_api()
     s = login()
+    # fixture: Direct MI default nonaktif (mi_mode mro_only) -> aktifkan untuk tenant test
+    check(s.put(f"{API}/settings/mi", json={"mi_mode": "mro_plus_direct"}, timeout=15).status_code == 200, "Mode MI + Direct diaktifkan untuk test")
     run = uuid.uuid4().hex[:8]
     div = master(s, "divisions", {"code": f"ADJ{run}", "name": f"Adjustment {run}"})
     wh = master(s, "warehouses", {"code": f"ADW{run}", "name": f"Gudang Adjustment {run}", "division_id": div["id"]})
@@ -120,7 +127,7 @@ def main():
     check(approx(stock(s, item["id"], wh["id"]), 15), "Adjustment tambah menghasilkan stok 15")
 
     mi = s.post(f"{API}/mi", json={
-        "date": "2026-09-20", "division_id": div["id"], "default_warehouse_id": wh["id"],
+        "date": TODAY, "division_id": div["id"], "default_warehouse_id": wh["id"],
         "receiver": "Adjustment Tester", "department": "Workshop", "source_type": "Direct",
         "notes": "CONSUME POSITIVE ADJUSTMENT",
         "lines": [{"item_id": item["id"], "qty": 12, "unit": "pcs", "warehouse_id": wh["id"], "notes": "consume"}],

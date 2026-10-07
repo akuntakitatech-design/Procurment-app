@@ -6,6 +6,11 @@ import time
 import uuid
 
 import requests
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+# fixture: tanggal hari ini (backdate guard valuasi menolak posting mundur relatif transaksi terakhir)
+TODAY = _dt.now(_tz.utc).date().isoformat()
+DUE = (_dt.now(_tz.utc) + _td(days=7)).date().isoformat()
 
 
 API = os.environ.get("TEST_API_URL", "http://do-test-api:8000/api").rstrip("/")
@@ -53,7 +58,7 @@ def create_po(s, *, division_id, supplier_id, warehouse_id, item_id, qty, price=
     r = s.post(
         f"{API}/po",
         json={
-            "date": "2026-09-18",
+            "date": TODAY,
             "division_id": division_id,
             "supplier_id": supplier_id,
             "default_warehouse_id": warehouse_id,
@@ -88,9 +93,9 @@ def stock(s, item_id, warehouse_id):
 
 def do_payload(*, supplier_id, warehouse_id, po_id, po_line_id, item_id, qty):
     return {
-        "date": "2026-09-18",
+        "date": TODAY,
         "supplier_id": supplier_id,
-        "supplier_dn": "SJ-TEST-001",
+        "supplier_dn": f"SJ-TEST-{uuid.uuid4().hex[:8]}",  # unik: aturan anti penerimaan ganda (No. Surat Jalan per supplier)
         "default_warehouse_id": warehouse_id,
         "receiver": "DO Tester",
         "lines": [{

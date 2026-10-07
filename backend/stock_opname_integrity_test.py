@@ -5,6 +5,11 @@ import sys
 import time
 import uuid
 import requests
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+# fixture: tanggal hari ini (backdate guard valuasi menolak posting mundur relatif transaksi terakhir)
+TODAY = _dt.now(_tz.utc).date().isoformat()
+DUE = (_dt.now(_tz.utc) + _td(days=7)).date().isoformat()
 
 API = os.environ.get("TEST_API_URL", "http://stock-opname-api:8000/api").rstrip("/")
 ADMIN_EMAIL = os.environ["ADMIN_EMAIL"]
@@ -57,15 +62,15 @@ def stock(s, item_id, wh_id):
 
 def adjustment(s, wh, div, item, delta, note):
     return s.post(f"{API}/adjustments", json={
-        "date": "2026-09-20", "warehouse_id": wh, "division_id": div,
+        "date": TODAY, "warehouse_id": wh, "division_id": div,
         "adj_type": "Test", "reason": note, "notes": note,
-        "lines": [{"item_id": item, "adjustment": delta, "reason": note}],
+        "lines": [{"item_id": item, "adjustment": delta, **({"approved_unit_cost": 1000} if delta > 0 else {}), "reason": note}],
     }, timeout=15)
 
 
 def create_opname(s, wh, div, note):
     r = s.post(f"{API}/opname", json={
-        "date": "2026-09-20", "warehouse_id": wh, "division_id": div,
+        "date": TODAY, "warehouse_id": wh, "division_id": div,
         "mode": "live", "scope": "division", "notes": note,
     }, timeout=15)
     check(r.status_code == 200, f"{note} berhasil dibuat")
@@ -92,6 +97,8 @@ def count(s, did, pairs, status="Review"):
 def main():
     wait_api()
     s = login()
+    # fixture: Direct MI default nonaktif (mi_mode mro_only) -> aktifkan untuk tenant test
+    check(s.put(f"{API}/settings/mi", json={"mi_mode": "mro_plus_direct"}, timeout=15).status_code == 200, "Mode MI + Direct diaktifkan untuk test")
     run = uuid.uuid4().hex[:8]
     div = master(s, "divisions", {"code": f"OPN{run}", "name": f"Opname {run}"})
     wh = master(s, "warehouses", {"code": f"OPW{run}", "name": f"Gudang Opname {run}", "division_id": div["id"]})
@@ -137,7 +144,7 @@ def main():
     current = detail(s, op1_id)
     current_lines = line_map(current)
     edit_payload = {
-        "date": "2026-09-20", "warehouse_id": wh["id"], "division_id": div["id"],
+        "date": TODAY, "warehouse_id": wh["id"], "division_id": div["id"],
         "mode": "live", "scope": "division", "notes": "KOREKSI POSTED",
         "lines": [
             {"id": current_lines[item_a["id"]]["id"], "item_id": item_a["id"], "snapshot": 20, "counted": 18},
@@ -193,7 +200,7 @@ def main():
     check(approx(stock(s, item_a["id"], wh["id"]), 25), "Variance +5 menghasilkan stok A = 25")
 
     mi = s.post(f"{API}/mi", json={
-        "date": "2026-09-20", "division_id": div["id"], "default_warehouse_id": wh["id"],
+        "date": TODAY, "division_id": div["id"], "default_warehouse_id": wh["id"],
         "receiver": "Opname Tester", "department": "Workshop", "source_type": "Direct",
         "notes": "CONSUME OPNAME PLUS",
         "lines": [{"item_id": item_a["id"], "qty": 23, "unit": "pcs", "warehouse_id": wh["id"]}],

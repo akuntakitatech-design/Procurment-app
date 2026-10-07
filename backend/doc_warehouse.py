@@ -50,6 +50,7 @@ async def create_transfer(body: dict, user=Depends(current_user)):
     if frm == to: raise HTTPException(400, "Gudang asal dan tujuan sama")
     await db.transfers.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
         "from_warehouse_id": frm, "to_warehouse_id": to, "project_id": body.get("project_id"),
+        "division_id": body.get("division_id"),
         "notes": body.get("notes"), "status": "Posted", "created_by": user.get("email"), "created_at": now_iso()})
     for l in body.get("lines", []):
         qty = float(l.get("qty", 0))
@@ -132,6 +133,7 @@ async def create_loan(body: dict, user=Depends(current_user)):
     if frm == to: raise HTTPException(400, "Gudang pemberi dan peminjam sama")
     await db.loans.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
         "from_warehouse_id": frm, "to_warehouse_id": to, "due_date": body.get("due_date"),
+        "division_id": body.get("division_id"),
         "project_id": body.get("project_id"), "requester": body.get("requester", user.get("name")),
         "notes": body.get("notes"), "created_by": user.get("email"), "created_at": now_iso()})
     for l in body.get("lines", []):

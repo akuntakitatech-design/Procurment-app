@@ -6,6 +6,9 @@ import time
 import uuid
 
 import requests
+from datetime import datetime, timezone
+
+TODAY = datetime.now(timezone.utc).date().isoformat()  # fixture: hindari backdate guard valuasi
 
 API = os.environ.get("TEST_API_URL", "http://do-cond-api:8000/api").rstrip("/")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "do-cond-admin@example.test")
@@ -48,7 +51,7 @@ def master(s, name, payload):
 
 def create_po(s, div, sup, wh, item, qty):
     r = s.post(f"{API}/po", json={
-        "date": "2026-09-20", "division_id": div, "supplier_id": sup,
+        "date": TODAY, "division_id": div, "supplier_id": sup,
         "default_warehouse_id": wh, "currency": "IDR",
         "lines": [{"item_id": item, "qty": qty, "unit": "pcs", "warehouse_id": wh, "price": 1000}],
     }, timeout=15)
@@ -61,7 +64,7 @@ def create_po(s, div, sup, wh, item, qty):
 
 def do_payload(sup, wh, po, line, item, qty, condition, exception_qty=0):
     return {
-        "date": "2026-09-20", "supplier_id": sup, "supplier_dn": "SJ-COND",
+        "date": TODAY, "supplier_id": sup, "supplier_dn": f"SJ-COND-{uuid.uuid4().hex[:8]}",
         "default_warehouse_id": wh, "receiver": "Condition Tester",
         "lines": [{
             "po_id": po, "po_line_id": line, "item_id": item, "qty": qty,

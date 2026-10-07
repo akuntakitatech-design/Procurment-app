@@ -85,6 +85,9 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+SESSION_REPLACED_MSG = "Sesi Anda telah berakhir karena akun ini login di perangkat lain."
+
+
 async def get_current_user(request: Request, db) -> dict:
     token = request.cookies.get("access_token")
     if not token:
@@ -101,7 +104,7 @@ async def get_current_user(request: Request, db) -> dict:
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         if payload.get("ver", 0) != user.get("token_version", 0):
-            raise HTTPException(status_code=401, detail="Session expired")
+            raise HTTPException(status_code=401, detail=SESSION_REPLACED_MSG)
         user.pop("_id", None)
         user.pop("password_hash", None)
         return user

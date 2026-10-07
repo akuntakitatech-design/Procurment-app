@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import api, { API, apiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,8 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [err, setErr] = useState("");
+  const [params] = useSearchParams();
+  const sessionReplaced = params.get("reason") === "session_replaced";
   const [loading, setLoading] = useState(false);
   const [brand, setBrand] = useState({
     name: "KelolaKita Procurement",
@@ -303,6 +305,12 @@ export default function Login() {
                 Masuk untuk mengakses sistem KelolaKita Procurement.
               </p>
             </div>
+
+            {sessionReplaced && !err && (
+              <div role="status" className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="login-session-replaced">
+                Sesi Anda berakhir karena akun ini telah digunakan untuk login di perangkat lain.
+              </div>
+            )}
 
             {err && (
               <div

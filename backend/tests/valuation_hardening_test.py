@@ -245,7 +245,7 @@ class ValuationTester:
         if not ok_item:
             return False
         ok_seed, _ = self.test("Seed Stock for Transfer", "POST", "adjustments", 200, data={
-            "warehouse_id": self.master_data["wh1"]["id"], "reason": "Seed transfer", "notes": "fixture",
+            "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"], "reason": "Seed transfer", "notes": "fixture",
             "lines": [{"item_id": titem["id"], "adjustment": 5, "approved_unit_cost": 1000, "reason": "fixture"}]})
         if not ok_seed:
             return False
@@ -260,7 +260,7 @@ class ValuationTester:
         
         # Create transfer
         transfer_data = {
-            "from_warehouse_id": self.master_data["wh1"]["id"],
+            "from_warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
             "to_warehouse_id": self.master_data["wh2"]["id"],
             "lines": [{
                 "item_id": titem["id"],
@@ -293,7 +293,7 @@ class ValuationTester:
         
         # Test 1: Positive adjustment with NO existing average must be HARD-BLOCKED without approved_unit_cost
         adj_data = {
-            "warehouse_id": self.master_data["wh1"]["id"],
+            "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
             "lines": [{
                 "item_id": self.master_data["item1"]["id"],
                 "adjustment": 10,
@@ -318,7 +318,7 @@ class ValuationTester:
         
         # Test 2: Positive adjustment WITH approved_unit_cost should succeed
         adj_data_with_cost = {
-            "warehouse_id": self.master_data["wh1"]["id"],
+            "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
             "lines": [{
                 "item_id": self.master_data["item1"]["id"],
                 "adjustment": 10,
@@ -343,7 +343,7 @@ class ValuationTester:
         
         # Test 3: Negative adjustment beyond stock should be blocked
         adj_negative = {
-            "warehouse_id": self.master_data["wh1"]["id"],
+            "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
             "lines": [{
                 "item_id": self.master_data["item1"]["id"],
                 "adjustment": -1000,  # Way more than available
@@ -371,7 +371,7 @@ class ValuationTester:
         
         # Create opname snapshot
         opname_data = {
-            "warehouse_id": self.master_data["wh1"]["id"],
+            "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
             "mode": "live",
             "scope": "all",
             "notes": "Test opname"
@@ -441,7 +441,7 @@ class ValuationTester:
         
         # Create loan
         loan_data = {
-            "from_warehouse_id": self.master_data["wh1"]["id"],
+            "from_warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
             "to_warehouse_id": self.master_data["wh2"]["id"],
             "lines": [{
                 "item_id": self.master_data["item1"]["id"],
@@ -498,7 +498,7 @@ class ValuationTester:
         # Create an adjustment dated today
         today = datetime.now().strftime("%Y-%m-%d")
         adj_today = {
-            "warehouse_id": self.master_data["wh1"]["id"],
+            "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
             "date": today,
             "lines": [{
                 "item_id": self.master_data["item2"]["id"],
@@ -518,7 +518,7 @@ class ValuationTester:
         # Try to create adjustment dated 5 days ago (should be blocked)
         past_date = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
         adj_past = {
-            "warehouse_id": self.master_data["wh1"]["id"],
+            "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
             "date": past_date,
             "lines": [{
                 "item_id": self.master_data["item2"]["id"],
@@ -575,7 +575,7 @@ class ValuationTester:
         # Test setting opening cost for qty=0 (should fail)
         opening_zero = {
             "item_id": self.master_data["item1"]["id"],
-            "warehouse_id": self.master_data["wh1"]["id"],
+            "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
             "opening_unit_cost": 1000
         }
         

@@ -3,9 +3,10 @@ import { useNavigate, useLocation, NavLink } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Warehouse, ShoppingCart, ClipboardCheck, Boxes, Database, Users, Bell, Search,
-  Sun, Moon, LogOut, BarChart3, Settings, Menu, ChevronRight, Clock3, TriangleAlert
+  Sun, Moon, LogOut, BarChart3, Settings, Menu, ChevronRight, Clock3, TriangleAlert, UserRound
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import api, { API } from "@/lib/api";
 
@@ -120,6 +121,7 @@ function SubscriptionBanner({ status }) {
 
 export function Layout({ children }) {
   const { user, logout, can } = useAuth();
+  const nav = useNavigate();
   const navVisible = (n) => !NAV_MODULES[n.to] || NAV_MODULES[n.to].some((m) => can("view", m));
   const [dark, setDark] = useState(document.documentElement.classList.contains("dark"));
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -190,10 +192,23 @@ export function Layout({ children }) {
             {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </Button>
           <div className="flex items-center gap-2.5 pl-3 border-l">
-            <div className="text-right leading-tight hidden sm:block">
-              <div className="text-sm font-semibold">{user?.name}</div>
-              <div className="text-[11px] text-muted-foreground capitalize mt-0.5">{user?.role}</div>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" data-testid="user-menu-trigger" aria-label="Menu pengguna"
+                  className="flex items-center gap-2 rounded-xl px-2 py-1 text-right leading-tight transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <span className="hidden sm:block">
+                    <span className="block text-sm font-semibold">{user?.name}</span>
+                    <span className="mt-0.5 block text-[11px] capitalize text-muted-foreground">{user?.role}</span>
+                  </span>
+                  <UserRound className="h-5 w-5 sm:hidden" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onSelect={() => nav("/profile")} data-testid="user-menu-profile"><UserRound className="mr-2 h-4 w-4" />Profil Saya</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={logout} data-testid="user-menu-logout"><LogOut className="mr-2 h-4 w-4" />Keluar</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button variant="ghost" size="icon" onClick={logout} data-testid="logout-btn" className="rounded-xl"><LogOut className="h-5 w-5" /></Button>
           </div>
         </header>

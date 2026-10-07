@@ -54,11 +54,13 @@ export function AuthProvider({ children }) {
     await loadSubscription(r.data);
   };
   const refreshSubscription = async () => loadSubscription(user);
+  // Ganti password merotasi sesi: simpan token baru untuk sesi ini (token lama sudah tidak berlaku).
+  const replaceSessionToken = (t) => { if (t) setToken(t); };
 
   // module optional: defaults to the module of the current page (e.g. /po -> po.*)
   const can = (perm, module) => resolveCan(user, perm, module);
 
-  return <AuthCtx.Provider value={{ user, setUser, login, logout, refreshUser, can, subscription, refreshSubscription }}>{children}</AuthCtx.Provider>;
+  return <AuthCtx.Provider value={{ user, setUser, login, logout, refreshUser, can, subscription, refreshSubscription, replaceSessionToken }}>{children}</AuthCtx.Provider>;
 }
 
 export const useAuth = () => useContext(AuthCtx);

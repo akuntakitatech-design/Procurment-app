@@ -356,10 +356,11 @@ async def reverse_document_valuation(doc_id, user=None, reason="reversal", block
     originals = await db.valuation_ledger.find(q, {"_id": 0}).sort("at", 1).to_list(10000)
     if not originals:
         return {"reversed": 0, "already": True, "entries": []}
-    # Pre-flight: block if any IN-reversal would create negative stock.
+    # Pre-flight: block if any IN-reversal would create negative stock. Disimulasikan dalam urutan
+    # eksekusi yang sama (LIFO) agar OUT turunan dokumen ini (mis. DO Damaged Hold) dikembalikan dulu.
     if block_negative:
         proj = {}
-        for e in originals:
+        for e in reversed(originals):
             key = (e.get("item_id"), e.get("warehouse_id"))
             if key not in proj:
                 proj[key] = float(await stock_balance(*key) or 0)
@@ -439,7 +440,18 @@ async def login(body: LoginIn, request: Request, response: Response):
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Akun nonaktif")
     await db.login_attempts.delete_many({"identifier": ident})
-    tv = user.get("token_version", 0)
+    # Satu sesi aktif per user: setiap login baru menaikkan token_version (atomik) sehingga token sesi
+    # sebelumnya (perangkat lain) otomatis ditolak pada request berikutnya. User lama tanpa field -> default 0.
+    import tenant_isolation_layer as _TI  # login belum punya konteks tenant -> pakai tenant milik user
+    _tk = _TI._current_tenant.set(user.get("tenant_id") or _TI.T.DEFAULT_TENANT_ID)
+    _ck = _TI._current_company.set(user.get("company_id") or _TI.T.DEFAULT_COMPANY_ID)
+    try:
+        upd = await db.users.find_one_and_update({"id": user["id"]}, {"$inc": {"token_version": 1}}, return_document=True)
+    finally:
+        _TI._current_company.reset(_ck)
+        _TI._current_tenant.reset(_tk)
+    tv = int(upd.get("token_version") or 0) if upd else int(user.get("token_version", 0) or 0)
+    user["token_version"] = tv
     A.set_auth_cookies(response, A.create_access_token(user["id"], email, tv), A.create_refresh_token(user["id"], tv), request)
     clean(user); user.pop("password_hash", None)
     user["token"] = A.create_access_token(user["id"], email, tv)
@@ -447,6 +459,13 @@ async def login(body: LoginIn, request: Request, response: Response):
 
 @api.post("/auth/logout")
 async def logout(request: Request, response: Response):
+    # Logout meng-invalidasi sesi aktif (token_version +1) HANYA bila token yang dipakai adalah sesi aktif;
+    # token sesi lama (sudah digantikan login lain) tidak boleh mematikan sesi perangkat yang baru.
+    try:
+        cur = await A.get_current_user(request, db)
+        await db.users.update_one({"id": cur["id"], "token_version": cur.get("token_version", 0)}, {"$inc": {"token_version": 1}})
+    except HTTPException:
+        pass
     A.clear_auth_cookies(response, request)
     return {"ok": True}
 
@@ -465,8 +484,10 @@ async def refresh(request: Request, response: Response):
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token")
         u = await db.users.find_one({"id": payload["sub"]})
-        if not u or payload.get("ver", 0) != u.get("token_version", 0):
+        if not u:
             raise HTTPException(status_code=401, detail="Session expired")
+        if payload.get("ver", 0) != u.get("token_version", 0):
+            raise HTTPException(status_code=401, detail=A.SESSION_REPLACED_MSG)
         A.set_auth_cookies(response, A.create_access_token(u["id"], u["email"], u.get("token_version", 0)),
                            A.create_refresh_token(u["id"], u.get("token_version", 0)))
         return {"ok": True, "token": A.create_access_token(u["id"], u["email"], u.get("token_version", 0))}

@@ -76,11 +76,14 @@ def part_a(dsn):
 
 # ----------------------------------------------------------------------------- Bagian B
 def part_b(apis, email, password):
+    # Satu sesi aktif per user: login SEKALI lalu pakai token yang sama di semua proses backend
+    # (DB & JWT secret sama). Login per-proses akan menggantikan sesi sebelumnya (by design).
+    r = requests.post(f"{apis[0]}/auth/login", json={"email": email, "password": password})
+    token = r.json().get("token")
     sessions = []
     for api in apis:
         s = requests.Session()
-        r = s.post(f"{api}/auth/login", json={"email": email, "password": password})
-        s.headers["Authorization"] = f"Bearer {r.json().get('token')}"
+        s.headers["Authorization"] = f"Bearer {token}"
         sessions.append((api, s))
     api0, s0 = sessions[0]
 

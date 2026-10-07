@@ -23,6 +23,7 @@ ENTITY_COLLECTIONS = {
     "adjustment": "adjustments",
     "opname": "opname",
     "po_approval2_batch": "po_approval2_batches",  # bukti persetujuan Pengajuan Approval 2 PO
+    "supplier": "suppliers",  # Dokumen Supplier (Master Supplier)
 }
 
 ALLOWED_EXTENSIONS = {

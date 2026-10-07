@@ -21,15 +21,18 @@ CRUD = [A_VIEW, A_CREATE, A_EDIT, A_DELETE]
 TXN_ACTIONS = CRUD + ["post", "cancel", "print"]
 ACTION_LABELS = {"view": "Lihat", "create": "Tambah", "edit": "Edit", "delete": "Hapus", "post": "Posting",
                  "cancel": "Batalkan / Reversal", "print": "Cetak", "approve": "Setujui", "reject": "Tolak",
-                 "send_email": "Kirim Email", "direct": "MI Langsung (Direct)", "pay": "Catat Pembayaran"}
+                 "send_email": "Kirim Email", "direct": "MI Langsung (Direct)", "pay": "Catat Pembayaran",
+                 "submit": "Ajukan"}
 ACTION_VERB = {"view": "melihat", "create": "menambah", "edit": "mengubah", "delete": "menghapus", "post": "memposting",
                "cancel": "membatalkan / reversal", "print": "mencetak", "approve": "menyetujui", "reject": "menolak",
-               "send_email": "mengirim email", "direct": "membuat MI Langsung", "pay": "mencatat pembayaran"}
+               "send_email": "mengirim email", "direct": "membuat MI Langsung", "pay": "mencatat pembayaran",
+               "submit": "mengajukan"}
 
 GROUPS = [
     ("transaksi", "Transaksi", [
         ("mro", "MRO", TXN_ACTIONS), ("ro", "RO", TXN_ACTIONS),
-        ("po", "PO", TXN_ACTIONS + ["approve", "reject", "send_email"]), ("do", "DO", TXN_ACTIONS),
+        ("po", "PO", TXN_ACTIONS + ["approve", "reject", "send_email"]),
+        ("po_approval2", "Approval 2 PO (Pengajuan Batch)", ["view", "submit", "approve", "print"]), ("do", "DO", TXN_ACTIONS),
         ("mi", "MI", TXN_ACTIONS + ["direct"]), ("transfer", "Transfer Antar Gudang", TXN_ACTIONS),
         ("loan", "Pinjam Antar Gudang", TXN_ACTIONS), ("adjustment", "Penyesuaian Stok", TXN_ACTIONS),
         ("opname", "Stock Opname", TXN_ACTIONS)]),
@@ -68,6 +71,17 @@ BASE = {"mro": "mro", "ro": "ro", "po": "po", "do": "do", "mi": "mi", "transfers
 COLL = {"mro": "mro", "ro": "ro", "po": "po", "do": "do", "mi": "mi", "transfer": "transfers", "loan": "loans",
         "adjustment": "adjustments", "opname": "opname"}
 TXN_ALIAS = {"transfers": "transfer", "loans": "loan", "adjustments": "adjustment"}
+# Approval 2 PO granular. Default turunan: pemegang legacy "approve" (perilaku lama) memperoleh keempatnya;
+# setelah role dikonfigurasi ulang dari UI Hak Akses, nilai tersimpan yang berlaku.
+A2_KEYS = {"po_approval2.view", "po_approval2.submit", "po_approval2.approve", "po_approval2.print"}
+
+
+def role_cfg_permissions(cfg) -> set:
+    """Izin role tersimpan + migrasi aman Approval 2 untuk konfigurasi lama (sebelum izin po_approval2 ada)."""
+    perms = set(cfg.get("permissions") or [])
+    if not cfg.get("a2_configured") and not (perms & A2_KEYS) and "po.approve" in perms:
+        perms |= A2_KEYS
+    return perms
 MASTER_NAME = {"item_warehouse": "stock_minmax"}
 DIV_MASTERS = {"items", "warehouses", "units", "contacts", "projects"}
 LEGACY_ACTION = {"view": "view", "create": "create", "edit": "edit", "delete": "delete", "submit": "post",
@@ -123,6 +137,8 @@ def legacy_to_granular(perms, role=None) -> set:
     if "post_stock_opname" in p:
         out.add("opname.post")
     out |= {k for k, a in (("po.approve", "approve"), ("po.reject", "reject"), ("po.send_email", "print"), ("mi.direct", "direct_mi")) if a in p}
+    if "approve" in p:
+        out |= A2_KEYS
     if "view" in p:
         out.add("users.view")
     if role == "director":
@@ -168,7 +184,7 @@ def install(server):
     async def resolve(user):
         role = user.get("role")
         cfg = await role_cfg(role) if role != "admin" else None
-        base = set(cfg["permissions"]) if cfg and cfg.get("permissions") is not None else role_default(role)
+        base = role_cfg_permissions(cfg) if cfg and cfg.get("permissions") is not None else role_default(role)
         ov = user["permission_overrides"] if isinstance(user.get("permission_overrides"), dict) else derived_overrides(user)
         eff = ALL_KEYS if role == "admin" else (base | {k for k, v in ov.items() if v == "allow"}) - {k for k, v in ov.items() if v == "deny"}
         rdiv = (cfg or {}).get("division_scope") or role_div_default(role)
@@ -777,7 +793,7 @@ def _install_admin_api(server, resolve, role_default, role_div_default):
         out = []
         for role in server.ROLE_DEFAULTS:
             cfg = await db().role_permissions.find_one({"role": role}, {"_id": 0}) if role != "admin" else None
-            perms = sorted(ALL_KEYS) if role == "admin" else sorted(set(cfg["permissions"]) if cfg else role_default(role))
+            perms = sorted(ALL_KEYS) if role == "admin" else sorted(role_cfg_permissions(cfg) if cfg else role_default(role))
             out.append({"role": role, "label": ROLE_LABELS.get(role, role), "locked": role == "admin", "configured": bool(cfg),
                         "permissions": perms, "division_scope": (cfg or {}).get("division_scope") or role_div_default(role)})
         return out
@@ -793,11 +809,11 @@ def _install_admin_api(server, resolve, role_default, role_div_default):
             raise HTTPException(400, "Terdapat hak akses yang tidak dikenal")
         scope = await clean_scope((body or {}).get("division_scope") or role_div_default(role))
         cfg = await db().role_permissions.find_one({"role": role}, {"_id": 0})
-        old = set(cfg["permissions"]) if cfg else role_default(role)
+        old = role_cfg_permissions(cfg) if cfg else role_default(role)
         old_scope = (cfg or {}).get("division_scope") or role_div_default(role)
         changed = sorted(old ^ perms)
         await db().role_permissions.update_one({"role": role}, {"$set": {
-            "role": role, "permissions": sorted(perms), "division_scope": scope,
+            "role": role, "permissions": sorted(perms), "division_scope": scope, "a2_configured": True,
             "updated_by": user.get("email"), "updated_at": server.now_iso()}}, upsert=True)
         import tenant_isolation_layer as TI
         _CFG_CACHE.pop((TI.current_tenant_id(), role), None)

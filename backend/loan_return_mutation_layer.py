@@ -135,6 +135,9 @@ def install(server):
         loan=await server.db.loans.find_one({"id":ret.get("loan_id")},{"_id":0})
         await _reverse(server,rid,user,"edit return")
         await _decrement_old(server,old)
+        # Posting ulang hasil edit wajib memakai source_key baru: key lama masih ada di ledger (ditandai
+        # reversed) sehingga idempotency post_movement akan melewatkan mutasi baru (stok tidak tercatat).
+        rev=server.gid()[:12]
         new=[]
         for raw in (body or {}).get("lines",[]):
             ll=await server.db.loan_lines.find_one({"id":raw.get("loan_line_id")},{"_id":0})
@@ -145,8 +148,8 @@ def install(server):
             if qty<=0: continue
             await server.db.loan_lines.update_one({"id":ll["id"]},{"$inc":{"returned":qty}})
             uc=float(ll.get("cost_snapshot") or 0); rv=qty*uc
-            await server.post_movement("Loan Return Out",ret.get("no"),rid,ll.get("item_id"),loan.get("to_warehouse_id"),0,qty,user=user,reversal_value=rv,line_id=ll["id"],source_key=f"LOANRET-O::{rid}::{ll['id']}",txn_at=(body or {}).get("date"))
-            await server.post_movement("Loan Return In",ret.get("no"),rid,ll.get("item_id"),loan.get("from_warehouse_id"),qty,0,user=user,value_in=rv,line_id=ll["id"],source_key=f"LOANRET-I::{rid}::{ll['id']}",txn_at=(body or {}).get("date"),require_cost=True)
+            await server.post_movement("Loan Return Out",ret.get("no"),rid,ll.get("item_id"),loan.get("to_warehouse_id"),0,qty,user=user,reversal_value=rv,line_id=ll["id"],source_key=f"LOANRET-O::{rid}::{ll['id']}::e{rev}",txn_at=(body or {}).get("date"))
+            await server.post_movement("Loan Return In",ret.get("no"),rid,ll.get("item_id"),loan.get("from_warehouse_id"),qty,0,user=user,value_in=rv,line_id=ll["id"],source_key=f"LOANRET-I::{rid}::{ll['id']}::e{rev}",txn_at=(body or {}).get("date"),require_cost=True)
             new.append({"id":server.gid(),"return_id":rid,"loan_id":ret.get("loan_id"),"loan_line_id":ll["id"],"item_id":ll.get("item_id"),"qty":qty})
         await server.db.loan_return_lines.delete_many({"return_id":rid})
         if new: await server.db.loan_return_lines.insert_many(new)
