@@ -131,27 +131,14 @@ def install(server):
         app.router.routes.remove(route)
 
         async def dashboard(user=Depends(server.current_user)):
+            import stock_summary as SS
+            # Kesehatan stok = ringkasan canonical per BARANG aktif (sama dengan Master Barang / Inventory / Dashboard baru),
+            # bukan hitungan baris item_warehouse.
+            stock = SS.dashboard_stock((await SS.compute(server, user, active="Aktif"))["summary"])
             if _global(server, user):
-                return await original_dashboard(user=user)
+                return {**(await original_dashboard(user=user)), "stock": stock}
             item_ids = await _visible_item_ids(server, user)
             wh_ids = _warehouses(server, user)
-            iw_q = {"item_id": {"$in": list(item_ids)}} if item_ids else {"item_id": "__none__"}
-            if wh_ids:
-                iw_q["warehouse_id"] = {"$in": list(wh_ids)}
-            iws = await server.db.item_warehouse.find(iw_q, {"_id": 0}).to_list(50000)
-            out_of = low = over = normal = 0
-            for iw in iws:
-                cur = float(iw.get("current_stock") or 0)
-                mn = float(iw.get("min_stock") or 0)
-                mx = float(iw.get("max_stock") or 0)
-                if cur <= 0:
-                    out_of += 1
-                elif cur <= mn:
-                    low += 1
-                elif mx and cur > mx:
-                    over += 1
-                else:
-                    normal += 1
             scope = _division_query(server, user)
             vis = {}
             for m in ("mro", "ro", "po", "do", "mi"):
@@ -171,7 +158,7 @@ def install(server):
             warehouse_count = len([w for w in all_wh if ((w["id"] in wh_ids) if wh_ids else (not w.get("division_id") or w["division_id"] in _divisions(user)))])
             user_count = await server.db.users.count_documents({"divisions": {"$in": list(_divisions(user))}}) if _divisions(user) else 0
             return {
-                "stock": {"out_of_stock": out_of, "low_stock": low, "overstock": over, "normal": normal, "total": len(iws)},
+                "stock": stock,
                 "mro_open": await server.db.mro.count_documents(scoped({"submitted": True, "cancelled": {"$ne": True}})),
                 "ro_open": await server.db.ro.count_documents(scoped({"submitted": True, "cancelled": {"$ne": True}}, "ro")),
                 "po_waiting_approval": await server.db.po.count_documents(scoped({"status": "Waiting Approval"}, "po")),

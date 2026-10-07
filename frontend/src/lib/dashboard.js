@@ -112,3 +112,13 @@ export const ATTENTION_TABS = [
 ];
 
 export const attentionRows = (att, tab) => (att?.rows || []).filter((r) => tab === "all" || (r.tabs || []).includes(tab));
+
+// Drill-down KPI Persediaan -> Inventory (summary canonical yang sama; ikut filter Divisi dashboard).
+const INV_STATUS = { total: "", out_of_stock: "Out of Stock", low_stock: "Low Stock", overstock: "Overstock" };
+export function inventoryLink(kind, f = {}) {
+  const p = new URLSearchParams();
+  if (INV_STATUS[kind]) p.set("stock_status", INV_STATUS[kind]);
+  if (f.division_id) p.set("division_id", f.division_id);
+  const qs = p.toString();
+  return qs ? `/inventory?${qs}` : "/inventory";
+}

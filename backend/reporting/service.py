@@ -20,17 +20,17 @@ async def _none():
     return None
 
 
-async def _inventory(server, user):
-    """Kesehatan stok dari /api/dashboard existing (sudah ber-scope divisi). Snapshot, tidak dipengaruhi periode."""
-    route = next((r for r in server.app.router.routes if getattr(r, "path", "") == "/api/dashboard"
-                  and "GET" in (getattr(r, "methods", None) or set())), None)
-    if not route:
-        return None
+async def _inventory(server, user, f, perm):
+    """KPI Persediaan dari ringkasan canonical per BARANG aktif (stock_summary = Master Barang = Inventory).
+    Snapshot (tidak dipengaruhi periode); ikut filter Divisi dashboard. Nilai Persediaan = Σ item_warehouse.total_value
+    dari engine valuation/MWA existing, hanya bila berhak `view_purchase_price`."""
+    import stock_summary as SS
     try:
-        res = await route.endpoint(user=user)
-        return {"stock": (res or {}).get("stock"), "loan_outstanding": (res or {}).get("loan_outstanding")}
+        res = await SS.compute(server, user, division_id=f.division_id or "", active="Aktif", with_value=bool(perm["price"]))
     except Exception:  # noqa: BLE001 — bagian opsional, jangan gagalkan dashboard
         return None
+    return {"stock": SS.dashboard_stock(res["summary"]), "warehouse_count": res["warehouse_count"],
+            "inventory_value": res.get("inventory_value") if perm["price"] else None}
 
 
 async def build(server, user, date_from=None, date_to=None, division_id=None, project_id=None, supplier_id=None, period=None):
@@ -50,7 +50,7 @@ async def build(server, user, date_from=None, date_to=None, division_id=None, pr
         VI["invoices"](user) if perm["invoice"] and VI else _none(),
         VI["do_billing"](user) if perm["invoice"] and VI else _none(),
         DP(user=user) if perm["supplier_dp"] and DP else _none(),
-        _inventory(server, user))
+        _inventory(server, user, f, perm))
     t_load = time.perf_counter()
     po_all = po_all or []
     po_rows = [r for r in po_all if S.in_period(r, "date", f) and S.match_dims(r, f)]
