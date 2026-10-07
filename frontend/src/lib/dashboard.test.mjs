@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ATTENTION_TABS, attentionRows, ccParams, compactRupiah, drillLink, monthLabel, periodRange, statusLabel, STATUS_META } from "./dashboard.js";
+import { ATTENTION_TABS, attentionRows, ccParams, compactRupiah, drillLink, inventoryLink, monthLabel, periodRange, statusLabel, STATUS_META } from "./dashboard.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (p) => readFileSync(join(here, p), "utf8");
@@ -54,6 +54,15 @@ const chip = src("../components/dashboard/ReportFilterChip.jsx");
 check("Drill-down list membaca rf_* dari URL", ["rf_kind", "rf_division_id", "rf_project_id", "rf_supplier_id"].every((k) => chip.includes(k)));
 for (const p of ["../pages/Po.jsx", "../pages/Mro.jsx", "../pages/Ro.jsx", "../pages/InvoiceMonitoring.jsx"])
   check(`List ${p.split("/").pop()} mendukung filter drill-down`, src(p).includes("useReportParams()"));
+
+// KPI Persediaan: summary canonical backend; frontend tidak menghitung dari item_warehouse.
+check("Link Jumlah Item -> /inventory (tanpa status)", inventoryLink("total", {}) === "/inventory");
+check("Link Stok Habis -> stock_status=Out of Stock + division", (() => { const u = new URLSearchParams(inventoryLink("out_of_stock", { division_id: "d1" }).split("?")[1]); return u.get("stock_status") === "Out of Stock" && u.get("division_id") === "d1"; })());
+check("Link Menipis/Overstock", inventoryLink("low_stock").includes("Low+Stock") && inventoryLink("overstock").includes("stock_status=Overstock"));
+const inv = src("../pages/Inventory.jsx");
+check("Inventory memakai /inventory/item-stock (bukan agregasi /inventory/position)", inv.includes("/inventory/item-stock") && !inv.includes("/inventory/position") && !/function stockStatus/.test(inv));
+check("Inventory menampilkan 'Belum ada stok' untuk sel tanpa record", inv.includes("Belum ada stok"));
+check("Dashboard KPI Persediaan dari d.inventory.stock (Jumlah Item/Habis/Menipis/Overstock)", ["\"total\"", "\"out_of_stock\"", "\"low_stock\"", "\"overstock\""].every((k) => dash.includes(k)) && dash.includes("inventory_value != null"));
 
 console.log(fail ? `\n${fail} FAILED` : `\n${n}/${n} passed`);
 process.exit(fail ? 1 : 0);

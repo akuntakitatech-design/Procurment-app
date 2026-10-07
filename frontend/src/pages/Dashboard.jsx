@@ -13,7 +13,7 @@ import { StatusDonut } from "@/components/dashboard/StatusDonut";
 import { TopSuppliers } from "@/components/dashboard/TopSuppliers";
 import { AttentionTable } from "@/components/dashboard/AttentionTable";
 import { FinanceMonitor } from "@/components/dashboard/FinanceMonitor";
-import { PERIODS, ccParams, compactRupiah, drillLink, periodText } from "@/lib/dashboard";
+import { PERIODS, ccParams, compactRupiah, drillLink, inventoryLink, periodText } from "@/lib/dashboard";
 import { rupiah } from "@/lib/format";
 import {
   AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Clock3, FileClock, FileWarning, Hourglass, HandCoins,
@@ -180,10 +180,13 @@ export default function Dashboard() {
       </div>
 
       {d.inventory?.stock && <div className="dash-rise flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-slate-200/70 bg-card px-5 py-3 text-sm dark:border-slate-800" style={{ "--d": "500ms" }} data-testid="dash-inventory">
-        <span className="flex items-center gap-2 font-medium text-slate-600"><Boxes className="h-4 w-4 text-[#3D5A80]" />Kesehatan Persediaan</span>
-        {[["Total SKU", d.inventory.stock.total, "text-slate-800"], ["Normal", d.inventory.stock.normal, "text-[#3D7A62]"], ["Menipis", d.inventory.stock.low_stock, "text-[#9A6A22]"], ["Habis", d.inventory.stock.out_of_stock, "text-[#A34B4B]"]].map(([l, v, c]) =>
-          <button key={l} type="button" onClick={() => nav("/inventory")} className="flex items-baseline gap-1.5 hover:underline" data-testid={`dash-inventory-${l.toLowerCase().replace(/\s+/g, "-")}`}><span className="text-xs text-slate-400">{l}</span><b className={`tabular-nums ${c}`}>{v ?? 0}</b></button>)}
-        <span className="ml-auto text-[11px] text-slate-400">Snapshot saat ini · tidak dipengaruhi filter periode</span>
+        <span className="flex items-center gap-2 font-medium text-slate-600"><Boxes className="h-4 w-4 text-[#3D5A80]" />Persediaan</span>
+        {[["total", "Jumlah Item", "text-slate-800"], ["out_of_stock", "Stok Habis", "text-[#A34B4B]"], ["low_stock", "Stok Menipis", "text-[#9A6A22]"], ["overstock", "Overstock", "text-[#5B5A8C]"]].map(([k, l, c]) =>
+          <button key={k} type="button" onClick={() => nav(inventoryLink(k, f))} className="flex items-baseline gap-1.5 rounded-md hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3D5A80]/40" data-testid={`dash-inventory-${k}`}>
+            <span className="text-xs text-slate-400">{l}</span><b className={`tabular-nums ${c}`} data-testid={`dash-inventory-${k}-value`}>{d.inventory.stock[k] ?? 0}</b></button>)}
+        {d.inventory.inventory_value != null && <span className="flex items-baseline gap-1.5" data-testid="dash-inventory-value" title={rupiah(d.inventory.inventory_value)}>
+          <span className="text-xs text-slate-400">Nilai Persediaan</span><b className="tabular-nums text-slate-800">{compactRupiah(d.inventory.inventory_value)}</b></span>}
+        <span className="ml-auto text-[11px] text-slate-400">Snapshot barang aktif · ikut filter Divisi · tidak dipengaruhi periode/project/supplier</span>
       </div>}
     </div>}
   </div>;
