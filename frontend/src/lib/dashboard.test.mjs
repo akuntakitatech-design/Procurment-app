@@ -63,7 +63,7 @@ check("Tab finance ditandai (disembunyikan tanpa izin)", ATTENTION_TABS.filter((
 const dash = src("../pages/Dashboard.jsx");
 check("Dashboard memakai satu endpoint control-center (bukan dashboard kedua)", dash.includes('api.get("/dashboard/control-center"') && !dash.includes('api.get("/dashboard-premium")'));
 check("Filter Periode/Divisi/Project/Supplier/Reset ada", ["dash-filter-period", "dash-filter-division", "dash-filter-project", "dash-filter-supplier", "dash-filter-reset"].every((t) => dash.includes(t)));
-check("Section Finance hanya bila backend mengirim finance", /\{F && <>/.test(dash));
+check("Section Finance hanya bila backend mengirim finance", /\{F && <ControlSection testid="dash-section-finance"/.test(dash));
 check("Animasi hanya opacity/transform", !/transition-all/.test(dash + src("../components/dashboard/KpiCard.jsx")));
 const chip = src("../components/dashboard/ReportFilterChip.jsx");
 check("Drill-down list membaca rf_* dari URL", ["rf_kind", "rf_division_id", "rf_project_id", "rf_supplier_id"].every((k) => chip.includes(k)));
@@ -85,7 +85,7 @@ check("asOfLabel format tanggal per", asOfLabel("2026-09-30") === "30/09/2026" &
 check("UI memisahkan 'Persediaan saat ini' (snapshot) dari 'Nilai Persediaan per' (tanggal akhir filter)", invp.includes("Persediaan saat ini") && invp.includes("snapshot hari ini") && invp.includes("Nilai Persediaan") && invp.includes("<>per <span"));
 check("Dashboard menampilkan tanggal per & info belum bernilai", invp.includes("inventory_value_as_of") && invp.includes("unvalued_items") && invp.includes("belum bernilai") && dash.includes("unvalued_items > 0"));
 check("Label kelompok: 'Posisi s/d' (Procurement/Finance/Perlu Ditindaklanjuti) vs 'Transaksi periode ini' (Aktivitas)", dash.includes("Posisi s/d ${asOfLabel(d?.as_of)}") && dash.includes('"Transaksi periode ini"')
-  && ["Procurement — {posLabel}", "Finance — {posLabel}", "Aktivitas Pembelian — {actLabel}", "Perlu Ditindaklanjuti — {posLabel}"].every((t) => dash.includes(t)));
+  && [/dash-procurement-asof"[^>]*>\{posLabel\}/, /dash-finance-asof"[^>]*>\{posLabel\}/, /dash-activity-period"[^>]*>\{actLabel\}/, /Perlu Ditindaklanjuti — \{posLabel\}/].every((re) => re.test(dash)));
 check("Kartu aktivitas: Total PO, PO Disetujui, DP Sudah Dibayar", ['k: "po_all"', 'k: "approved"', 'k: "dp_paid"'].every((t) => dash.includes(t)));
 check("Peringatan pool historis belum dapat direkonstruksi", invp.includes("unreconstructable_pools") && invp.includes("pool persediaan historis belum dapat direkonstruksi"));
 const unv = readFileSync(new URL("../components/dashboard/UnvaluedStockDialog.jsx", import.meta.url), "utf8");

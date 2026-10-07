@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox } from "@/components/Combobox";
-import { KpiCard } from "@/components/dashboard/KpiCard";
 import { TrendChart } from "@/components/dashboard/TrendChart";
 import { StatusDonut } from "@/components/dashboard/StatusDonut";
 import { UnvaluedStockDialog } from "@/components/dashboard/UnvaluedStockDialog";
@@ -16,13 +15,14 @@ import { AttentionTable } from "@/components/dashboard/AttentionTable";
 import { FinanceMonitor } from "@/components/dashboard/FinanceMonitor";
 import { SpkDetailPanel, SpkSummaryCard } from "@/components/dashboard/SpkBudgetPanel";
 import { InventoryPanel } from "@/components/dashboard/InventoryPanel";
+import { ActivityStat, ControlSection, MiniBars, RingStat, SoftStat } from "@/components/dashboard/ControlPanels";
 import { ContractStatusPanel, PriceControlPanel, PriceExceptionTable } from "@/components/dashboard/VendorContractPanel";
 import { DashboardDrillDialog } from "@/components/dashboard/DashboardDrillDialog";
 import { PERIODS, asOfLabel, ccParams, compactRupiah, contractDrillParams, drillLink, periodText, priceDrillParams, spkDrillParams } from "@/lib/dashboard";
 import { rupiah } from "@/lib/format";
 import {
   AlertTriangle, CalendarDays, Wallet, CheckCircle2, ClipboardList, Clock3, FileClock, FileWarning, Hourglass, HandCoins,
-  Landmark, PackageCheck, PackageOpen, Plus, RefreshCw, RotateCcw, Send, Timer, Truck, AlarmClock, CircleAlert,
+  Landmark, PackageCheck, PackageOpen, Plus, RefreshCw, RotateCcw, Send, Timer, Truck, AlarmClock, CircleAlert, ShoppingCart, BarChart3,
 } from "lucide-react";
 
 const DEFAULT = { period: "this_month", division_id: "", project_id: "", supplier_id: "" };
@@ -129,6 +129,8 @@ export default function Dashboard() {
     P && { k: "approved", label: "PO Disetujui", icon: CheckCircle2, tone: "green", x: P.approved },
     F?.dp_paid && { k: "dp_paid", label: "DP Sudah Dibayar", icon: Wallet, tone: "green", x: F.dp_paid, money: true, hint: "Pembayaran DP Supplier bertanggal di dalam periode." },
   ].filter(Boolean);
+  const procTotal = procCards.reduce((t, c) => t + (c.x?.count || 0), 0); // tampilan: porsi tiap status di panel Procurement
+  const poBars = (d?.charts?.trend?.series || []).slice(-12).map((x) => x.po_count || 0); // seri tren existing (12 bulan)
   const posLabel = `Posisi s/d ${asOfLabel(d?.as_of)}`;
   const actLabel = "Transaksi periode ini";
   const SP = d?.spk, VC = d?.vendor_contract;
@@ -171,33 +173,39 @@ export default function Dashboard() {
     {!d && loading && <LoadingState />}
 
     {d && <div className={`space-y-5 transition-opacity duration-200 ${loading ? "opacity-60" : "opacity-100"}`}>
-      {/* LAYER 1 — Kondisi operasional utama: Procurement · Finance · Aktivitas Pembelian */}
-      <div className="space-y-5" data-testid="dash-layer-1">
-      {P && <>
-        <SectionLabel testid="dash-section-procurement" extra={<SectionBadge testid="dash-procurement-asof">saldo terbuka s/d tanggal posisi · termasuk periode sebelumnya</SectionBadge>}>Procurement — {posLabel}</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-8" data-testid="dash-procurement-kpis">
-          {procCards.map((c, i) => <KpiCard key={c.k} label={c.label} icon={c.icon} tone={c.tone} count={c.x.count} sub={sub(c.x) || (c.x.count ? "dokumen" : "Tidak ada")}
-            hint={c.hint} alert={c.alert} delay={i * 45} onClick={() => go(c.k)} testid={`dash-kpi-${c.k}`} />)}
-        </div>
-      </>}
-      {F && <>
-        <SectionLabel testid="dash-section-finance" extra={<SectionBadge testid="dash-finance-asof">saldo terbuka s/d tanggal posisi · termasuk periode sebelumnya</SectionBadge>}>Finance — {posLabel}</SectionLabel>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6" data-testid="dash-finance-kpis">
-          {finCards.map((c, i) => <KpiCard key={c.k} label={c.label} icon={c.icon} tone={c.tone} hint={c.hint} alert={c.alert} delay={200 + i * 45}
-            count={c.money ? c.x.value : c.x.count} format={c.money ? (v) => compactRupiah(v) : undefined}
-            sub={c.money ? `${c.x.count} ${c.k === "payable" ? "invoice" : "PO"}` : `${c.unit || "invoice"} · ${compactRupiah(c.x.value)}`}
-            onClick={() => go(c.k)} testid={`dash-kpi-${c.k}`} />)}
-        </div>
-      </>}
-
-      <SectionLabel testid="dash-section-activity" extra={<SectionBadge testid="dash-activity-period">{actLabel} · {periodText(f.period)}</SectionBadge>}>Aktivitas Pembelian — {actLabel}</SectionLabel>
-      {actCards.length > 0 && <div className="grid grid-cols-2 gap-3 md:grid-cols-3" data-testid="dash-activity-kpis">
-        {actCards.map((c, i) => <KpiCard key={c.k} label={c.label} icon={c.icon} tone={c.tone} hint={c.hint} delay={240 + i * 45}
-          count={c.money ? c.x.value : c.x.count} format={c.money ? (v) => compactRupiah(v) : undefined}
-          sub={c.money ? `${c.x.count} PO` : c.sub || sub(c.x) || (c.x.count ? "dokumen" : "Tidak ada")}
-          onClick={() => go(c.k)} testid={`dash-kpi-${c.k}`} />)}
-      </div>}
-      </div>{/* /Layer 1 */}
+      {/* LAYER 1 — Kondisi operasional utama: Procurement | Finance | Aktivitas Pembelian (gaya referensi; data & drill existing) */}
+      <div className={`grid grid-cols-1 gap-4 xl:grid-cols-2 ${P && F && actCards.length ? "min-[1680px]:grid-cols-[11fr_7fr_6fr]" : "min-[1680px]:grid-cols-2"}`} data-testid="dash-layer-1">
+        {P && <ControlSection testid="dash-section-procurement" title="Procurement" icon={ShoppingCart} band="navy" delay={0}
+          className="xl:col-span-2 min-[1680px]:col-span-1" onDetail={() => nav("/po")}
+          subtitle={<span data-testid="dash-procurement-asof" title="saldo terbuka s/d tanggal posisi · termasuk periode sebelumnya">{posLabel} · saldo terbuka termasuk periode sebelumnya</span>}>
+          <div className="grid flex-1 auto-rows-fr grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4" data-testid="dash-procurement-kpis">
+            {procCards.map((c, i) => <RingStat key={c.k} label={c.label} tone={c.tone} count={c.x.count} share={procTotal > 0 ? (c.x.count * 100) / procTotal : null}
+              sub={sub(c.x) || (c.x.count ? "dokumen" : "Tidak ada")} hint={[c.hint, procTotal > 0 && `Busur = porsi dari ${procTotal} dokumen terbuka di Procurement.`].filter(Boolean).join(" ")}
+              alert={c.alert} delay={i * 45} onClick={() => go(c.k)} testid={`dash-kpi-${c.k}`} />)}
+          </div>
+        </ControlSection>}
+        {F && <ControlSection testid="dash-section-finance" title="Finance — Hutang & Pembayaran" icon={Landmark} band="teal" delay={120}
+          onDetail={() => go("unpaid")}
+          subtitle={<span data-testid="dash-finance-asof" title="saldo terbuka s/d tanggal posisi · termasuk periode sebelumnya">{posLabel} · saldo terbuka</span>}>
+          <div className="grid flex-1 auto-rows-fr grid-cols-1 gap-2.5 sm:grid-cols-2" data-testid="dash-finance-kpis">
+            {finCards.map((c, i) => <SoftStat key={c.k} label={c.label} icon={c.icon} tone={c.tone} hint={c.hint} alert={c.alert} delay={200 + i * 45}
+              count={c.money ? c.x.value : c.x.count} format={c.money ? (v) => compactRupiah(v) : undefined}
+              sub={c.money ? `${c.x.count} ${c.k === "payable" ? "invoice" : "PO"}` : `${c.unit || "invoice"} · ${compactRupiah(c.x.value)}`}
+              onClick={() => go(c.k)} testid={`dash-kpi-${c.k}`} />)}
+          </div>
+        </ControlSection>}
+        {actCards.length > 0 && <ControlSection testid="dash-section-activity" title="Aktivitas Pembelian" icon={BarChart3} band="teal" delay={180}
+          onDetail={() => go("po_all")}
+          subtitle={<span data-testid="dash-activity-period">{actLabel} · {periodText(f.period)}</span>}>
+          <div className="grid flex-1 auto-rows-fr grid-cols-1 gap-2.5 sm:grid-cols-2" data-testid="dash-activity-kpis">
+            {actCards.map((c, i) => <ActivityStat key={c.k} label={c.label} icon={c.icon} tone={c.tone} hint={c.hint} delay={240 + i * 45} wide={i === 0}
+              count={c.money ? c.x.value : c.x.count} format={c.money ? (v) => compactRupiah(v) : undefined}
+              sub={c.money ? `${c.x.count} PO` : c.sub || sub(c.x) || (c.x.count ? "dokumen" : "Tidak ada")}
+              bars={i === 0 ? <MiniBars values={poBars} tone="blue" testid="dash-activity-bars" /> : null}
+              onClick={() => go(c.k)} testid={`dash-kpi-${c.k}`} />)}
+          </div>
+        </ControlSection>}
+      </div>
 
       {/* LAYER 2 — Kontrol aset, budget & kontrak: Persediaan | SPK | Kontrak Harga Vendor */}
       {(d.inventory?.stock || SP || VC) && <div className="grid grid-cols-1 gap-4 pt-1 xl:grid-cols-2 2xl:grid-cols-3" data-testid="dash-layer-2">
@@ -207,6 +215,14 @@ export default function Dashboard() {
           <SpkSummaryCard spk={SP} subtitle={<span data-testid="dash-spk-asof">Posisi s/d {asOfLabel(SP.as_of)} · ikut Divisi &amp; Project</span>} onDrill={drillSpk} delay={300} /></div>}
         {VC && <div className="min-w-0 xl:col-span-2 2xl:col-span-1" data-testid="dash-section-contract">
           <ContractStatusPanel vc={VC} posLabel={`Posisi s/d ${asOfLabel(VC.as_of)}`} onDrill={drillContract} canDrill={!!perms.vendor_contract} nav={nav} delay={340} /></div>}
+      </div>}
+
+      {/* Tepat setelah baris Persediaan | SPK | Kontrak: Pemakaian Budget SPK (Top 5 + Perlu Perhatian) */}
+      {SP?.with_value && <div className="space-y-5" data-testid="dash-layer-spk-detail">
+          {SP?.with_value && <>
+          <SectionLabel testid="dash-section-spk-detail" extra={<SectionBadge testid="dash-spk-detail-asof">posisi s/d tanggal akhir filter · ikut Divisi &amp; Project</SectionBadge>}>SPK &amp; Budget Control — Posisi s/d {asOfLabel(SP.as_of)}</SectionLabel>
+          <SpkDetailPanel spk={SP} onDrill={drillSpk} nav={nav} delay={540} />
+        </>}
       </div>}
 
       {/* LAYER 3 — Analitik */}
@@ -229,12 +245,8 @@ export default function Dashboard() {
       </div>
       </div>
 
-      {/* Detail lanjutan (section existing): Pemakaian Budget SPK + Price Control / Price Exception */}
-      {(SP?.with_value || VC?.price_control) && <div className="space-y-5" data-testid="dash-layer-detail">
-        {SP?.with_value && <>
-          <SectionLabel testid="dash-section-spk-detail" extra={<SectionBadge testid="dash-spk-detail-asof">posisi s/d tanggal akhir filter · ikut Divisi &amp; Project</SectionBadge>}>SPK &amp; Budget Control — Posisi s/d {asOfLabel(SP.as_of)}</SectionLabel>
-          <SpkDetailPanel spk={SP} onDrill={drillSpk} nav={nav} delay={540} />
-        </>}
+      {/* Detail lanjutan (section existing): Price Control / Price Exception */}
+      {VC?.price_control && <div className="space-y-5" data-testid="dash-layer-detail">
         {VC?.price_control && <>
           <SectionLabel testid="dash-section-price" extra={<SectionBadge testid="dash-contract-semantics">status kontrak per tanggal posisi · Price Control per periode</SectionBadge>}>Kontrak Harga Vendor — Price Control</SectionLabel>
           <div className="grid gap-4 xl:grid-cols-12" data-testid="dash-contract-grid">
