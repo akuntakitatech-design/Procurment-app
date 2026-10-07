@@ -131,3 +131,33 @@ def match_dims(row, f: Filters, supplier=True):
 async def visible(server, module, rows, user):
     hook = getattr(server, "ACCESS_FILTER_VISIBLE", None)
     return await hook(module, rows, user) if hook else list(rows)
+
+
+# ---- Semantik waktu Dashboard ------------------------------------------------------------------
+# Saldo/outstanding = POSISI s/d tanggal akhir filter (dokumen bertanggal <= tanggal akhir, termasuk bulan-bulan
+# sebelumnya); aktivitas = transaksi DI DALAM periode (in_period).
+def asof(f: Filters) -> str:
+    """Tanggal posisi: tanggal akhir filter bila lampau, selain itu hari ini."""
+    return f.date_to if f.date_to and f.date_to < f.today else f.today
+
+
+def is_historical(f: Filters) -> bool:
+    return asof(f) < f.today
+
+
+def upto(row, key, f: Filters) -> bool:
+    return in_range(row, key, None, f.date_to)
+
+
+def local_day(v) -> str:
+    """Timestamp ISO (UTC) -> tanggal WIB 'YYYY-MM-DD'; tanggal murni dikembalikan apa adanya; kosong -> ''."""
+    s = str(v or "").strip()
+    if len(s) <= 10:
+        return s[:10]
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return s[:10]
+    if dt.tzinfo is None:
+        return dt.date().isoformat()
+    return dt.astimezone(TZ).date().isoformat()

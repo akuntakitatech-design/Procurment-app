@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from . import finance as F
 from . import procurement as P
+from . import scope as S
 
 # prioritas: 1 invoice lewat jatuh tempo, 2 jatuh tempo <=7 hari, 3 PO terlambat, 4 menunggu approval,
 # 5 PO belum diterima, 6 invoice belum diterima (DO belum ditagih), 7 invoice belum dibayar
@@ -38,7 +39,8 @@ def _do(d):
 
 
 def build(po_rows, invs, dos, f, perm):
-    td, price, rows = f.today, perm["price"], []
+    """Saldo/outstanding s/d tanggal akhir filter; Terlambat/jatuh tempo dibanding tanggal posisi."""
+    td, price, rows = S.asof(f), perm["price"], []
     for r in po_rows:
         tabs = []
         if P.PO_KINDS["waiting_approval"](r, td):

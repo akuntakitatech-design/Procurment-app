@@ -9,7 +9,7 @@ Fixture (tenant QA sementara via /saas/register; stok via transaksi Penyesuaian 
     F NONAKTIF, stok 3                                       -> tidak masuk KPI Inventory / Dashboard
     G aktif, Divisi B @ gudang Divisi B                      -> tidak terlihat oleh user Divisi A
 Regresi valuation: avg_cost / total_value / valuation-summary identik sebelum vs sesudah endpoint ringkasan dipanggil;
-Nilai Persediaan Dashboard = Σ total_value engine MWA untuk barang aktif dalam scope.
+Nilai Persediaan Dashboard = Σ total_value engine MWA seluruh barang dalam scope (termasuk nonaktif bersaldo).
 """
 import sys
 import uuid
@@ -126,8 +126,10 @@ def main():
     sc, v = call("GET", "reports/valuation-summary")
     val_rows = v.get("rows", [])
     f_val = sum(r["inventory_value"] for r in val_rows if r["item_id"] == I["F"]["id"])
-    check("Nilai Persediaan Dashboard = Σ total_value valuation-summary − barang nonaktif",
-          abs(cc["inventory"]["inventory_value"] - (v["total_value"] - f_val)) < 0.01 and f_val > 0, (cc["inventory"]["inventory_value"], v["total_value"], f_val))
+    check("Nilai Persediaan Dashboard = Σ total_value valuation-summary (TERMASUK barang nonaktif F yang bersaldo)",
+          abs(cc["inventory"]["inventory_value"] - v["total_value"]) < 0.01 and f_val > 0, (cc["inventory"]["inventory_value"], v["total_value"], f_val))
+    check("Barang nonaktif F tetap dikecualikan dari KPI Jumlah Item", cc["inventory"]["stock"]["total"] == m["summary"]["total"]
+          and all(r["id"] != I["F"]["id"] for r in summ(INV, f"category_id={cat['id']}")[1].get("items", [])))
     a_val = sum(r["inventory_value"] for r in val_rows if r["item_id"] == I["A"]["id"])
     check("Nilai Item A (2 gudang) mengikuti MWA: 14 x 1.000", abs(a_val - 14000) < 0.01, a_val)
 

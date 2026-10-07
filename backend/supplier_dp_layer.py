@@ -240,11 +240,17 @@ async def validate_invoice_dp(server, user, supplier_id, do_allocs, raw, invoice
 
 
 async def save_invoice_dp(server, iid, rows, user):
+    # Alokasi yang tidak berubah (PO, pembayaran DP, nilai sama) mempertahankan pencatat & waktu alokasi aslinya,
+    # agar tanggal efektif alokasi DP (laporan posisi historis) tidak bergeser hanya karena invoice diedit.
+    old = {(a.get("po_id"), a.get("dp_payment_id"), r2(a.get("amount") or 0)): a
+           for a in await server.db.vendor_invoice_dp_allocations.find({"invoice_id": iid}, {"_id": 0}).to_list(5000)}
     await server.db.vendor_invoice_dp_allocations.delete_many({"invoice_id": iid})
     for r in rows:
+        prev = old.get((r["po_id"], r["dp_payment_id"], r2(r["amount"]))) or {}
         await server.db.vendor_invoice_dp_allocations.insert_one({
             "id": server.gid(), "invoice_id": iid, "dp_payment_id": r["dp_payment_id"], "po_id": r["po_id"], "amount": r["amount"],
-            "created_by": user.get("email"), "created_by_name": user.get("name"), "created_at": server.now_iso()})
+            "created_by": prev.get("created_by") or user.get("email"), "created_by_name": prev.get("created_by_name") or user.get("name"),
+            "created_at": prev.get("created_at") or server.now_iso()})
 
 
 async def invoice_dp_rows(server, iid):

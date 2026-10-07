@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ATTENTION_TABS, attentionRows, ccParams, compactRupiah, drillLink, inventoryLink, monthLabel, periodRange, statusLabel, STATUS_META } from "./dashboard.js";
+import { ATTENTION_TABS, attentionRows, ccParams, compactRupiah, drillLink, inventoryLink, isBacklog, asOfLabel, monthLabel, periodRange, statusLabel, STATUS_META } from "./dashboard.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (p) => readFileSync(join(here, p), "utf8");
@@ -28,8 +28,23 @@ check("Warna donut tidak neon (semua hex muted terdefinisi)", Object.values(STAT
 const f = { period: "this_month", division_id: "d1", project_id: "p1", supplier_id: "s1" };
 const q = (u) => new URLSearchParams(u.split("?")[1] || "");
 const a1 = drillLink("waiting_a1", f, {}, T);
-check("Drill Menunggu Approval 1 -> PO list rf_kind + filter global", a1.startsWith("/po?") && q(a1).get("rf_kind") === "waiting_a1" && q(a1).get("rf_division_id") === "d1"
-  && q(a1).get("rf_project_id") === "p1" && q(a1).get("rf_supplier_id") === "s1" && q(a1).get("date_from") === "2026-10-01", a1);
+check("Drill Menunggu Approval 1 -> PO list rf_kind + filter global, posisi: date_to tanpa date_from", a1.startsWith("/po?") && q(a1).get("rf_kind") === "waiting_a1" && q(a1).get("rf_division_id") === "d1"
+  && q(a1).get("rf_project_id") === "p1" && q(a1).get("rf_supplier_id") === "s1" && q(a1).get("date_to") === "2026-10-31" && !q(a1).has("date_from") && !q(a1).has("rf_asof"), a1);
+// Kelompok A (posisi s/d cut-off): date_to = cut-off, TANPA date_from; historis -> rf_asof = cut-off.
+const LM = { ...f, period: "last_month" }; // cut-off 30/09/2026 (lampau terhadap T)
+const A_KINDS = ["mro_open", "ro_open", "waiting_a1", "ready_a2", "waiting_a2", "waiting_approval", "not_received", "partial", "late", "invoice_unbilled", "unpaid", "payable", "due_soon", "overdue"];
+for (const k of A_KINDS) {
+  const u = drillLink(k, LM, {}, T);
+  check(`Kelompok A ${k}: date_to=cut-off, tanpa date_from, rf_asof=cut-off`, q(u).get("date_to") === "2026-09-30" && !q(u).has("date_from") && q(u).get("rf_asof") === "2026-09-30", u);
+  const c = drillLink(k, f, {}, T);
+  check(`Kelompok A ${k} (bulan berjalan): date_to ada, tanpa date_from/rf_asof`, q(c).get("date_to") === "2026-10-31" && !q(c).has("date_from") && !q(c).has("rf_asof"), c);
+}
+// Kelompok B (aktivitas periode): date_from + date_to.
+for (const k of ["approved", "po_all", "valid"]) {
+  const u = drillLink(k, LM, {}, T);
+  check(`Kelompok B ${k}: date_from + date_to periode`, q(u).get("date_from") === "2026-09-01" && q(u).get("date_to") === "2026-09-30" && !q(u).has("rf_asof"), u);
+}
+check("isBacklog: A vs B", ["waiting_a1", "late", "payable", "dp_unallocated"].every(isBacklog) && !["approved", "po_all", "valid", "dp_paid"].some(isBacklog));
 check("Drill Siap Approval 2 (berhak A2) -> PO list rf_kind (count = kartu)", q(drillLink("ready_a2", f, { approval2: true }, T)).get("rf_kind") === "ready_a2" && drillLink("ready_a2", f, { approval2: true }, T).startsWith("/po?"));
 check("Drill Siap Approval 2 tanpa hak Approval 2 -> PO list", q(drillLink("ready_a2", f, {}, T)).get("rf_kind") === "ready_a2");
 check("Drill Menunggu Approval 2 -> PO list rf_kind=waiting_a2", q(drillLink("waiting_a2", f, { approval2: true }, T)).get("rf_kind") === "waiting_a2" && drillLink("waiting_a2", f, { approval2: true }, T).startsWith("/po?"));
@@ -63,6 +78,15 @@ const inv = src("../pages/Inventory.jsx");
 check("Inventory memakai /inventory/item-stock (bukan agregasi /inventory/position)", inv.includes("/inventory/item-stock") && !inv.includes("/inventory/position") && !/function stockStatus/.test(inv));
 check("Inventory menampilkan 'Belum ada stok' untuk sel tanpa record", inv.includes("Belum ada stok"));
 check("Dashboard KPI Persediaan dari d.inventory.stock (Jumlah Item/Habis/Menipis/Overstock)", ["\"total\"", "\"out_of_stock\"", "\"low_stock\"", "\"overstock\""].every((k) => dash.includes(k)) && dash.includes("inventory_value != null"));
+
+check("asOfLabel format tanggal per", asOfLabel("2026-09-30") === "30/09/2026" && asOfLabel(null) === "hari ini");
+check("UI memisahkan 'Persediaan saat ini' (snapshot) dari 'Nilai Persediaan per' (tanggal akhir filter)", dash.includes("Persediaan saat ini") && dash.includes("snapshot hari ini") && dash.includes("Nilai Persediaan per"));
+check("Dashboard menampilkan tanggal per & info belum bernilai", dash.includes("inventory_value_as_of") && dash.includes("unvalued_items") && dash.includes("belum bernilai"));
+check("Label kelompok: 'Posisi s/d' (Procurement/Finance/Perlu Ditindaklanjuti) vs 'Transaksi periode ini' (Aktivitas)", dash.includes("Posisi s/d ${asOfLabel(d?.as_of)}") && dash.includes('"Transaksi periode ini"')
+  && ["Procurement — {posLabel}", "Finance — {posLabel}", "Aktivitas Pembelian — {actLabel}", "Perlu Ditindaklanjuti — {posLabel}"].every((t) => dash.includes(t)));
+check("Kartu aktivitas: Total PO, PO Disetujui, DP Sudah Dibayar", ['k: "po_all"', 'k: "approved"', 'k: "dp_paid"'].every((t) => dash.includes(t)));
+check("Peringatan pool historis belum dapat direkonstruksi", dash.includes("unreconstructable_pools") && dash.includes("pool persediaan historis belum dapat direkonstruksi"));
+check("Chip drill-down meneruskan rf_asof & label Posisi s/d", chip.includes('"rf_asof"') && chip.includes("Posisi s/d"));
 
 console.log(fail ? `\n${fail} FAILED` : `\n${n}/${n} passed`);
 process.exit(fail ? 1 : 0);
