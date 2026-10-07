@@ -14,7 +14,10 @@ import { UnvaluedStockDialog } from "@/components/dashboard/UnvaluedStockDialog"
 import { TopSuppliers } from "@/components/dashboard/TopSuppliers";
 import { AttentionTable } from "@/components/dashboard/AttentionTable";
 import { FinanceMonitor } from "@/components/dashboard/FinanceMonitor";
-import { PERIODS, asOfLabel, ccParams, compactRupiah, drillLink, inventoryLink, periodText } from "@/lib/dashboard";
+import { SpkBudgetPanel } from "@/components/dashboard/SpkBudgetPanel";
+import { ContractStatusPanel, PriceControlPanel, PriceExceptionTable } from "@/components/dashboard/VendorContractPanel";
+import { DashboardDrillDialog } from "@/components/dashboard/DashboardDrillDialog";
+import { PERIODS, asOfLabel, ccParams, compactRupiah, contractDrillParams, drillLink, inventoryLink, periodText, priceDrillParams, spkDrillParams } from "@/lib/dashboard";
 import { rupiah } from "@/lib/format";
 import {
   AlertTriangle, CalendarDays, Wallet, CheckCircle2, ClipboardList, Clock3, FileClock, FileWarning, Hourglass, HandCoins,
@@ -63,6 +66,7 @@ export default function Dashboard() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [unvaluedOpen, setUnvaluedOpen] = useState(false);
+  const [drill, setDrill] = useState(null); // drill-down SPK / Kontrak (posisi: date_to) / Price Control (periode)
   const [subscription, setSubscription] = useState(null);
   const [updated, setUpdated] = useState(null);
 
@@ -126,6 +130,10 @@ export default function Dashboard() {
   ].filter(Boolean);
   const posLabel = `Posisi s/d ${asOfLabel(d?.as_of)}`;
   const actLabel = "Transaksi periode ini";
+  const SP = d?.spk, VC = d?.vendor_contract;
+  const drillSpk = (kind) => setDrill({ type: "spk", params: spkDrillParams(SP?.as_of, f, kind) });
+  const drillContract = (kind) => setDrill({ type: "contract", params: contractDrillParams(VC?.as_of, f, kind) });
+  const drillPrice = (status) => setDrill({ type: "price", params: priceDrillParams(f, status) });
 
   return <div className="space-y-5" data-testid="dashboard-page">
     <SubscriptionBanner subscription={subscription} />
@@ -219,7 +227,24 @@ export default function Dashboard() {
             <AlertTriangle className="h-3 w-3" />{d.inventory.unreconstructable_pools} pool persediaan historis belum dapat direkonstruksi</span>}
         </div>}
       </div>}
+
+      {SP && <>
+        <SectionLabel testid="dash-section-spk" extra={<SectionBadge testid="dash-spk-asof">posisi s/d tanggal akhir filter · ikut Divisi &amp; Project</SectionBadge>}>SPK &amp; Budget Control — Posisi s/d {asOfLabel(SP.as_of)}</SectionLabel>
+        <SpkBudgetPanel spk={SP} onDrill={drillSpk} nav={nav} delay={540} />
+      </>}
+
+      {VC && <>
+        <SectionLabel testid="dash-section-contract" extra={<SectionBadge testid="dash-contract-semantics">status kontrak per tanggal posisi · Price Control per periode</SectionBadge>}>Kontrak Harga Vendor</SectionLabel>
+        <div className="grid gap-4 xl:grid-cols-12" data-testid="dash-contract-grid">
+          <div className={`min-w-0 ${VC.price_control ? "xl:col-span-5" : "xl:col-span-12"}`}>
+            <ContractStatusPanel vc={VC} posLabel={`Posisi s/d ${asOfLabel(VC.as_of)}`} onDrill={drillContract} canDrill={!!perms.vendor_contract} nav={nav} delay={580} /></div>
+          {VC.price_control && <div className="min-w-0 xl:col-span-7">
+            <PriceControlPanel vc={VC} actLabel={`Price Control — ${actLabel} · ${periodText(f.period)}`} onDrill={drillPrice} delay={620} /></div>}
+        </div>
+        {VC.price_control && <PriceExceptionTable vc={VC} actLabel={`${actLabel} · ${periodText(f.period)}`} nav={nav} onDrill={drillPrice} delay={660} />}
+      </>}
     </div>}
+    <DashboardDrillDialog drill={drill} onOpenChange={(o) => !o && setDrill(null)} nav={nav} />
     {d?.inventory?.unvalued_items > 0 && <UnvaluedStockDialog open={unvaluedOpen} onOpenChange={setUnvaluedOpen} divisionId={f.division_id} />}
   </div>;
 }

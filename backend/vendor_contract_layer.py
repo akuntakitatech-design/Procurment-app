@@ -452,6 +452,7 @@ def install(server):
     server.resolve_vendor_contract_price = resolve_price
     server.resolve_vendor_item_prices = resolve_item_prices
     server.resolve_contract_period_hint = period_hint
+    server.pick_vendor_contract_price = _pick_price  # aturan resolver yang sama, untuk batch reporting (tanpa N+1)
 
     # ============================ CONTRACT CRUD ============================
     @app.get("/api/vendor-contracts", tags=["vendor_contract"])
