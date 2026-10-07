@@ -9,11 +9,15 @@ import asyncio
 import time
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
+
 from . import attention as A
 from . import charts as C
 from . import finance as F
+from . import price_control as PC
 from . import procurement as P
 from . import scope as S
+from . import spk as SPK
 
 
 async def _none():
@@ -36,6 +40,109 @@ async def _inventory(server, user, f, perm):
             "unvalued_items": res.get("unvalued_items") if perm["price"] else None,
             "unreconstructable_items": res.get("unreconstructable_items") if perm["price"] else None,
             "unreconstructable_pools": res.get("unreconstructable_pools") if perm["price"] else None}
+
+
+async def _spk_section(server, user, f, perm, cut):
+    """SPK & Budget Control — posisi s/d cut-off; nominal & daftar SPK hanya bila spk:view (tidak dikirim bila tidak)."""
+    try:
+        data = await SPK.load(server)
+    except Exception:  # noqa: BLE001 — bagian opsional, jangan gagalkan dashboard
+        return None
+    return SPK.compute(data, f, cut, user=user, server=server, with_value=bool(perm["spk"]))
+
+
+def price_visible(perm):
+    """Nominal harga kontrak / harga PO / selisih: vendor_contract:view AND view_purchase_price (bukan OR)."""
+    return bool(perm["vendor_contract"] and perm["price"])
+
+
+async def _item_names(rows):
+    if rows:
+        import doc_procurement
+        items = (await doc_procurement.maps())["items"]
+        for r in rows:
+            it = items.get(r.get("item_id")) or {}
+            r.update(item_name=r.get("item_name") or it.get("name"), item_code=it.get("code"))
+    return rows
+
+
+async def _contract_section(server, user, f, perm, cut, po_rows):
+    """Kontrak Harga Vendor: status kontrak (posisi s/d cut-off) + Price Control PO Approved final (transaksi periode)."""
+    pick = getattr(server, "pick_vendor_contract_price", None)
+    try:
+        data = await PC.load(server, [r["id"] for r in po_rows] if perm["po"] and pick else [])
+    except Exception:  # noqa: BLE001
+        return None
+    with_value = price_visible(perm)
+    out = {"as_of": cut, "period": {"date_from": f.date_from, "date_to": f.date_to},
+           "contracts": PC.contract_kpis(data["contracts"], data["items"], f, cut, pick), "price_control": None,
+           "with_value": with_value}
+    if perm["po"] and pick:
+        pc = PC.price_control(po_rows, data, pick, with_value)
+        pc.pop("_lines", None)
+        await _item_names(pc["exceptions"])
+        out["price_control"] = pc
+    return out
+
+
+async def _po_period_rows(server, user, f, perm):
+    """PO aktivitas periode (predikat SAMA dengan build): tanggal date_from..date_to + dimensi + status pada cut-off."""
+    po_all = await P.load_po_rows(server, user, None, f.date_to, perm["price"]) or []
+    rows = [r for r in po_all if S.in_period(r, "date", f) and S.match_dims(r, f)]
+    if S.is_historical(f) and rows:
+        from . import history as H
+        at = {r["id"]: r for r in await H.po_rows_as_of(server, rows, S.asof(f))}
+        rows = [at.get(r["id"], r) for r in rows]
+    return rows
+
+
+# ------------------------------------------------------------------ drill-down SPK / Kontrak / Price Control
+async def drill_spk(server, user, date_to, division_id, project_id, kind):
+    """Daftar SPK posisi s/d date_to — fungsi & predikat SAMA dengan KPI (parity). Wajib spk:view."""
+    server.require(user, "spk:view")
+    if kind not in SPK.DRILL_KINDS:
+        kind = "active"
+    f = S.resolve_filters(server, user, None, date_to or S.today().isoformat(), division_id, project_id, None, None)
+    cut = S.asof(f)
+    rows = SPK.rows_at(await SPK.load(server), f, cut, user, server)
+    sel = SPK.drill(rows, kind)
+    return {"as_of": cut, "kind": kind, "count": len(sel), "rows": [SPK.public(x, True) for x in sel],
+            "totals": {k: sum(x[k] for x in sel) for k in SPK.VALUE_KEYS}}
+
+
+async def drill_contracts(server, user, date_to, supplier_id, kind):
+    """Daftar kontrak posisi s/d date_to (parity dengan KPI). Wajib vendor_contract:view."""
+    server.require(user, "vendor_contract:view")
+    if kind not in PC.CONTRACT_KINDS:
+        kind = "active"
+    f = S.resolve_filters(server, user, None, date_to or S.today().isoformat(), None, None, supplier_id, None)
+    cut = S.asof(f)
+    data = await PC.load(server, [])
+    sel = PC.contract_drill(PC.contract_rows(data["contracts"], data["items"], f, cut), kind)
+    return {"as_of": cut, "kind": kind, "count": len(sel), "rows": sel}
+
+
+async def drill_price(server, user, date_from, date_to, division_id, project_id, supplier_id, status, period=None):
+    """Baris Price Control transaksi periode date_from..date_to (parity dengan KPI). Nominal: vendor_contract:view AND
+    view_purchase_price; tanpa itu hanya status / count."""
+    perm = S.permissions(server, user)
+    if not perm["po"]:
+        raise HTTPException(403, "Tidak memiliki izin melihat PO.")
+    if status not in ("ok", "over", "no_contract", "all"):
+        status = "all"
+    f = S.resolve_filters(server, user, date_from, date_to, division_id, project_id, supplier_id, period)
+    po_rows = await _po_period_rows(server, user, f, perm)
+    pick = server.pick_vendor_contract_price
+    data = await PC.load(server, [r["id"] for r in po_rows])
+    lines = PC.price_lines(po_rows, data, pick)
+    sel = PC.price_drill(lines, status)
+    wv = price_visible(perm)
+    out = {"period": {"date_from": f.date_from, "date_to": f.date_to}, "status": status, "with_value": wv,
+           "po_count": len({r["po_id"] for r in sel}), "count": len(sel),
+           "rows": await _item_names([PC.redact(dict(r), wv) for r in sel])}
+    if wv:
+        out["diff_value"] = round(sum(r["diff"] or 0 for r in sel if r["status"] == "over"), 2)
+    return out
 
 
 async def build(server, user, date_from=None, date_to=None, division_id=None, project_id=None, supplier_id=None, period=None):
@@ -80,6 +187,9 @@ async def build(server, user, date_from=None, date_to=None, division_id=None, pr
             invs, dos = await F.invoices_as_of(server, invs, cut), await F.dos_as_of(server, dos, cut)
             dps = await F.dps_as_of(server, dps, cut) if dps is not None else None
         finance = F.kpis(invs, dos, dps, invs_period=F.filter_invoices_period(invs_all or [], f), dps_period=dps_period)
+    spk_sec, contract_sec = await asyncio.gather(
+        _spk_section(server, user, f, perm, cut) if (perm["spk"] or perm["po"]) else _none(),
+        _contract_section(server, user, f, perm, cut, po_rows) if (perm["vendor_contract"] or perm["po"]) else _none())
     charts = {"trend": C.trend(po_all, invs_all if perm["invoice"] else None, f, perm),
               "composition": C.composition(po_rows) if perm["po"] else None}
     return {
@@ -92,6 +202,8 @@ async def build(server, user, date_from=None, date_to=None, division_id=None, pr
         "charts": charts,
         "supplier_rank": C.supplier_rank(po_rows, perm) if perm["po"] else None,
         "attention": A.build(po_backlog if perm["po"] else [], invs, dos, f, perm),
+        "spk": spk_sec,
+        "vendor_contract": contract_sec,
         "as_of": cut, "historical": hist,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "timing_ms": {"load": round((t_load - t0) * 1000, 1), "total": round((time.perf_counter() - t0) * 1000, 1),

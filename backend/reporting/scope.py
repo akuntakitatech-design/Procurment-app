@@ -87,7 +87,9 @@ def permissions(server, user) -> dict:
     return {"po": can("po.view"), "mro": can("mro.view"), "ro": can("ro.view"),
             "price": bool(server.has_perm(user, "view_purchase_price")),
             "invoice": can("invoice.view"), "supplier_dp": can("supplier_dp.view"),
-            "approval2": can("po_approval2.view")}
+            "approval2": can("po_approval2.view"),
+            "spk": bool(server.has_perm(user, "spk:view")),
+            "vendor_contract": bool(server.has_perm(user, "vendor_contract:view"))}
 
 
 # ------------------------------------------------------------------ predikat baris (dipakai dashboard & list)
@@ -123,9 +125,7 @@ def match_dims(row, f: Filters, supplier=True):
         return False
     if f.project_id and f.project_id not in project_ids(row):
         return False
-    if supplier and f.supplier_id and row.get("supplier_id") != f.supplier_id:
-        return False
-    return True
+    return not (supplier and f.supplier_id and row.get("supplier_id") != f.supplier_id)
 
 
 async def visible(server, module, rows, user):

@@ -143,3 +143,109 @@ export function asOfLabel(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
   return m ? `${m[3]}/${m[2]}/${m[1]}` : "hari ini";
 }
+
+// ---------------------------------------------------------------- SPK & Budget Control / Kontrak Harga Vendor
+/** Level pemakaian budget SPK (dihitung backend): < 80 Normal · 80–90 Perhatian · > 90 Kritis · > 100 Over Budget. */
+export const SPK_LEVEL = {
+  normal: { label: "Normal", bar: "#7FA7CF", text: "text-slate-600", chip: "bg-[#EDF4FB] text-[#3F6E9C]" },
+  warning: { label: "Perhatian", bar: "#D4A04E", text: "text-[#9A6A22]", chip: "bg-[#FBF4E8] text-[#9A6A22]" },
+  critical: { label: "Kritis", bar: "#C98282", text: "text-[#A34B4B]", chip: "bg-[#FBF0F0] text-[#A34B4B]" },
+  over: { label: "Over Budget", bar: "#B86B6B", text: "text-[#A34B4B]", chip: "bg-[#FBF0F0] text-[#A34B4B]" },
+};
+
+/** Badge status Price Control (Effective Price Resolver existing). */
+export const PRICE_STATUS = {
+  ok: { label: "Sesuai", cls: "border-[#D5E8DF] bg-[#EEF6F2] text-[#3D7A62]" },
+  over: { label: "Di Atas Tolerance", cls: "border-[#EEDADA] bg-[#FBF0F0] text-[#A34B4B]" },
+  no_contract: { label: "Tanpa Kontrak", cls: "border-[#F1E3C8] bg-[#FBF4E8] text-[#9A6A22]" },
+};
+
+/** Lebar bar progress 0–100 (nilai > 100 dipotong; null -> 0). */
+export function barPct(p) {
+  const n = Number(p);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+}
+
+/** Persentase singkat: 90 -> "90%", 92.35 -> "92,4%", null -> "–". */
+export function pctText(p) {
+  if (p == null || !Number.isFinite(Number(p))) return "–";
+  const n = Number(p);
+  return `${n >= 999 ? ">999" : n.toLocaleString("id-ID", { maximumFractionDigits: 1 })}%`;
+}
+
+export const spkDetailLink = (id) => `/spk/${id}`;
+export const poDetailLink = (id) => `/po/${id}`;
+export const contractDetailLink = (id) => `/vendor-contracts/${id}`;
+
+const clean = (p) => { Object.keys(p).forEach((k) => (p[k] == null || p[k] === "") && delete p[k]); return p; };
+
+/** Drill SPK (POSISI): hanya date_to = tanggal posisi (cut-off) + Divisi/Project. date_from TIDAK dikirim. */
+export function spkDrillParams(asOf, f = {}, kind = "active") {
+  return clean({ date_to: asOf, kind, division_id: f.division_id, project_id: f.project_id });
+}
+
+/** Drill status kontrak (POSISI): hanya date_to + Supplier. date_from TIDAK dikirim. */
+export function contractDrillParams(asOf, f = {}, kind = "active") {
+  return clean({ date_to: asOf, kind, supplier_id: f.supplier_id });
+}
+
+/** Drill Price Control (TRANSAKSI periode): date_from + date_to + Divisi/Project/Supplier. */
+export function priceDrillParams(f = {}, status = "all", today = new Date()) {
+  const r = periodRange(f.period || "this_month", today);
+  return clean({ ...r, status, division_id: f.division_id, project_id: f.project_id, supplier_id: f.supplier_id });
+}
+
+export const DRILL_ENDPOINT = { spk: "/dashboard/drill/spk", contract: "/dashboard/drill/vendor-contracts", price: "/dashboard/drill/price-control" };
+export const drillUrl = (type, params) => `${DRILL_ENDPOINT[type]}?${new URLSearchParams(params).toString()}`;
+
+/** Kartu KPI SPK. Nominal hanya bila backend mengirim (spk:view) — tanpa nominal: hanya count, tanpa placeholder Rp. */
+export function spkKpiCards(spk) {
+  const k = spk?.kpi || {};
+  const ratio = (a, b) => (b > 0 ? (a * 100) / b : null);
+  if (!spk?.with_value) {
+    return [
+      { key: "active", label: "SPK Aktif", value: k.active ?? 0, tone: "navy", drill: "active", sub: "per tanggal posisi" },
+      { key: "over_budget", label: "Over Budget", value: k.over_budget ?? 0, tone: k.over_budget ? "red" : "slate", drill: "over", sub: "pemakaian > 100%" },
+      { key: "critical", label: "Kritis", value: k.critical ?? 0, tone: k.critical ? "amber" : "slate", drill: "critical", sub: "pemakaian > 90%" },
+      { key: "attention", label: "Perlu Perhatian", value: k.attention ?? 0, tone: k.attention ? "amber" : "slate", drill: "attention", sub: `${k.expiring ?? 0} akan berakhir ≤ 30 hari` },
+    ];
+  }
+  return [
+    { key: "active", label: "SPK Aktif", value: k.active ?? 0, tone: "navy", drill: "active", sub: `${k.over_budget ?? 0} over budget` },
+    { key: "budget", label: "Budget Procurement", value: k.budget, money: true, tone: "slate", drill: "active", sub: "incl. addendum" },
+    { key: "commitment", label: "Commitment", value: k.commitment, money: true, tone: "blue", drill: "active", pct: k.usage_pct, sub: k.usage_pct == null ? "belum ada budget" : `${pctText(k.usage_pct)} dari budget` },
+    { key: "realization", label: "Realisasi", value: k.realization, money: true, tone: "green", drill: "active", pct: k.realization_pct, sub: k.realization_pct == null ? "belum ada commitment" : `${pctText(k.realization_pct)} dari commitment` },
+    { key: "open_commitment", label: "Open Commitment", value: k.open_commitment, money: true, tone: "amber", drill: "active", pct: ratio(k.open_commitment, k.commitment), sub: "commitment − realisasi" },
+    { key: "remaining", label: "Sisa Budget", value: k.remaining, money: true, tone: k.remaining < 0 ? "red" : "indigo", drill: "active", pct: ratio(Math.max(k.remaining || 0, 0), k.budget), sub: "budget − commitment" },
+  ];
+}
+
+/** Kartu status kontrak (posisi cut-off) — selalu count. */
+export function contractKpiCards(c = {}) {
+  const ratio = (a, b) => (b > 0 ? (a * 100) / b : null);
+  const tot = (c.active || 0) + (c.expired || 0);
+  return [
+    { key: "active", label: "Kontrak Aktif", value: c.active ?? 0, tone: "green", drill: "active", pct: ratio(c.active, tot), sub: "berlaku pada tanggal posisi" },
+    { key: "expiring", label: "Akan Berakhir ≤ 30 Hari", value: c.expiring ?? 0, tone: "amber", drill: "expiring", pct: ratio(c.expiring, c.active), sub: "dari tanggal posisi" },
+    { key: "expired", label: "Kedaluwarsa", value: c.expired ?? 0, tone: "red", drill: "expired", pct: ratio(c.expired, tot), sub: "per tanggal posisi" },
+    { key: "items", label: "Item Dalam Kontrak Aktif", value: c.items_active ?? 0, tone: "navy", sub: "harga efektif berlaku" },
+  ];
+}
+
+/** Kartu Price Control (transaksi periode). Nilai Selisih hanya bila backend mengirim nominal. */
+export function priceKpiCards(pc, withValue) {
+  const k = pc?.kpi || {};
+  const ratio = (a, b) => (b > 0 ? (a * 100) / b : null);
+  const out = [
+    { key: "ok", label: "PO Sesuai Harga Kontrak", value: k.po_ok ?? 0, tone: "green", drill: "ok", pct: ratio(k.po_ok, k.po_evaluated), sub: `dari ${k.po_evaluated ?? 0} PO Approved` },
+    { key: "over", label: "PO Di Atas Tolerance", value: k.po_over ?? 0, tone: "red", drill: "over", pct: ratio(k.po_over, k.po_evaluated), sub: `${k.lines_over ?? 0} baris barang` },
+    { key: "no_contract", label: "PO Tanpa Kontrak Aktif", value: k.po_no_contract ?? 0, tone: "amber", drill: "no_contract", pct: ratio(k.po_no_contract, k.po_evaluated), sub: `${k.lines_no_contract ?? 0} baris barang` },
+  ];
+  if (withValue && k.diff_value != null) out.push({ key: "diff", label: "Nilai Selisih Harga", value: k.diff_value, money: true, tone: "slate", drill: "over", sub: "baris di atas tolerance" });
+  return out;
+}
+
+/** Kolom tabel Price Exception — kolom harga hanya bila nominal dikirim backend. */
+export function exceptionColumns(withValue) {
+  return ["PO", "Vendor", "Barang", ...(withValue ? ["Harga Kontrak", "Harga PO", "Tolerance", "Selisih"] : []), "Status"];
+}
