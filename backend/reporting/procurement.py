@@ -76,12 +76,16 @@ async def outstanding_doc_ids(server, module, ids):
 async def open_requests(server, user, module, f: S.Filters):
     """MRO Belum Diproses / RO Belum Menjadi PO: dokumen eligible (aturan pull existing) yang masih punya sisa."""
     docs = [d for d in await getattr(server.db, module).find(PSE._request_query(), {"_id": 0}).to_list(200000)
-            if S.in_period(d, "date", f)]
+            if S.upto(d, "date", f)]  # saldo: dokumen s/d tanggal akhir filter yang masih terbuka
     if not docs:
         return []
     rows = await RC.enrich_list(server, module, docs)
     rows = [r for r in await S.visible(server, module, rows, user) if S.match_dims(r, f, supplier=False)]
-    ids = await outstanding_doc_ids(server, module, [r["id"] for r in rows])
+    if S.is_historical(f):  # posisi PADA cut-off: alokasi dari dokumen target bertanggal <= cut-off
+        from . import history as H
+        ids = await H.outstanding_doc_ids_as_of(server, module, [r["id"] for r in rows], S.asof(f))
+    else:
+        ids = await outstanding_doc_ids(server, module, [r["id"] for r in rows])
     return [r for r in rows if r["id"] in ids]
 
 
@@ -89,11 +93,17 @@ def cv(rows, price, key="grand_total"):
     return {"count": len(rows), "value": round(sum(float(r.get(key) or 0) for r in rows), 2) if price else None}
 
 
-def kpis(po_rows, mro_rows, ro_rows, f: S.Filters, perm):
-    td, price = f.today, perm["price"]
-    out = {k: cv([r for r in po_rows if fn(r, td)], price) for k, fn in PO_KINDS.items() if k != "valid"}
-    out["po_value"] = cv([r for r in po_rows if po_valid(r)], price)
-    out["po_total"] = {"count": len(po_rows), "value": None}
+ACTIVITY_KINDS = {"approved"}  # aktivitas periode; kind lain = saldo/outstanding s/d tanggal akhir filter
+
+
+def kpis(po_backlog, po_period, mro_rows, ro_rows, f: S.Filters, perm):
+    """po_backlog = PO bertanggal <= tanggal akhir filter (saldo; Terlambat dibanding tanggal posisi);
+    po_period = PO di dalam periode (aktivitas: Total/Nilai PO, Disetujui)."""
+    td, price = S.asof(f), perm["price"]
+    out = {k: cv([r for r in (po_period if k in ACTIVITY_KINDS else po_backlog) if fn(r, td)], price)
+           for k, fn in PO_KINDS.items() if k != "valid"}
+    out["po_value"] = cv([r for r in po_period if po_valid(r)], price)
+    out["po_total"] = {"count": len(po_period), "value": None}
     out["mro_open"] = {"count": len(mro_rows), "value": None} if perm["mro"] else None
     out["ro_open"] = {"count": len(ro_rows), "value": None} if perm["ro"] else None
     return out

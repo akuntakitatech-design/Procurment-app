@@ -9,6 +9,8 @@ Expected:
     per hari ini (Bulan Ini / Semua) = Valuation Summary = Σ item_warehouse.total_value
     nilai per tanggal = value_after laporan Valuation Ledger untuk tanggal tsb ; filter Divisi ikut ; tanpa izin harga -> null
     ledger / avg_cost / total_value tidak berubah karena dashboard dibaca.
+    "belum bernilai" dihitung pada tanggal yang sama (historis = posisi valuation ledger; hari ini = state pool / reconcile).
+    Nilai mencakup barang nonaktif yang masih bersaldo (A aktif 1.000 + B nonaktif 500 = 1.500; Jumlah Item = 1).
 """
 import os
 import sys
@@ -98,45 +100,10 @@ def main():
     _, iB = inv(f"period=all&division_id={dB['id']}")
     check("Filter Divisi B per hari ini -> 3.000", abs((iB.get("inventory_value") or 0) - 3000) < 0.01, iB.get("inventory_value"))
     check("Tidak ada barang 'belum bernilai' pada fixture bernilai", i.get("unvalued_items") == 0, i.get("unvalued_items"))
+    _, h = inv("date_from=2026-09-01&date_to=2026-09-30")
+    check("Fixture lengkap (saldo awal + ledger): per 30/09 tidak ada pool historis yang belum dapat direkonstruksi",
+          h.get("unreconstructable_pools") == 0 and h.get("unreconstructable_items") == 0, (h.get("unreconstructable_pools"), h.get("unreconstructable_items")))
 
-    # Barang punya stok tetapi belum bernilai (rule valuation-reconcile `missing_average`: qty > 0, avg_cost <= 0)
-    Y = call("POST", "master/items", {"code": f"VY{u}", "name": "Barang Y", "division_id": dA["id"], **ref}, 200)[1]
-    sc, r = adj(w1["id"], dA["id"], Y["id"], 2, 0, "2026-10-01")
-    if sc == 200:
-        _, i2 = inv("period=all")
-        _, rec = call("GET", "reports/valuation-reconcile")
-        n_rec = len({d["item_id"] for d in (rec or {}).get("diagnostics", []) if d.get("type") == "missing_average"})
-        check("Info 'belum bernilai' = 1 (Y) = diagnostik missing_average valuation-reconcile", i2.get("unvalued_items") == 1 == n_rec,
-              (i2.get("unvalued_items"), n_rec))
-        check("Nilai tetap 27.500 (Y bernilai 0)", abs(i2["inventory_value"] - 27500) < 0.01, i2["inventory_value"])
-    elif os.environ.get("DATABASE_URL"):
-        # Engine menolak posting tanpa biaya; data "belum bernilai" hanya ada dari data lama/impor. Simulasikan SATU pool
-        # lama (qty 2, avg 0) di tenant QA sementara, lalu hapus lagi — tidak menyentuh ledger.
-        import json as _json
-        import pymysql
-        from urllib.parse import unquote, urlparse
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from mariadb_motor import _pick_pk
-        tenant = call("GET", "auth/me")[1].get("tenant_id")
-        doc = {"id": f"iw::{Y['id']}::{w1['id']}", "tenant_id": tenant, "item_id": Y["id"], "warehouse_id": w1["id"],
-               "current_stock": 2.0, "avg_cost": 0.0, "total_value": 0.0, "min_stock": 0, "max_stock": 0}
-        dbu = urlparse(os.environ["DATABASE_URL"].replace("mariadb://", "mysql://"))
-        cn = pymysql.connect(host=dbu.hostname, port=dbu.port or 3306, user=unquote(dbu.username or ""), password=unquote(dbu.password or ""),
-                             database=dbu.path.lstrip("/"), autocommit=True)
-        pk = _pick_pk(doc)
-        cn.cursor().execute("INSERT INTO item_warehouse (pk, doc) VALUES (%s, %s)", (pk, _json.dumps(doc)))
-        try:
-            _, i2 = inv("period=all")
-            _, rec = call("GET", "reports/valuation-reconcile")
-            n_rec = len({d["item_id"] for d in (rec or {}).get("diagnostics", []) if d.get("type") == "missing_average"})
-            check("Info 'belum bernilai' = 1 (Y, pool lama qty 2 avg 0) = diagnostik missing_average valuation-reconcile",
-                  i2.get("unvalued_items") == 1 == n_rec, (i2.get("unvalued_items"), n_rec))
-            check("Nilai tetap 27.500 (Y bernilai 0)", abs(i2["inventory_value"] - 27500) < 0.01, i2["inventory_value"])
-        finally:
-            cn.cursor().execute("DELETE FROM item_warehouse WHERE pk = %s", (pk,))
-            cn.close()
-    else:
-        print("  info: DATABASE_URL tidak tersedia — kasus 'belum bernilai' dilewati")
     lim = mk_user("manager", divs=[dA["id"]], overrides={"view_purchase_price": "deny", "po.view": "allow"})
     _, il = inv("date_from=2026-09-01&date_to=2026-09-30", lim)
     check("Tanpa view_purchase_price: nilai, tanggal & info belum bernilai tidak dikirim", il.get("inventory_value") is None
@@ -150,6 +117,106 @@ def main():
     sc, led1 = call("GET", "reports/valuation-ledger")
     check("item_warehouse (qty, avg_cost, total_value) tidak berubah setelah dashboard dibaca", snap0 == snap1)
     check("Valuation ledger tidak bertambah (read-only)", n_led0 == len((led1 or {}).get("rows", [])), (n_led0, len((led1 or {}).get("rows", []))))
+
+    # ---- "Belum bernilai" mengikuti tanggal yang sama dengan nilai (rule valuation-reconcile `missing_average`)
+    # Engine menolak posting tanpa biaya, jadi data "belum bernilai" hanya ada dari data lama/impor. Simulasikan di tenant
+    # QA sementara (dihapus lagi setelah cek):
+    #   Y @ Gudang 1: ledger 2026-09-02 qty 2 / nilai 0 (belum bernilai) -> 2026-10-02 dinilai 2 x 1.000 ; pool kini bernilai
+    #   W @ Gudang 1: pool saat ini qty 2 / avg 0 (belum bernilai), tanpa riwayat ledger
+    #   L @ Gudang 1: pool lama qty 5 / nilai 5.000 saat ini, TANPA saldo awal / ledger -> historis tidak dapat direkonstruksi
+    #   K @ Gudang 1: entri ledger pertama 2026-10-03 dengan qty_before 4 (stok lama tanpa riwayat) -> per 30/09 tidak dapat
+    #                 direkonstruksi; saat ini 6 / 6.000
+    if os.environ.get("DATABASE_URL"):
+        import json as _json
+        from urllib.parse import unquote, urlparse
+
+        import pymysql
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from mariadb_motor import _pick_pk
+        Y = call("POST", "master/items", {"code": f"VY{u}", "name": "Barang Y", "division_id": dA["id"], **ref}, 200)[1]
+        W = call("POST", "master/items", {"code": f"VW{u}", "name": "Barang W", "division_id": dA["id"], **ref}, 200)[1]
+        L = call("POST", "master/items", {"code": f"VL{u}", "name": "Barang L legacy", "division_id": dA["id"], **ref}, 200)[1]
+        K = call("POST", "master/items", {"code": f"VK{u}", "name": "Barang K legacy", "division_id": dA["id"], **ref}, 200)[1]
+        tenant = call("GET", "auth/me")[1].get("tenant_id")
+        base = {"tenant_id": tenant, "warehouse_id": w1["id"]}
+        legacy = [("valuation_ledger", {**base, "id": f"vl-y1-{u}", "item_id": Y["id"], "doc_type": "Legacy Import", "qty_in": 2, "qty_out": 0,
+                                         "qty_after": 2.0, "value_after": 0.0, "avg_after": 0.0, "txn_at": "2026-09-02", "at": "2026-09-02T01:00:00+00:00"}),
+                  ("valuation_ledger", {**base, "id": f"vl-y2-{u}", "item_id": Y["id"], "doc_type": "Opening Valuation", "qty_in": 0, "qty_out": 0,
+                                         "qty_after": 2.0, "value_after": 2000.0, "avg_after": 1000.0, "txn_at": "2026-10-02", "at": "2026-10-02T01:00:00+00:00"}),
+                  ("item_warehouse", {**base, "id": f"iw::{Y['id']}::{w1['id']}", "item_id": Y["id"], "current_stock": 2.0, "avg_cost": 1000.0,
+                                      "total_value": 2000.0, "min_stock": 0, "max_stock": 0}),
+                  ("item_warehouse", {**base, "id": f"iw::{W['id']}::{w1['id']}", "item_id": W["id"], "current_stock": 2.0, "avg_cost": 0.0,
+                                      "total_value": 0.0, "min_stock": 0, "max_stock": 0}),
+                  ("item_warehouse", {**base, "id": f"iw::{L['id']}::{w1['id']}", "item_id": L["id"], "current_stock": 5.0, "avg_cost": 1000.0,
+                                      "total_value": 5000.0, "min_stock": 0, "max_stock": 0}),
+                  ("valuation_ledger", {**base, "id": f"vl-k1-{u}", "item_id": K["id"], "doc_type": "Adjustment", "qty_in": 2, "qty_out": 0,
+                                         "qty_before": 4.0, "qty_after": 6.0, "value_after": 6000.0, "avg_after": 1000.0, "txn_at": "2026-10-03",
+                                         "at": "2026-10-03T01:00:00+00:00"}),
+                  ("item_warehouse", {**base, "id": f"iw::{K['id']}::{w1['id']}", "item_id": K["id"], "current_stock": 6.0, "avg_cost": 1000.0,
+                                      "total_value": 6000.0, "min_stock": 0, "max_stock": 0})]
+        dbu = urlparse(os.environ["DATABASE_URL"].replace("mariadb://", "mysql://"))
+        cn = pymysql.connect(host=dbu.hostname, port=dbu.port or 3306, user=unquote(dbu.username or ""), password=unquote(dbu.password or ""),
+                             database=dbu.path.lstrip("/"), autocommit=True)
+        pks = []
+        try:
+            for table, doc in legacy:
+                pk = _pick_pk(doc)
+                cn.cursor().execute(f"INSERT INTO `{table}` (pk, doc) VALUES (%s, %s)", (pk, _json.dumps(doc)))
+                pks.append((table, pk))
+            _, h = inv("date_from=2026-09-01&date_to=2026-09-30")
+            check("Historis per 30/09: 'belum bernilai' = 1 (Y: posisi ledger qty 2, nilai 0) — bukan state saat ini",
+                  h.get("unvalued_items") == 1 and h.get("inventory_value_as_of") == "2026-09-30", (h.get("unvalued_items"), h.get("inventory_value_as_of")))
+            check("Historis per 30/09: nilai = 27.500 (Y bernilai 0; W/L/K tanpa riwayat TIDAK diberi nilai saat ini)",
+                  abs((h.get("inventory_value") or 0) - 27500) < 0.01, h.get("inventory_value"))
+            check("Historis per 30/09: 3 pool (W, L, K) ditandai belum dapat direkonstruksi — bukan diam-diam 0",
+                  h.get("unreconstructable_pools") == 3 and h.get("unreconstructable_items") == 3,
+                  (h.get("unreconstructable_pools"), h.get("unreconstructable_items")))
+            _, hB = inv(f"date_from=2026-09-01&date_to=2026-09-30&division_id={dB['id']}")
+            check("Historis per 30/09 filter Divisi B: pool legacy Divisi A tidak ikut (scope sama dengan nilai)",
+                  hB.get("unreconstructable_pools") == 0 and abs((hB.get("inventory_value") or 0) - 3000) < 0.01,
+                  (hB.get("unreconstructable_pools"), hB.get("inventory_value")))
+            _, hK = inv("date_from=2026-10-01&date_to=2026-10-04")
+            check("Historis per 04/10: Y 2.000 (02/10) + K terekonstruksi dari ledger 03/10 (6.000) = 35.500; W & L tetap ditandai",
+                  abs((hK.get("inventory_value") or 0) - (27500 + 2000 + 6000)) < 0.01 and hK.get("unreconstructable_pools") == 2,
+                  (hK.get("inventory_value"), hK.get("unreconstructable_pools")))
+            _, h0 = inv("date_from=2026-08-01&date_to=2026-08-31")
+            check("Historis per 31/08: 'belum bernilai' = 0 (Y belum ada pada tanggal itu)", h0.get("unvalued_items") == 0, h0.get("unvalued_items"))
+            _, c = inv("period=all")
+            _, rec = call("GET", "reports/valuation-reconcile")
+            n_rec = len({d["item_id"] for d in (rec or {}).get("diagnostics", []) if d.get("type") == "missing_average"})
+            check("Saat ini: 'belum bernilai' = 1 (W) = diagnostik missing_average valuation-reconcile (Y sudah bernilai)",
+                  c.get("unvalued_items") == 1 == n_rec, (c.get("unvalued_items"), n_rec))
+            check("Saat ini: nilai = 27.500 + Y 2.000 + L 5.000 + K 6.000 = 40.500 = Valuation Summary (current MWA)",
+                  abs((c.get("inventory_value") or 0) - 40500) < 0.01 and abs(call("GET", "reports/valuation-summary")[1]["total_value"] - 40500) < 0.01,
+                  c.get("inventory_value"))
+            check("Saat ini: tidak ada peringatan rekonstruksi historis", c.get("unreconstructable_pools") == 0, c.get("unreconstructable_pools"))
+        finally:
+            for table, pk in pks:
+                cn.cursor().execute(f"DELETE FROM `{table}` WHERE pk = %s", (pk,))
+            cn.close()
+    else:
+        print("  info: DATABASE_URL tidak tersedia — kasus 'belum bernilai' historis/saat ini dilewati")
+
+    # ---- Nilai Persediaan mencakup barang NONAKTIF yang masih bersaldo; KPI jumlah/status hanya barang aktif
+    dC = call("POST", "master/divisions", {"code": f"VC{u}", "name": f"Divisi Nonaktif {u}"}, 200)[1]
+    wC = call("POST", "master/warehouses", {"code": f"VC{u}", "name": f"Gudang VC {u}", "division_id": dC["id"], "is_active": True}, 200)[1]
+    A2 = call("POST", "master/items", {"code": f"VA{u}", "name": "Barang A aktif", "division_id": dC["id"], **ref}, 200)[1]
+    B2 = call("POST", "master/items", {"code": f"VN{u}", "name": "Barang B nonaktif", "division_id": dC["id"], **ref}, 200)[1]
+    for it, cost in ((A2, 1000), (B2, 500)):
+        sc, r = adj(wC["id"], dC["id"], it["id"], 1, cost, "2026-10-03")
+        check(f"Posting {it['name']} 1 @ {cost}", sc == 200, (sc, r))
+    sc, _ = call("PUT", f"master/items/{B2['id']}", {**B2, "is_active": False})
+    check("Barang B dinonaktifkan", sc == 200)
+    _, cc = inv(f"period=all&division_id={dC['id']}")
+    check("Divisi C: Jumlah Item = 1 (barang nonaktif tidak masuk KPI status)", (cc.get("stock") or {}).get("total") == 1, cc.get("stock"))
+    check("Divisi C: Nilai Persediaan = 1.000 + 500 = 1.500 (barang nonaktif bersaldo ikut)", abs((cc.get("inventory_value") or 0) - 1500) < 0.01,
+          cc.get("inventory_value"))
+    _, ch = inv(f"date_from=2026-10-01&date_to=2026-10-05&division_id={dC['id']}") if TODAY > "2026-10-05" else (None, {"inventory_value": 1500})
+    check("Divisi C per 05/10 (historis): nilai = 1.500 termasuk barang nonaktif", abs((ch.get("inventory_value") or 0) - 1500) < 0.01, ch.get("inventory_value"))
+    sc, vs = call("GET", "reports/valuation-summary")
+    _, ca = inv("period=all")
+    check("Tanpa filter: Nilai Persediaan Dashboard = total Valuation Summary (termasuk nonaktif)", abs(ca["inventory_value"] - vs["total_value"]) < 0.01,
+          (ca["inventory_value"], vs["total_value"]))
 
 
 if __name__ == "__main__":

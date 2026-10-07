@@ -80,11 +80,26 @@ export function compactRupiah(v) {
 const PO_KIND = new Set(["waiting_a1", "ready_a2", "waiting_a2", "waiting_approval", "approved", "not_received", "partial", "late", "valid"]);
 const INV_KIND = new Set(["unpaid", "payable", "due_soon", "overdue"]);
 
+// Kartu saldo/outstanding (posisi s/d tanggal akhir filter) vs aktivitas periode.
+export const BACKLOG = new Set(["mro_open", "ro_open", "waiting_a1", "ready_a2", "waiting_a2", "waiting_approval", "not_received", "partial", "late",
+  "invoice_unbilled", "unpaid", "payable", "due_soon", "overdue", "dp_unallocated"]);
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+export const isBacklog = (kind) => BACKLOG.has(kind);
+
 export function drillLink(kind, f = {}, _perms = {}, today = new Date()) {
   const r = periodRange(f.period || "this_month", today);
   const q = new URLSearchParams();
   const put = (k, v) => v && q.set(k, v);
-  const dims = () => { put("date_from", r.date_from); put("date_to", r.date_to); put("rf_division_id", f.division_id); put("rf_project_id", f.project_id); put("rf_supplier_id", f.supplier_id); };
+  // Saldo/outstanding = posisi s/d tanggal akhir filter (tanpa date_from: dokumen periode sebelumnya ikut);
+  // aktivitas (PO Disetujui / semua PO) = transaksi di dalam periode. rf_asof = tanggal posisi bila lampau.
+  const backlog = BACKLOG.has(kind);
+  const asof = r.date_to && r.date_to < isoDay(today) ? r.date_to : "";
+  const dims = () => {
+    if (!backlog) put("date_from", r.date_from);
+    put("date_to", r.date_to);
+    if (backlog) put("rf_asof", asof);
+    put("rf_division_id", f.division_id); put("rf_project_id", f.project_id); put("rf_supplier_id", f.supplier_id);
+  };
   // Semua kartu PO (termasuk Approval 2) -> list PO dgn predikat sama, agar jumlah list = angka kartu.
   if (PO_KIND.has(kind)) { q.set("rf_kind", kind); dims(); return `/po?${q}`; }
   if (kind === "po_all") { dims(); return `/po${q.toString() ? `?${q}` : ""}`; }

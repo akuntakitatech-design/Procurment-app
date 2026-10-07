@@ -6,7 +6,6 @@ import { Panel } from "./Panel";
 const ROWS = [
   ["invoice_unbilled", "Invoice belum diterima", FileClock, "blue", "DO"],
   ["invoice_unpaid", "Invoice belum dibayar", FileWarning, "navy", "invoice"],
-  ["dp_paid", "DP sudah dibayar", Wallet, "green", "PO"],
   ["dp_unallocated", "DP belum dialokasikan", HandCoins, "slate", "PO"],
   ["due_soon", "Hutang jatuh tempo 0–7 hari", AlarmClock, "amber", "invoice"],
   ["overdue", "Hutang lewat jatuh tempo", CircleAlert, "red", "invoice"],

@@ -16,8 +16,10 @@ ulang avg_cost / HPP dan tidak menulis apa pun:
     - per hari ini (as_of kosong / >= hari ini): Σ item_warehouse.total_value (= Valuation Summary)
     - per tanggal lampau: Σ value_after entri valuation_ledger TERAKHIR per item×gudang dengan tanggal transaksi
       <= as_of (urut tanggal transaksi lalu urutan posting) — sama dengan saldo di laporan Valuation Ledger.
-`unvalued_items` = barang yang punya stok tetapi belum bernilai (rule diagnostik `missing_average` dari
-valuation-reconcile: qty > 0 dan avg_cost <= 0), dihitung per barang unik.
+Nilai mencakup SELURUH barang dalam scope (termasuk nonaktif yang masih bersaldo); filter aktif hanya untuk KPI status.
+`unvalued_items` = barang unik yang punya stok tetapi belum bernilai (rule diagnostik `missing_average` dari
+valuation-reconcile: qty > 0 dan avg <= 0), dihitung pada tanggal yang SAMA dengan nilai (hari ini = state pool saat ini,
+historis = posisi valuation ledger per tanggal).
 """
 from __future__ import annotations
 
@@ -79,21 +81,50 @@ def today_iso() -> str:
     return datetime.now(ZoneInfo("Asia/Jakarta")).date().isoformat()
 
 
-async def value_as_of_fn(server, item_ids: set, wh_ids: list, as_of: str) -> float:
-    """Σ value_after entri valuation_ledger terakhir (tanggal transaksi <= as_of) per item×gudang dalam scope."""
+def _txn_day(r) -> str:
+    return str(r.get("txn_at") or r.get("at") or "")[:10]
+
+
+async def value_as_of_fn(server, item_ids: set, wh_ids: list, as_of: str) -> tuple:
+    """Posisi valuation per item×gudang PADA/SEBELUM `as_of`, hanya dari bukti yang ada (urutan: opening valuation /
+    valuation ledger). Return (nilai, barang belum bernilai, barang yang nilai historisnya belum dapat direkonstruksi).
+      - ada entri <= as_of     -> value_after entri terakhir (urut tanggal transaksi lalu urutan posting);
+                                  qty_after > 0 & avg_after <= 0 -> "belum bernilai" (rule missing_average reconcile)
+      - entri pertama > as_of  -> qty_before entri pertama = 0: pool belum ada (nilai 0);
+                                  qty_before > 0: stok lama tanpa riwayat sebelum entri itu -> TIDAK direkonstruksi
+      - tanpa entri sama sekali -> stok saat ini > 0: stok lama tanpa riwayat -> TIDAK direkonstruksi
+    Nilai pool saat ini (item_warehouse.total_value) TIDAK pernah dipakai sebagai nilai masa lalu.
+    Return (nilai, n barang belum bernilai, n barang & n pool (item×gudang) yang belum dapat direkonstruksi)."""
     if not item_ids or not wh_ids:
-        return 0.0
-    rows = await server.db.valuation_ledger.find(
-        {"warehouse_id": {"$in": list(wh_ids)}, "txn_at": {"$lte": f"{as_of}T99"}},
-        {"_id": 0, "item_id": 1, "warehouse_id": 1, "txn_at": 1, "at": 1, "value_after": 1}).to_list(None)
-    last = {}
+        return 0.0, 0, 0, 0
+    wh = list(wh_ids)
+    rows, pools = await asyncio.gather(
+        server.db.valuation_ledger.find({"warehouse_id": {"$in": wh}},
+                                        {"_id": 0, "item_id": 1, "warehouse_id": 1, "txn_at": 1, "at": 1, "qty_before": 1,
+                                         "qty_after": 1, "value_after": 1, "avg_after": 1}).to_list(None),
+        server.db.item_warehouse.find({"warehouse_id": {"$in": wh}}, {"_id": 0, "item_id": 1, "warehouse_id": 1, "current_stock": 1}).to_list(None))
+    last, first = {}, {}
     for r in rows:
-        if r.get("item_id") not in item_ids or str(r.get("txn_at") or "")[:10] > as_of:
+        if r.get("item_id") not in item_ids:
             continue
-        key, order = (r["item_id"], r.get("warehouse_id")), (str(r.get("txn_at") or "")[:10], str(r.get("at") or ""))
-        if key not in last or order >= last[key][0]:
-            last[key] = (order, _f(r.get("value_after")))
-    return round(sum(v for _, v in last.values()), 4)
+        key, order = (r["item_id"], r.get("warehouse_id")), (_txn_day(r), str(r.get("at") or ""))
+        if key not in first or order < first[key][0]:
+            first[key] = (order, r)
+        if order[0] <= as_of and (key not in last or order >= last[key][0]):
+            last[key] = (order, r)
+    value, unvalued, unknown = 0.0, set(), set()
+    for key, (_, r) in last.items():
+        value += _f(r.get("value_after"))
+        if missing_average(r.get("qty_after"), r.get("avg_after")):
+            unvalued.add(key[0])
+    for key, (_, r) in first.items():
+        if key not in last and _f(r.get("qty_before")) > 1e-6:
+            unknown.add(key)
+    for p in pools:
+        key = (p.get("item_id"), p.get("warehouse_id"))
+        if key[0] in item_ids and key not in first and _f(p.get("current_stock")) > 1e-6:
+            unknown.add(key)
+    return round(value, 4), len(unvalued), len({k[0] for k in unknown}), len(unknown)
 
 
 def _size(v) -> int:
@@ -231,13 +262,9 @@ async def compute(server, user, *, warehouse_id: str = "", division_id: str = ""
     items_raw, agg = await asyncio.gather(db.items.find(flt, ITEM_PROJECTION).to_list(100000), stock_aggregate(server, col_ids, user))
 
     terms = (q or "").strip().lower().split()
-    rows, value, unvalued = [], 0.0, 0
+    rows, value, unvalued, val_ids = [], 0.0, 0, set()
     for it in items_raw:
         if not it.get("id") or not item_in_scope(it, alw):
-            continue
-        if active == "Aktif" and not it.get("is_active"):
-            continue
-        if active == "Nonaktif" and it.get("is_active"):
             continue
         a = agg.get(it["id"])
         if warehouse_id and not a:
@@ -247,8 +274,15 @@ async def compute(server, user, *, warehouse_id: str = "", division_id: str = ""
             if not all(t in hay for t in terms):
                 continue
         total, mn, mx, n, val, unv = a or (0.0, 0.0, 0.0, 0, 0.0, 0)
+        # Nilai Persediaan = seluruh carrying value dalam scope, TERMASUK barang nonaktif yang masih bersaldo
+        # (filter status aktif hanya untuk KPI jumlah/status stok).
+        val_ids.add(it["id"])
         value += val
         unvalued += 1 if unv else 0
+        if active == "Aktif" and not it.get("is_active"):
+            continue
+        if active == "Nonaktif" and it.get("is_active"):
+            continue
         names = [div_name.get(d) or "-" for d in _item_divisions(it) if alw is None or d in alw]
         rows.append({**it,
                      "category_label": cat_name.get(it.get("category_id")) or it.get("category") or None,
@@ -262,9 +296,13 @@ async def compute(server, user, *, warehouse_id: str = "", division_id: str = ""
     if with_value:
         today = today_iso()
         as_of = value_as_of if value_as_of and value_as_of < today else None
-        out["inventory_value"] = round(value, 4) if as_of is None else await value_as_of_fn(server, {r["id"] for r in rows}, col_ids, as_of)
+        if as_of is None:  # periode berakhir hari ini / masa depan -> posisi valuation saat ini (= Valuation Summary / reconcile)
+            out["inventory_value"], out["unvalued_items"] = round(value, 4), unvalued
+            out["unreconstructable_items"] = out["unreconstructable_pools"] = 0
+        else:  # historis -> posisi valuation ledger per tanggal akhir filter (nilai & "belum bernilai" pada tanggal sama)
+            (out["inventory_value"], out["unvalued_items"], out["unreconstructable_items"],
+             out["unreconstructable_pools"]) = await value_as_of_fn(server, val_ids, col_ids, as_of)
         out["inventory_value_as_of"] = as_of or today
-        out["unvalued_items"] = unvalued
     return out
 
 
