@@ -14,14 +14,15 @@ import { UnvaluedStockDialog } from "@/components/dashboard/UnvaluedStockDialog"
 import { TopSuppliers } from "@/components/dashboard/TopSuppliers";
 import { AttentionTable } from "@/components/dashboard/AttentionTable";
 import { FinanceMonitor } from "@/components/dashboard/FinanceMonitor";
-import { SpkBudgetPanel } from "@/components/dashboard/SpkBudgetPanel";
+import { SpkDetailPanel, SpkSummaryCard } from "@/components/dashboard/SpkBudgetPanel";
+import { InventoryPanel } from "@/components/dashboard/InventoryPanel";
 import { ContractStatusPanel, PriceControlPanel, PriceExceptionTable } from "@/components/dashboard/VendorContractPanel";
 import { DashboardDrillDialog } from "@/components/dashboard/DashboardDrillDialog";
-import { PERIODS, asOfLabel, ccParams, compactRupiah, contractDrillParams, drillLink, inventoryLink, periodText, priceDrillParams, spkDrillParams } from "@/lib/dashboard";
+import { PERIODS, asOfLabel, ccParams, compactRupiah, contractDrillParams, drillLink, periodText, priceDrillParams, spkDrillParams } from "@/lib/dashboard";
 import { rupiah } from "@/lib/format";
 import {
   AlertTriangle, CalendarDays, Wallet, CheckCircle2, ClipboardList, Clock3, FileClock, FileWarning, Hourglass, HandCoins,
-  Landmark, PackageCheck, PackageOpen, Plus, RefreshCw, RotateCcw, Send, Timer, Truck, AlarmClock, CircleAlert, Boxes,
+  Landmark, PackageCheck, PackageOpen, Plus, RefreshCw, RotateCcw, Send, Timer, Truck, AlarmClock, CircleAlert,
 } from "lucide-react";
 
 const DEFAULT = { period: "this_month", division_id: "", project_id: "", supplier_id: "" };
@@ -170,6 +171,8 @@ export default function Dashboard() {
     {!d && loading && <LoadingState />}
 
     {d && <div className={`space-y-5 transition-opacity duration-200 ${loading ? "opacity-60" : "opacity-100"}`}>
+      {/* LAYER 1 — Kondisi operasional utama: Procurement · Finance · Aktivitas Pembelian */}
+      <div className="space-y-5" data-testid="dash-layer-1">
       {P && <>
         <SectionLabel testid="dash-section-procurement" extra={<SectionBadge testid="dash-procurement-asof">saldo terbuka s/d tanggal posisi · termasuk periode sebelumnya</SectionBadge>}>Procurement — {posLabel}</SectionLabel>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-8" data-testid="dash-procurement-kpis">
@@ -194,12 +197,29 @@ export default function Dashboard() {
           sub={c.money ? `${c.x.count} PO` : c.sub || sub(c.x) || (c.x.count ? "dokumen" : "Tidak ada")}
           onClick={() => go(c.k)} testid={`dash-kpi-${c.k}`} />)}
       </div>}
+      </div>{/* /Layer 1 */}
+
+      {/* LAYER 2 — Kontrol aset, budget & kontrak: Persediaan | SPK | Kontrak Harga Vendor */}
+      {(d.inventory?.stock || SP || VC) && <div className="grid grid-cols-1 gap-4 pt-1 xl:grid-cols-2 2xl:grid-cols-3" data-testid="dash-layer-2">
+        {d.inventory?.stock && <div className="min-w-0" data-testid="dash-section-inventory">
+          <InventoryPanel inv={d.inventory} f={f} nav={nav} onUnvalued={() => setUnvaluedOpen(true)} delay={260} /></div>}
+        {SP && <div className="min-w-0" data-testid="dash-section-spk">
+          <SpkSummaryCard spk={SP} subtitle={<span data-testid="dash-spk-asof">Posisi s/d {asOfLabel(SP.as_of)} · ikut Divisi &amp; Project</span>} onDrill={drillSpk} delay={300} /></div>}
+        {VC && <div className="min-w-0 xl:col-span-2 2xl:col-span-1" data-testid="dash-section-contract">
+          <ContractStatusPanel vc={VC} posLabel={`Posisi s/d ${asOfLabel(VC.as_of)}`} onDrill={drillContract} canDrill={!!perms.vendor_contract} nav={nav} delay={340} /></div>}
+      </div>}
+
+      {/* LAYER 3 — Analitik */}
+      <div data-testid="dash-layer-3">
       <div className="grid gap-4 xl:grid-cols-12">
-        <div className={`min-w-0 ${d.charts?.composition || d.supplier_rank ? "xl:col-span-6" : "xl:col-span-12"}`}><TrendChart trend={d.charts?.trend} delay={260} /></div>
-        {d.charts?.composition && <div className="min-w-0 xl:col-span-3"><StatusDonut composition={d.charts.composition} onPick={pickStatus} delay={320} /></div>}
-        {d.supplier_rank && <div className={`min-w-0 ${d.charts?.composition ? "xl:col-span-3" : "xl:col-span-6"}`}><TopSuppliers rank={d.supplier_rank} onPick={pickSupplier} delay={360} /></div>}
+        <div className={`min-w-0 ${d.charts?.composition || d.supplier_rank ? "xl:col-span-6" : "xl:col-span-12"}`}><TrendChart trend={d.charts?.trend} delay={380} /></div>
+        {d.charts?.composition && <div className="min-w-0 xl:col-span-3"><StatusDonut composition={d.charts.composition} onPick={pickStatus} delay={420} /></div>}
+        {d.supplier_rank && <div className={`min-w-0 ${d.charts?.composition ? "xl:col-span-3" : "xl:col-span-6"}`}><TopSuppliers rank={d.supplier_rank} onPick={pickSupplier} delay={460} /></div>}
+      </div>
       </div>
 
+      {/* LAYER 4 — Tindakan / monitoring */}
+      <div className="space-y-5" data-testid="dash-layer-4">
       <SectionLabel testid="dash-section-attention" extra={<SectionBadge testid="dash-attention-asof">saldo terbuka s/d tanggal posisi · termasuk periode sebelumnya</SectionBadge>}>Perlu Ditindaklanjuti — {posLabel}</SectionLabel>
       <div className="grid gap-4 xl:grid-cols-12">
         <div className={`min-w-0 ${F ? "xl:col-span-8" : "xl:col-span-12"}`}><AttentionTable attention={d.attention} finance={!!F} filters={f} delay={380} /></div>
@@ -207,42 +227,24 @@ export default function Dashboard() {
           <FinanceMonitor finance={F} periodLabel={posLabel} delay={430} onPick={(k) => go(k === "invoice_unpaid" ? "unpaid" : k)} />
         </div>}
       </div>
+      </div>
 
-      {d.inventory?.stock && <div className="dash-rise grid gap-3 rounded-2xl border border-slate-200/70 bg-card px-5 py-3 text-sm dark:border-slate-800 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" style={{ "--d": "500ms" }} data-testid="dash-inventory">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2" data-testid="dash-inventory-current">
-          <span className="flex items-center gap-2 font-medium text-slate-600"><Boxes className="h-4 w-4 text-[#3D5A80]" />Persediaan saat ini</span>
-          {[["total", "Jumlah Item", "text-slate-800"], ["out_of_stock", "Stok Habis", "text-[#A34B4B]"], ["low_stock", "Stok Menipis", "text-[#9A6A22]"], ["overstock", "Overstock", "text-[#5B5A8C]"]].map(([k, l, c]) =>
-            <button key={k} type="button" onClick={() => nav(inventoryLink(k, f))} className="flex items-baseline gap-1.5 rounded-md hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3D5A80]/40" data-testid={`dash-inventory-${k}`}>
-              <span className="text-xs text-slate-400">{l}</span><b className={`tabular-nums ${c}`} data-testid={`dash-inventory-${k}-value`}>{d.inventory.stock[k] ?? 0}</b></button>)}
-          <span className="text-[11px] text-slate-400">snapshot hari ini · barang aktif · ikut filter Divisi</span>
-        </div>
-        {d.inventory.inventory_value != null && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-200/70 pt-2 dark:border-slate-800 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0" data-testid="dash-inventory-valuation">
-          <span className="flex items-baseline gap-1.5" data-testid="dash-inventory-value" title={`${rupiah(d.inventory.inventory_value)} — engine valuation/MWA, termasuk barang nonaktif yang masih bersaldo`}>
-            <span className="text-xs text-slate-500">Nilai Persediaan per <span className="font-medium text-slate-700" data-testid="dash-inventory-value-asof">{asOfLabel(d.inventory.inventory_value_as_of)}</span></span>
-            <b className="tabular-nums text-slate-800" data-testid="dash-inventory-value-amount">{compactRupiah(d.inventory.inventory_value)}</b></span>
-          {d.inventory.unvalued_items > 0 && <button type="button" onClick={() => setUnvaluedOpen(true)} className="rounded-full bg-[#9A6A22]/10 px-2 py-0.5 text-[11px] text-[#9A6A22] underline-offset-2 transition-colors hover:bg-[#9A6A22]/20 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A6A22]/40" data-testid="dash-inventory-unvalued">
-            {d.inventory.unvalued_items} barang punya stok tetapi belum bernilai</button>}
-          {d.inventory.unreconstructable_pools > 0 && <span className="flex items-center gap-1 rounded-full bg-[#9A6A22]/10 px-2 py-0.5 text-[11px] text-[#9A6A22]" data-testid="dash-inventory-unreconstructable"
-            title={`${d.inventory.unreconstructable_items} barang punya stok lama tanpa saldo awal / riwayat valuation sebelum tanggal ini. Nilainya tidak diasumsikan (tidak memakai nilai saat ini), sehingga angka historis belum lengkap.`}>
-            <AlertTriangle className="h-3 w-3" />{d.inventory.unreconstructable_pools} pool persediaan historis belum dapat direkonstruksi</span>}
-        </div>}
+      {/* Detail lanjutan (section existing): Pemakaian Budget SPK + Price Control / Price Exception */}
+      {(SP?.with_value || VC?.price_control) && <div className="space-y-5" data-testid="dash-layer-detail">
+        {SP?.with_value && <>
+          <SectionLabel testid="dash-section-spk-detail" extra={<SectionBadge testid="dash-spk-detail-asof">posisi s/d tanggal akhir filter · ikut Divisi &amp; Project</SectionBadge>}>SPK &amp; Budget Control — Posisi s/d {asOfLabel(SP.as_of)}</SectionLabel>
+          <SpkDetailPanel spk={SP} onDrill={drillSpk} nav={nav} delay={540} />
+        </>}
+        {VC?.price_control && <>
+          <SectionLabel testid="dash-section-price" extra={<SectionBadge testid="dash-contract-semantics">status kontrak per tanggal posisi · Price Control per periode</SectionBadge>}>Kontrak Harga Vendor — Price Control</SectionLabel>
+          <div className="grid gap-4 xl:grid-cols-12" data-testid="dash-contract-grid">
+            <div className="min-w-0 xl:col-span-5">
+              <PriceControlPanel vc={VC} actLabel={`Price Control — ${actLabel} · ${periodText(f.period)}`} onDrill={drillPrice} delay={580} /></div>
+            <div className="min-w-0 xl:col-span-7">
+              <PriceExceptionTable vc={VC} actLabel={`${actLabel} · ${periodText(f.period)}`} nav={nav} onDrill={drillPrice} delay={620} /></div>
+          </div>
+        </>}
       </div>}
-
-      {SP && <>
-        <SectionLabel testid="dash-section-spk" extra={<SectionBadge testid="dash-spk-asof">posisi s/d tanggal akhir filter · ikut Divisi &amp; Project</SectionBadge>}>SPK &amp; Budget Control — Posisi s/d {asOfLabel(SP.as_of)}</SectionLabel>
-        <SpkBudgetPanel spk={SP} onDrill={drillSpk} nav={nav} delay={540} />
-      </>}
-
-      {VC && <>
-        <SectionLabel testid="dash-section-contract" extra={<SectionBadge testid="dash-contract-semantics">status kontrak per tanggal posisi · Price Control per periode</SectionBadge>}>Kontrak Harga Vendor</SectionLabel>
-        <div className="grid gap-4 xl:grid-cols-12" data-testid="dash-contract-grid">
-          <div className={`min-w-0 ${VC.price_control ? "xl:col-span-5" : "xl:col-span-12"}`}>
-            <ContractStatusPanel vc={VC} posLabel={`Posisi s/d ${asOfLabel(VC.as_of)}`} onDrill={drillContract} canDrill={!!perms.vendor_contract} nav={nav} delay={580} /></div>
-          {VC.price_control && <div className="min-w-0 xl:col-span-7">
-            <PriceControlPanel vc={VC} actLabel={`Price Control — ${actLabel} · ${periodText(f.period)}`} onDrill={drillPrice} delay={620} /></div>}
-        </div>
-        {VC.price_control && <PriceExceptionTable vc={VC} actLabel={`${actLabel} · ${periodText(f.period)}`} nav={nav} onDrill={drillPrice} delay={660} />}
-      </>}
     </div>}
     <DashboardDrillDialog drill={drill} onOpenChange={(o) => !o && setDrill(null)} nav={nav} />
     {d?.inventory?.unvalued_items > 0 && <UnvaluedStockDialog open={unvaluedOpen} onOpenChange={setUnvaluedOpen} divisionId={f.division_id} />}

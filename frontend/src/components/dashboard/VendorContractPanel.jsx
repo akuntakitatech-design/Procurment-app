@@ -13,13 +13,12 @@ export function PriceBadge({ status, testid }) {
   return <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${m.cls}`} data-testid={testid}>{m.label}</span>;
 }
 
-/** Status kontrak — POSISI s/d cut-off (date_to). Selalu count. */
+/** Layer 2 — Kontrak Harga Vendor: status kontrak POSISI s/d cut-off (date_to). Selalu count. */
 export function ContractStatusPanel({ vc, posLabel, onDrill, canDrill, nav, delay = 0 }) {
   const cards = contractKpiCards(vc?.contracts);
-  return <Panel title="Status Kontrak" icon={FileSignature} testid="dash-contract" delay={delay}
-    action={canDrill && <Button variant="ghost" size="sm" onClick={() => nav("/vendor-contracts")} className="h-8 rounded-lg text-[#3D5A80]" data-testid="dash-contract-detail">Daftar Kontrak<ArrowRight className="ml-1 h-3.5 w-3.5" /></Button>}>
-    <SubLabel testid="dash-contract-asof">{posLabel}</SubLabel>
-    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2" data-testid="dash-contract-kpis">
+  return <Panel title="Kontrak Harga Vendor" subtitle={<span data-testid="dash-contract-asof">{posLabel}</span>} icon={FileSignature} testid="dash-contract" delay={delay} className="h-full"
+    action={canDrill && <Button variant="ghost" size="sm" onClick={() => nav("/vendor-contracts")} className="h-8 shrink-0 rounded-lg text-[#3D5A80]" data-testid="dash-contract-detail">Lihat Detail<ArrowRight className="ml-1 h-3.5 w-3.5" /></Button>}>
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-2" data-testid="dash-contract-kpis">
       {cards.map((c, i) => <RingKpi key={c.key} label={c.label} icon={C_ICONS[c.key]} tone={c.tone} value={c.value} pct={c.pct} sub={c.sub}
         delay={delay + i * 40} onClick={canDrill && c.drill ? () => onDrill(c.drill) : undefined} testid={`dash-contract-kpi-${c.key}`} />)}
     </div>

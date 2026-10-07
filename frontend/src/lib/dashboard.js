@@ -220,6 +220,33 @@ export function spkKpiCards(spk) {
   ];
 }
 
+/** Ringkasan SPK untuk Layer 2 (kartu ringkas): turunan spkKpiCards — nilai & formula identik, tanpa hitung ulang.
+ *  Dengan spk:view: SPK Aktif · Budget · Commitment (sub Realisasi) · Sisa Budget. Tanpa: 4 kartu count. */
+export function spkSummaryCards(spk) {
+  const all = spkKpiCards(spk);
+  if (!spk?.with_value) return all;
+  const by = Object.fromEntries(all.map((c) => [c.key, c]));
+  const k = spk.kpi || {};
+  return [by.active, by.budget,
+    { ...by.commitment, sub: k.realization_pct == null ? "belum ada realisasi" : `realisasi ${pctText(k.realization_pct)}` },
+    by.remaining];
+}
+
+/** Kartu Persediaan (snapshot existing; angka apa adanya dari backend). */
+export function inventoryCards(inv = {}) {
+  const st = inv.stock || {};
+  const ratio = (a) => (st.total > 0 ? (a * 100) / st.total : null);
+  return [
+    { key: "total", label: "Jumlah Item", value: st.total ?? 0, tone: "navy", sub: "barang aktif" },
+    { key: "out_of_stock", label: "Stok Habis", value: st.out_of_stock ?? 0, tone: "red", pct: ratio(st.out_of_stock), sub: "dari jumlah item" },
+    { key: "low_stock", label: "Stok Menipis", value: st.low_stock ?? 0, tone: "amber", pct: ratio(st.low_stock), sub: "di bawah minimum" },
+    { key: "overstock", label: "Overstock", value: st.overstock ?? 0, tone: "indigo", pct: ratio(st.overstock), sub: "di atas maksimum" },
+  ];
+}
+
+/** Urutan layer Dashboard: Kondisi -> Kontrol -> Analisis -> Tindakan -> detail lain. */
+export const DASHBOARD_LAYERS = ["dash-layer-1", "dash-layer-2", "dash-layer-3", "dash-layer-4", "dash-layer-detail"];
+
 /** Kartu status kontrak (posisi cut-off) — selalu count. */
 export function contractKpiCards(c = {}) {
   const ratio = (a, b) => (b > 0 ? (a * 100) / b : null);

@@ -4,7 +4,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   barPct, contractDetailLink, contractDrillParams, contractKpiCards, drillUrl, exceptionColumns, pctText, poDetailLink,
-  priceDrillParams, priceKpiCards, spkDetailLink, spkDrillParams, spkKpiCards, SPK_LEVEL,
+  priceDrillParams, priceKpiCards, spkDetailLink, spkDrillParams, spkKpiCards, spkSummaryCards, inventoryCards, SPK_LEVEL,
 } from "./dashboard.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -15,11 +15,28 @@ const T = new Date(2026, 9, 7); // 7 Okt 2026
 const f = { period: "this_month", division_id: "d1", project_id: "p1", supplier_id: "s1" };
 const qp = (url) => new URLSearchParams(url.split("?")[1] || "");
 
-// 1–2. Urutan section: Persediaan -> SPK -> Kontrak Harga Vendor
+// 1–2. Urutan section (urutan render JSX = urutan DOM): Layer 1 -> Layer 2 (Persediaan | SPK | Kontrak) -> Layer 3 -> Layer 4
 const dash = src("../pages/Dashboard.jsx");
-const iInv = dash.indexOf('data-testid="dash-inventory"'), iSpk = dash.indexOf('testid="dash-section-spk"'), iVc = dash.indexOf('testid="dash-section-contract"');
-check("Section SPK muncul setelah Persediaan", iInv > 0 && iSpk > iInv, { iInv, iSpk });
-check("Section Kontrak Harga Vendor muncul setelah SPK", iVc > iSpk, { iSpk, iVc });
+const pos = (id) => dash.indexOf(`data-testid="${id}"`);
+const order = ["dash-layer-1", "dash-section-procurement", "dash-section-finance", "dash-section-activity",
+  "dash-layer-2", "dash-section-inventory", "dash-section-spk", "dash-section-contract",
+  "dash-layer-3", "dash-layer-4", "dash-section-attention", "dash-layer-detail"].map((id) => [id, dash.indexOf(id === "dash-section-procurement" || id === "dash-section-finance" || id === "dash-section-activity" || id === "dash-section-attention" ? `testid="${id}"` : `data-testid="${id}"`)]);
+check("Semua section/layer ada di Dashboard", order.every(([, i]) => i > 0), order.filter(([, i]) => i < 0));
+check("Urutan: Layer1 (Procurement, Finance, Aktivitas) -> Layer2 (Persediaan, SPK, Kontrak) -> Layer3 -> Layer4 -> detail",
+  order.every(([, i], k) => k === 0 || i > order[k - 1][1]), order);
+const l2 = pos("dash-layer-2"), l3 = pos("dash-layer-3");
+check("Section SPK muncul setelah Persediaan (dalam Layer 2)", pos("dash-section-inventory") > l2 && pos("dash-section-spk") > pos("dash-section-inventory") && pos("dash-section-spk") < l3);
+check("Section Kontrak Harga Vendor muncul setelah SPK (dalam Layer 2)", pos("dash-section-contract") > pos("dash-section-spk") && pos("dash-section-contract") < l3);
+const l3Block = dash.slice(l3, pos("dash-layer-4"));
+check("Layer 3 = Tren · Komposisi · Top 5 Supplier", /<TrendChart/.test(l3Block) && /<StatusDonut/.test(l3Block) && /<TopSuppliers/.test(l3Block));
+const l4Block = dash.slice(pos("dash-layer-4"), pos("dash-layer-detail"));
+check("Layer 4 = Perlu Ditindaklanjuti + Monitoring Finance", /<AttentionTable/.test(l4Block) && /<FinanceMonitor/.test(l4Block));
+const l2Block = dash.slice(l2, l3);
+check("Layer 2: desktop lebar 3 kolom, laptop 2 (Kontrak melebar), tablet/mobile 1", /grid grid-cols-1 gap-4 pt-1 xl:grid-cols-2 2xl:grid-cols-3" data-testid="dash-layer-2"/.test(dash)
+  && /xl:col-span-2 2xl:col-span-1" data-testid="dash-section-contract"/.test(dash));
+check("Layer 2 berisi InventoryPanel, SpkSummaryCard, ContractStatusPanel", /<InventoryPanel/.test(l2Block) && /<SpkSummaryCard/.test(l2Block) && /<ContractStatusPanel/.test(l2Block));
+check("Price Control & Price Exception tetap ada (detail lanjutan)", /<PriceControlPanel/.test(dash.slice(pos("dash-layer-detail"))) && /<PriceExceptionTable/.test(dash.slice(pos("dash-layer-detail"))));
+check("Kartu SPK Layer 2: subtitle posisi s/d SP.as_of", /dash-spk-asof">Posisi s\/d \{asOfLabel\(SP\.as_of\)\}/.test(dash));
 check("Judul SPK memakai tanggal posisi backend (as_of)", /SPK &amp; Budget Control — Posisi s\/d \{asOfLabel\(SP\.as_of\)\}/.test(dash));
 
 // 3. SPK memakai date_to saja
@@ -64,8 +81,19 @@ check("Tanpa spk:view: tidak ada placeholder Rp / nominal di kartu", !JSON.strin
 const withVal = spkKpiCards({ with_value: true, kpi: { active: 3, budget: 1000, commitment: 800, realization: 500, open_commitment: 300, remaining: 200, usage_pct: 80, realization_pct: 62.5 } });
 check("Dengan spk:view: 6 KPI (SPK Aktif, Budget, Commitment, Realisasi, Open, Sisa)", withVal.map((c) => c.key).join() === "active,budget,commitment,realization,open_commitment,remaining");
 check("Sisa Budget = nilai backend (Budget − Commitment = 200), bukan dihitung ulang frontend", withVal.find((c) => c.key === "remaining").value === 200);
-check("Panel SPK: daftar Top/Perhatian hanya dirender bila with_value", /\{wv && <div className="mt-6 grid/.test(spkPanel));
+check("Panel SPK: daftar Top/Perhatian hanya dirender bila with_value", /if \(!spk\?\.with_value\) return null;/.test(spkPanel));
 check("Frontend tidak menghitung Budget − Commitment − Realisasi", !/budget\s*-\s*k\.commitment\s*-|remaining\s*=.*realization/.test(spkPanel + src("./dashboard.js")));
+
+// 8b. Kartu ringkas Layer 2 = nilai backend yang sama (tanpa formula baru)
+const kv = { with_value: true, kpi: { active: 3, budget: 1000, commitment: 800, realization: 500, open_commitment: 300, remaining: 200, usage_pct: 80, realization_pct: 62.5 } };
+const sum = spkSummaryCards(kv);
+check("Ringkasan SPK Layer 2: SPK Aktif · Budget · Commitment · Sisa Budget", sum.map((c) => c.key).join() === "active,budget,commitment,remaining");
+check("Ringkasan SPK: nilai identik dengan KPI backend (Sisa 200 = Budget − Commitment)", sum.find((c) => c.key === "remaining").value === 200 && sum.find((c) => c.key === "commitment").value === 800 && sum.find((c) => c.key === "commitment").sub === "realisasi 62,5%");
+check("Ringkasan SPK tanpa spk:view: 4 kartu count, tanpa nominal", spkSummaryCards({ with_value: false, kpi: { active: 2 } }).every((c) => !c.money));
+const ic = inventoryCards({ stock: { total: 40, out_of_stock: 4, low_stock: 2, overstock: 1 } });
+check("Kartu Persediaan: Jumlah Item, Stok Habis, Stok Menipis, Overstock (angka backend apa adanya)", ic.map((c) => `${c.key}:${c.value}`).join() === "total:40,out_of_stock:4,low_stock:2,overstock:1" && ic[1].pct === 10);
+const invPanel = src("../components/dashboard/InventoryPanel.jsx");
+check("Persediaan: Nilai Persediaan + tombol Lihat Detail + drill existing inventoryLink", /Nilai Persediaan/.test(invPanel) && /dash-inventory-detail/.test(invPanel) && /nav\(inventoryLink\(c\.key, f\)\)/.test(invPanel));
 
 // 9. Permission harga
 const pc = { kpi: { po_ok: 41, po_over: 2, po_no_contract: 7, po_evaluated: 50, diff_value: 125000 } };

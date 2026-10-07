@@ -77,15 +77,17 @@ check("Link Menipis/Overstock", inventoryLink("low_stock").includes("Low+Stock")
 const inv = src("../pages/Inventory.jsx");
 check("Inventory memakai /inventory/item-stock (bukan agregasi /inventory/position)", inv.includes("/inventory/item-stock") && !inv.includes("/inventory/position") && !/function stockStatus/.test(inv));
 check("Inventory menampilkan 'Belum ada stok' untuk sel tanpa record", inv.includes("Belum ada stok"));
-check("Dashboard KPI Persediaan dari d.inventory.stock (Jumlah Item/Habis/Menipis/Overstock)", ["\"total\"", "\"out_of_stock\"", "\"low_stock\"", "\"overstock\""].every((k) => dash.includes(k)) && dash.includes("inventory_value != null"));
+// Persediaan dirender oleh InventoryPanel (Layer 2) dengan kartu dari inventoryCards (lib) — sumber data tetap d.inventory.
+const invp = src("../components/dashboard/InventoryPanel.jsx") + src("./dashboard.js");
+check("Dashboard KPI Persediaan dari d.inventory.stock (Jumlah Item/Habis/Menipis/Overstock)", dash.includes("inv={d.inventory}") && ["\"total\"", "\"out_of_stock\"", "\"low_stock\"", "\"overstock\""].every((k) => invp.includes(k)) && invp.includes("inventory_value != null"));
 
 check("asOfLabel format tanggal per", asOfLabel("2026-09-30") === "30/09/2026" && asOfLabel(null) === "hari ini");
-check("UI memisahkan 'Persediaan saat ini' (snapshot) dari 'Nilai Persediaan per' (tanggal akhir filter)", dash.includes("Persediaan saat ini") && dash.includes("snapshot hari ini") && dash.includes("Nilai Persediaan per"));
-check("Dashboard menampilkan tanggal per & info belum bernilai", dash.includes("inventory_value_as_of") && dash.includes("unvalued_items") && dash.includes("belum bernilai"));
+check("UI memisahkan 'Persediaan saat ini' (snapshot) dari 'Nilai Persediaan per' (tanggal akhir filter)", invp.includes("Persediaan saat ini") && invp.includes("snapshot hari ini") && invp.includes("Nilai Persediaan") && invp.includes("<>per <span"));
+check("Dashboard menampilkan tanggal per & info belum bernilai", invp.includes("inventory_value_as_of") && invp.includes("unvalued_items") && invp.includes("belum bernilai") && dash.includes("unvalued_items > 0"));
 check("Label kelompok: 'Posisi s/d' (Procurement/Finance/Perlu Ditindaklanjuti) vs 'Transaksi periode ini' (Aktivitas)", dash.includes("Posisi s/d ${asOfLabel(d?.as_of)}") && dash.includes('"Transaksi periode ini"')
   && ["Procurement — {posLabel}", "Finance — {posLabel}", "Aktivitas Pembelian — {actLabel}", "Perlu Ditindaklanjuti — {posLabel}"].every((t) => dash.includes(t)));
 check("Kartu aktivitas: Total PO, PO Disetujui, DP Sudah Dibayar", ['k: "po_all"', 'k: "approved"', 'k: "dp_paid"'].every((t) => dash.includes(t)));
-check("Peringatan pool historis belum dapat direkonstruksi", dash.includes("unreconstructable_pools") && dash.includes("pool persediaan historis belum dapat direkonstruksi"));
+check("Peringatan pool historis belum dapat direkonstruksi", invp.includes("unreconstructable_pools") && invp.includes("pool persediaan historis belum dapat direkonstruksi"));
 const unv = readFileSync(new URL("../components/dashboard/UnvaluedStockDialog.jsx", import.meta.url), "utf8");
 const oc = readFileSync(new URL("../components/OpeningCorrection.jsx", import.meta.url), "utf8");
 check("Label 'belum bernilai' clickable membuka detail", dash.includes("setUnvaluedOpen(true)") && dash.includes("<UnvaluedStockDialog"));

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowRight, Briefcase, CircleAlert, FileCheck2, Landmark, PackageCheck, PiggyBank, ShieldAlert, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SPK_LEVEL, barPct, compactRupiah, pctText, spkDetailLink, spkKpiCards } from "@/lib/dashboard";
+import { SPK_LEVEL, barPct, compactRupiah, pctText, spkDetailLink, spkSummaryCards } from "@/lib/dashboard";
 import { rupiah } from "@/lib/format";
 import { EmptyNote, Panel } from "./Panel";
 import { RingKpi, SubLabel } from "./RingKpi";
@@ -13,21 +13,39 @@ function Flag({ children }) {
   return <span className={`rounded-full px-1.5 py-px text-[10.5px] ${/Over|Kritis/.test(children) ? SPK_LEVEL.over.chip : SPK_LEVEL.warning.chip}`}>{children}</span>;
 }
 
-/** SPK & Budget Control — posisi s/d cut-off (date_to). Nominal & daftar SPK hanya bila backend mengirim (spk:view). */
-export function SpkBudgetPanel({ spk, onDrill, nav, delay = 0 }) {
+/** Layer 2 — kartu ringkas SPK & Budget Control (posisi s/d cut-off). Nominal hanya bila backend mengirim (spk:view). */
+export function SpkSummaryCard({ spk, subtitle, onDrill, delay = 0 }) {
   const wv = !!spk?.with_value;
   const [shown, setShown] = useState(false);
   useEffect(() => { const t = setTimeout(() => setShown(true), 140); return () => clearTimeout(t); }, [spk]);
-  const cards = spkKpiCards(spk);
-  return <Panel title="Ringkasan Budget SPK" icon={Briefcase} testid="dash-spk" delay={delay}
-    action={wv && <Button variant="ghost" size="sm" onClick={() => onDrill("active")} className="h-8 rounded-lg text-[#3D5A80]" data-testid="dash-spk-detail">Lihat Semua<ArrowRight className="ml-1 h-3.5 w-3.5" /></Button>}>
-    <div className={`grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${wv ? "lg:grid-cols-3 2xl:grid-cols-6" : "lg:grid-cols-4"}`} data-testid="dash-spk-kpis">
+  const cards = spkSummaryCards(spk);
+  const usage = spk?.kpi?.usage_pct;
+  const lv = SPK_LEVEL[usage > 100 ? "over" : usage > 90 ? "critical" : usage >= 80 ? "warning" : "normal"];
+  return <Panel title="SPK & Budget Control" subtitle={subtitle} icon={Briefcase} testid="dash-spk" delay={delay} className="h-full"
+    action={wv && <Button variant="ghost" size="sm" onClick={() => onDrill("active")} className="h-8 shrink-0 rounded-lg text-[#3D5A80]" data-testid="dash-spk-detail">Lihat Detail<ArrowRight className="ml-1 h-3.5 w-3.5" /></Button>}>
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2" data-testid="dash-spk-kpis">
       {cards.map((c, i) => <RingKpi key={c.key} label={c.label} icon={ICONS[c.key]} tone={c.tone} value={c.value} pct={c.pct}
         format={c.money ? compactRupiah : undefined} title={c.money ? rupiah(c.value) : undefined} sub={c.sub} delay={delay + i * 40}
         onClick={wv && c.drill ? () => onDrill(c.drill) : undefined} testid={`dash-spk-kpi-${c.key}`} />)}
     </div>
+    {wv && <div className="mt-3.5" data-testid="dash-spk-usage">
+      <div className="flex items-center justify-between text-[11.5px] text-slate-500"><span>Pemakaian budget (commitment ÷ budget)</span>
+        <b className={`tabular-nums ${lv.text}`} data-testid="dash-spk-usage-pct">{pctText(usage)}</b></div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+        <div className="h-full origin-left rounded-full transition-transform duration-700 ease-out" style={{ background: lv.bar, transform: `scaleX(${shown ? barPct(usage) / 100 : 0})` }} />
+      </div>
+    </div>}
     {!wv && <p className="mt-3 text-[12px] text-slate-400" data-testid="dash-spk-novalue">Nilai budget, commitment, dan daftar SPK hanya tampil untuk pengguna dengan izin Lihat SPK.</p>}
-    {wv && <div className="mt-6 grid gap-6 lg:grid-cols-2">
+  </Panel>;
+}
+
+/** Detail SPK (section lanjutan): Top 5 Pemakaian Budget + SPK Perlu Perhatian. Hanya dengan spk:view (daftar dari backend). */
+export function SpkDetailPanel({ spk, onDrill, nav, delay = 0 }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setShown(true), 140); return () => clearTimeout(t); }, [spk]);
+  if (!spk?.with_value) return null;
+  return <Panel title="Pemakaian Budget SPK" icon={Briefcase} testid="dash-spk-lists" delay={delay}>
+    <div className="grid gap-6 lg:grid-cols-2">
       <div className="min-w-0" data-testid="dash-spk-top">
         <SubLabel>Top 5 Pemakaian Budget SPK</SubLabel>
         {!spk?.top?.length ? <EmptyNote>Belum ada SPK aktif untuk filter ini.</EmptyNote> :
@@ -67,6 +85,6 @@ export function SpkBudgetPanel({ spk, onDrill, nav, delay = 0 }) {
               </button></li>; })}
           </ul>}
       </div>
-    </div>}
+    </div>
   </Panel>;
 }
