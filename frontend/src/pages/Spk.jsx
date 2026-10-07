@@ -4,6 +4,7 @@ import api, { API, apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Combobox } from "@/components/Combobox";
+import { MasterProjectCombobox } from "@/components/MasterRefCombobox";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Field } from "@/components/DatePicker";
 import { Button } from "@/components/ui/button";
@@ -227,7 +228,7 @@ export function SpkForm() {
             <Field label="Tanggal Berakhir"><Input type="date" value={form.end_date || ""} onChange={(e) => set("end_date", e.target.value)} /></Field>
             <Field label="Divisi"><Combobox options={divisions.map((d) => ({ value: d.id, label: d.name }))} value={form.division_id} onChange={(v) => set("division_id", v)} placeholder="Pilih divisi" /></Field>
             <Field label="PIC"><Combobox options={contacts.map((c) => ({ value: c.id, label: c.name }))} value={form.pic_id} onChange={(v) => set("pic_id", v)} placeholder="Pilih PIC" /></Field>
-            <Field label="Project / Site"><Combobox options={projects.map((p) => ({ value: p.id, label: p.name }))} value={form.project_id} onChange={(v) => set("project_id", v)} placeholder="Pilih project" /></Field>
+            <Field label="Project / Site"><MasterProjectCombobox options={projects.map((p) => ({ value: p.id, label: p.name }))} value={form.project_id} onChange={(v) => set("project_id", v)} onCreated={(doc) => setProjects((s) => [...s.filter((x) => x.id !== doc.id), doc])} placeholder="Pilih project" testid="spk-project-site" /></Field>
           </div>
         </Section>
 

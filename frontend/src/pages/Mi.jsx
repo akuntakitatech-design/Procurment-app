@@ -14,6 +14,8 @@ import { TransactionMutationActions } from "@/components/TransactionMutationActi
 import { TransactionPageHeader } from "@/components/TransactionPageHeader";
 import { DatePicker, Field } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
+import { MasterProjectCombobox, MasterUnitCombobox } from "@/components/MasterRefCombobox";
+import { inlinePrefill } from "@/lib/masterInline";
 import { DivisionField } from "@/components/DivisionField";
 import { divisionError, lineQtyError, sourceDivision } from "@/lib/txnValidation";
 import { ItemPicker } from "@/components/ItemPicker";
@@ -91,7 +93,7 @@ export function MiForm(){
       {/* HEADER Row 1 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Penerima Barang"><Input value={h.receiver||""} onChange={e=>setH({...h,receiver:e.target.value})} disabled={!editable} data-testid="mi-receiver"/></Field>{!direct&&<Field label="Pemohon MRO"><Input value={h.requester||""} disabled readOnly placeholder="Diwarisi dari MRO" data-testid="mi-requester"/></Field>}<Field label="Tanggal"><DatePicker value={h.date} onChange={v=>setH({...h,date:v})} disabled={!editable}/></Field><DivisionField testid="mi-division-field" options={masters.opts("divisions",d=>d.name)} value={h.division_id} onChange={v=>{setH({...h,division_id:v});setDivErr(null);}} disabled={!editable} locked={!direct&&lines.some(l=>l.mro_id)} lockedHint="Divisi mengikuti MRO sumber dan tidak dapat diubah." error={divErr}/></div>
       {/* HEADER Row 2 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Gudang Default"><Combobox options={whOpts} value={h.default_warehouse_id} onChange={v=>setH({...h,default_warehouse_id:v})} disabled={!editable}/></Field><DocumentHeaderDefaults h={h} setH={setH} masters={masters} readOnly={!editable} hideSpk/><Field label="Keperluan / Keterangan"><Input value={h.notes||""} onChange={e=>setH({...h,notes:e.target.value})} disabled={!editable}/></Field></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Gudang Default"><Combobox options={whOpts} value={h.default_warehouse_id} onChange={v=>setH({...h,default_warehouse_id:v})} disabled={!editable}/></Field><DocumentHeaderDefaults testidPrefix="mi" h={h} setH={setH} masters={masters} readOnly={!editable} hideSpk/><Field label="Keperluan / Keterangan"><Input value={h.notes||""} onChange={e=>setH({...h,notes:e.target.value})} disabled={!editable}/></Field></div>
 
       {/* ATTACHMENTS */}
       <div className="rounded-lg border bg-muted/10 p-4"><div className="mb-3 flex items-center gap-2"><Paperclip className="h-4 w-4 text-muted-foreground"/><h3 className="font-head text-sm font-semibold">Lampiran Pengeluaran</h3></div><AttachmentPanel entity="mi" entityId={id} pending={pending} onPendingChange={setPending}/></div>
@@ -108,8 +110,8 @@ export function MiForm(){
             <div className="w-[130px] shrink-0 truncate font-mono text-[11px] text-muted-foreground" data-testid={`mi-mro-ref-${i}`} title={l.mro_no||""}>{l.mro_no||<span className="italic">—</span>}</div>
             <div className="w-[170px] shrink-0 truncate text-xs text-muted-foreground" data-testid={`mi-alloc-${i}`} title={l.id?fmtMiAlloc(alloc.map[l.id]):(spkPrev[spkKey(l)]?fmtMiAlloc(spkPrev[spkKey(l)]):undefined)}>{miAllocCell(l,alloc.map,spkPrev)}</div>
             <div className="w-[140px] shrink-0">{(editable&&direct)?<Combobox options={whOpts} value={l.warehouse_id||""} onChange={v=>upd(i,{warehouse_id:v})} placeholder="Gudang"/>:<div className="truncate text-sm text-muted-foreground" data-testid={`mi-wh-${i}`} title={!direct?"Terkunci sesuai MRO":""}>{masters.map("warehouses")[l.warehouse_id]?.name||l.warehouse_name||"-"}{!direct&&<div className="text-[10px]">(terkunci MRO)</div>}</div>}</div>
-            <div className="w-[140px] shrink-0">{(editable&&direct)?<Combobox options={projOpts} value={l.project_id||""} onChange={v=>upd(i,{project_id:v})} placeholder="Proyek"/>:<div className="truncate text-sm text-muted-foreground">{masters.map("projects")[l.project_id]?.name||l.project_name||"-"}</div>}</div>
-            <div className="w-[130px] shrink-0">{(editable&&direct)?<Combobox options={unitOpts} value={l.unit_id||""} onChange={v=>upd(i,{unit_id:v})} placeholder="Unit/Aset"/>:<div className="truncate text-sm text-muted-foreground">{masters.map("units")[l.unit_id]?.name||l.unit_name||"-"}</div>}</div>
+            <div className="w-[140px] shrink-0">{(editable&&direct)?<MasterProjectCombobox masters={masters} options={projOpts} value={l.project_id||""} onChange={v=>upd(i,{project_id:v})} placeholder="Proyek" testid={`mi-project-${i}`}/>:<div className="truncate text-sm text-muted-foreground">{masters.map("projects")[l.project_id]?.name||l.project_name||"-"}</div>}</div>
+            <div className="w-[130px] shrink-0">{(editable&&direct)?<MasterUnitCombobox masters={masters} options={unitOpts} value={l.unit_id||""} onChange={v=>upd(i,{unit_id:v})} placeholder="Unit/Aset" prefill={()=>inlinePrefill("units",{division_id:h.division_id})} testid={`mi-unit-${i}`}/>:<div className="truncate text-sm text-muted-foreground">{masters.map("units")[l.unit_id]?.name||l.unit_name||"-"}</div>}</div>
             <div className="w-[75px] shrink-0 text-right text-sm tabular-nums">{direct?"—":numOrDash(l.qty_mro)}</div>
             <div className="w-[80px] shrink-0 text-right text-sm tabular-nums">{direct?"—":numOrDash(l.issued_before)}</div>
             <div className="w-[85px] shrink-0 text-right text-sm font-medium tabular-nums">{direct?"—":numOrDash(l.outstanding)}</div>

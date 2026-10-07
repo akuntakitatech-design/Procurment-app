@@ -10,6 +10,7 @@ import { DocumentMessageEditor, saveDocumentMessage } from "@/components/Documen
 import { TransactionMutationActions } from "@/components/TransactionMutationActions";
 import { DatePicker, Field } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
+import { MasterProjectCombobox } from "@/components/MasterRefCombobox";
 import { DivisionField } from "@/components/DivisionField";
 import { divisionError, lineQtyError } from "@/lib/txnValidation";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -77,7 +78,7 @@ export default function Transfer() {
           <DivisionField testid="trf-division-field" options={masters.opts("divisions")} value={h.division_id} onChange={(v) => { setH({ ...h, division_id: v }); setDivErr(null); }} error={divErr} />
           <Field label="Gudang Asal"><Combobox options={masters.opts("warehouses")} value={h.from_warehouse_id} onChange={(v) => setH({ ...h, from_warehouse_id: v })} testid="trf-from" /></Field>
           <Field label="Gudang Tujuan"><Combobox options={masters.opts("warehouses")} value={h.to_warehouse_id} onChange={(v) => setH({ ...h, to_warehouse_id: v })} testid="trf-to" /></Field>
-          <Field label="Proyek"><Combobox options={masters.opts("projects")} value={h.project_id} onChange={(v) => setH({ ...h, project_id: v })} /></Field>
+          <Field label="Proyek"><MasterProjectCombobox masters={masters} options={masters.opts("projects")} value={h.project_id} onChange={(v) => setH((s) => ({ ...s, project_id: v }))} testid="trf-project" /></Field>
           <Field label="Keterangan"><Input value={h.notes} onChange={(e) => setH({ ...h, notes: e.target.value })} /></Field>
         </div>
         <ItemLines lines={lines} onChange={setLines} masters={masters} fields={{ project: true, unit: true, notes: true }} stockWarehouse={() => h.from_warehouse_id} testidPrefix="trf" />

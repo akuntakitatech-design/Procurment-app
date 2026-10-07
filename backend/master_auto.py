@@ -32,7 +32,11 @@ REQUIRED_FIELDS = {
     "item_categories": [("name", "Nama Kategori")],
     "uoms": [("name", "Nama Satuan")],
     "suppliers": [("name", "Nama Supplier"), ("supplier_category_id", "Kategori Supplier")],
+    # Sama dengan field wajib form Master (req) & import Excel existing — kini juga ditegakkan di API.
+    "projects": [("name", "Nama Proyek")],
+    "units": [("name", "Nama Unit")],
 }
+PARTIAL_UPDATE_MASTERS = {"projects", "units"}
 CODE_LABEL = {"items": "Kode Barang", "item_categories": "Kode Kategori", "uoms": "Kode Satuan", "suppliers": "Kode Supplier"}
 
 
@@ -338,7 +342,8 @@ def install(server):
         if not existing:
             raise HTTPException(status_code=404, detail="Data master tidak ditemukan")
 
-        validate_required(name, body, require_code=name in CODE_LABEL)
+        # Project/Unit: field wajib dicek pada hasil gabungan (PUT parsial existing, mis. ubah kode saja, tetap valid).
+        validate_required(name, {**existing, **body} if name in PARTIAL_UPDATE_MASTERS else body, require_code=name in CODE_LABEL)
         update = await _prepare_body(server, name, body)
         update.pop("id", None)
         update.pop("_id", None)

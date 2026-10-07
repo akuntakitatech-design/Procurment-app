@@ -310,14 +310,16 @@ export function MasterFormDialog({ name, open, onOpenChange, form, setForm, refs
   );
 }
 
-export function MasterQuickCreate({ name, open, onClose, onCreated }) {
+export function MasterQuickCreate({ name, open, onClose, onCreated, prefill = null }) {
   const [form, setForm] = useState({});
   const [refs, setRefs] = useState({});
   useEffect(() => {
     if (!open) return;
-    newMasterForm(name).then(setForm);
+    // prefill hanya untuk field master existing (mis. Divisi Unit/Aset dari transaksi); kode & validasi tetap dari master.
+    const pre = Object.fromEntries(Object.entries(prefill || {}).filter(([, v]) => v !== undefined && v !== null && v !== ""));
+    newMasterForm(name).then((f) => setForm({ ...f, ...pre }));
     masterRefNames(name).forEach((rn) => api.get(`/lookup/${rn}`).then((r) => setRefs((s) => ({ ...s, [rn]: r.data }))).catch(() => {}));
-  }, [open, name]);
+  }, [open, name]); // eslint-disable-line react-hooks/exhaustive-deps
   return <MasterFormDialog name={name} open={open} onOpenChange={(o) => !o && onClose()} form={form} setForm={setForm} refs={refs} onSaved={(doc) => { onClose(); onCreated(doc); }} />;
 }
 
