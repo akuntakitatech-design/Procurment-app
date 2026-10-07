@@ -6,6 +6,11 @@ import time
 import uuid
 
 import requests
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+# fixture: tanggal hari ini (backdate guard valuasi menolak posting mundur relatif transaksi terakhir)
+TODAY = _dt.now(_tz.utc).date().isoformat()
+DUE = (_dt.now(_tz.utc) + _td(days=7)).date().isoformat()
 
 API = os.environ.get("TEST_API_URL", "http://item-warehouse-guard-api:8000/api").rstrip("/")
 ADMIN_EMAIL = os.environ["ADMIN_EMAIL"]
@@ -73,9 +78,9 @@ def main():
     item = master(s, "items", {"code": f"IWI{run}", "name": f"Barang IW {run}", "unit": "pcs", "division_id": div["id"]})
 
     seed = s.post(f"{API}/adjustments", json={
-        "date": "2026-09-21", "warehouse_id": wh["id"], "division_id": div["id"],
+        "date": TODAY, "warehouse_id": wh["id"], "division_id": div["id"],
         "adj_type": "Saldo Test", "reason": "Seed item-warehouse guard",
-        "lines": [{"item_id": item["id"], "adjustment": 20, "reason": "Saldo awal"}],
+        "lines": [{"item_id": item["id"], "adjustment": 20, "approved_unit_cost": 1000, "reason": "Saldo awal"}],
     }, timeout=15)
     check(seed.status_code == 200, "Saldo awal 20 dibuat melalui ledger")
     before = row(s, item["id"], wh["id"])

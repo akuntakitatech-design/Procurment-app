@@ -63,7 +63,14 @@ def main():
     check("tolak: barang berbeda dengan sumber", sc in (400, 404), (sc, r))
     b = ro_body(M, "item", 10, [src(m1, l1, 10)]); b["division_id"] = ""
     sc, r = call("POST", "ro", b)
-    check("tolak: divisi RO kosong", sc == 400 and "Divisi" in str(r), (sc, r))
+    # Divisi RO berbasis sumber MRO diwarisi & dikunci dari MRO (bukan dipilih bebas)
+    check("divisi RO kosong -> diwarisi dari MRO", sc == 200 and r.get("division_id") == M["div"]["id"], (sc, r))
+    if sc == 200:
+        dsc, _ = call("DELETE", f"transactions/ro/{r['id']}")
+        check("cleanup RO warisan divisi", dsc == 200, dsc)
+    b = ro_body(M, "item", 10, [src(m1, l1, 10)], div=dB["id"])
+    sc, r = call("POST", "ro", b)
+    check("tolak: divisi RO berbeda dari MRO sumber", sc == 400 and "Divisi" in str(r), (sc, r))
 
     # --- konsolidasi penuh 3 MRO -> 1 baris RO
     sc, ro1 = call("POST", "ro", ro_body(M, "item", 30, [src(m1, l1, 10), src(m2, l2, 15), src(m3, l3, 5)]), 200)

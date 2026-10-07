@@ -5,15 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-export function Combobox({ options, value, onChange, placeholder = "Pilih...", testid, disabled, dense = false, footerAction = null }) {
+export function Combobox({ options, value, onChange, placeholder = "Pilih...", testid, disabled, dense = false, footerAction = null, invalid = false }) {
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
   const selectedText = selected ? (selected.selectedLabel ?? selected.label) : placeholder;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" disabled={disabled} data-testid={testid}
-          className={cn("w-full justify-between font-normal h-9 text-sm", dense && "px-2")}>
+        <Button variant="outline" role="combobox" disabled={disabled} data-testid={testid} aria-invalid={invalid || undefined}
+          className={cn("w-full justify-between font-normal h-9 text-sm", dense && "px-2", invalid && "border-destructive ring-1 ring-destructive")}>
           <span className={cn("truncate", !selected && "text-muted-foreground")}>{selectedText}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>

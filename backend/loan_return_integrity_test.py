@@ -5,6 +5,11 @@ import sys
 import time
 import uuid
 import requests
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+# fixture: tanggal hari ini (backdate guard valuasi menolak posting mundur relatif transaksi terakhir)
+TODAY = _dt.now(_tz.utc).date().isoformat()
+DUE = (_dt.now(_tz.utc) + _td(days=7)).date().isoformat()
 
 API = os.environ.get("TEST_API_URL", "http://loan-return-api:8000/api").rstrip("/")
 ADMIN_EMAIL = os.environ["ADMIN_EMAIL"]
@@ -67,10 +72,10 @@ def return_docs(s, loan_id):
     return r.json()
 
 
-def make_loan(s, from_wh, to_wh, item_id, qty, label):
+def make_loan(s, from_wh, to_wh, item_id, qty, label, division_id=None):
     r = s.post(f"{API}/loans", json={
-        "date": "2026-09-20", "due_date": "2026-09-27",
-        "from_warehouse_id": from_wh, "to_warehouse_id": to_wh,
+        "date": TODAY, "due_date": DUE,
+        "from_warehouse_id": from_wh, "to_warehouse_id": to_wh, "division_id": division_id,  # Divisi wajib
         "requester": "Integrity Tester", "notes": label,
         "lines": [{"item_id": item_id, "qty": qty, "unit": "pcs", "notes": label}],
     }, timeout=15)
@@ -88,13 +93,13 @@ def main():
     item = master(s, "items", {"code": f"LRI{run}", "name": f"Bearing {run}", "unit": "pcs", "division_id": div["id"]})
 
     opening = s.post(f"{API}/adjustments", json={
-        "date": "2026-09-20", "warehouse_id": wh_a["id"], "division_id": div["id"],
+        "date": TODAY, "warehouse_id": wh_a["id"], "division_id": div["id"],
         "adj_type": "Saldo Awal Test", "reason": "Integrity test", "notes": "LOAN RETURN TEST",
-        "lines": [{"item_id": item["id"], "adjustment": 20, "reason": "opening"}],
+        "lines": [{"item_id": item["id"], "adjustment": 20, "approved_unit_cost": 1000, "reason": "opening"}],
     }, timeout=15)
     check(opening.status_code == 200, "Saldo awal 20 berhasil dibuat")
 
-    loan = make_loan(s, wh_a["id"], wh_b["id"], item["id"], 6, "LOAN UTAMA")
+    loan = make_loan(s, wh_a["id"], wh_b["id"], item["id"], 6, "LOAN UTAMA", div["id"])
     loan_id = loan["id"]
     d = detail(s, loan_id)
     line_id = d["lines"][0]["id"]
@@ -103,17 +108,17 @@ def main():
     check(approx(stock(s, item["id"], wh_b["id"]), 6), "Loan menambah stok peminjam menjadi 6")
 
     # Loan kedua untuk menguji foreign loan_line dan menjaga perhitungan stok tetap eksplisit.
-    loan2 = make_loan(s, wh_a["id"], wh_b["id"], item["id"], 2, "LOAN PEMBANDING")
+    loan2 = make_loan(s, wh_a["id"], wh_b["id"], item["id"], 2, "LOAN PEMBANDING", div["id"])
     foreign_line = detail(s, loan2["id"])["lines"][0]["id"]
     before = len(return_docs(s, loan_id))
     bad = s.post(f"{API}/loans/{loan_id}/return", json={
-        "date": "2026-09-20", "lines": [{"loan_line_id": foreign_line, "qty": 1}]
+        "date": TODAY, "lines": [{"loan_line_id": foreign_line, "qty": 1}]
     }, timeout=15)
     check(bad.status_code in (400, 409), "Baris dari loan lain ditolak")
     check(len(return_docs(s, loan_id)) == before, "Foreign-line gagal tidak meninggalkan return orphan")
 
     partial = s.post(f"{API}/loans/{loan_id}/return", json={
-        "date": "2026-09-20", "notes": "RETURN 2", "lines": [{"loan_line_id": line_id, "qty": 2}]
+        "date": TODAY, "notes": "RETURN 2", "lines": [{"loan_line_id": line_id, "qty": 2}]
     }, timeout=15)
     check(partial.status_code == 200, "Partial return 2 berhasil")
     d = detail(s, loan_id)
@@ -130,7 +135,7 @@ def main():
     a_before = stock(s, item["id"], wh_a["id"])
     b_before = stock(s, item["id"], wh_b["id"])
     over = s.post(f"{API}/loans/{loan_id}/return", json={
-        "date": "2026-09-20", "lines": [{"loan_line_id": line_id, "qty": 5}]
+        "date": TODAY, "lines": [{"loan_line_id": line_id, "qty": 5}]
     }, timeout=15)
     check(over.status_code in (400, 409), "Over-return ditolak")
     check(len(return_docs(s, loan_id)) == count_before, "Over-return gagal tidak meninggalkan header orphan")
@@ -140,7 +145,7 @@ def main():
     cap = s.get(f"{API}/loan-returns/{rid}/capability", timeout=15)
     check(cap.status_code == 200 and cap.json().get("can_edit") is True, "Return partial dapat diedit")
     edit = s.put(f"{API}/loan-returns/{rid}", json={
-        "date": "2026-09-20", "notes": "RETURN EDIT 1",
+        "date": TODAY, "notes": "RETURN EDIT 1",
         "lines": [{"loan_line_id": line_id, "qty": 1}],
     }, timeout=15)
     check(edit.status_code == 200, "Edit return 2 menjadi 1 berhasil")
@@ -157,7 +162,7 @@ def main():
     check(approx(stock(s, item["id"], wh_b["id"]), 8), "Delete return mengembalikan stok peminjam ke loan-only")
 
     full = s.post(f"{API}/loans/{loan_id}/return", json={
-        "date": "2026-09-20", "notes": "RETURN FULL", "lines": [{"loan_line_id": line_id, "qty": 6}]
+        "date": TODAY, "notes": "RETURN FULL", "lines": [{"loan_line_id": line_id, "qty": 6}]
     }, timeout=15)
     check(full.status_code == 200, "Full return berhasil")
     d = detail(s, loan_id)

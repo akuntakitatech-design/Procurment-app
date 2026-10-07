@@ -44,5 +44,19 @@ check("Footer: Jumlah PO", t.count === 3);
 check("Footer: Total DPP/PPN/Nilai", t.dpp === 350 && Math.abs(t.ppn - 16.5) < 1e-9 && Math.abs(t.total - 366.5) < 1e-9, t);
 check("Hari ini format YYYY-MM-DD", A.isoToday(new Date(2026, 9, 6)) === "2026-10-06");
 
+// Izin granular Approval 2
+const canOf = (...keys) => (k) => keys.includes(k);
+const vOnly = A.a2Access(canOf("po_approval2.view"), "Diajukan");
+check("view saja: tidak bisa submit/approve/export", vOnly.view && !vOnly.submit && !vOnly.approve && !vOnly.canExport && !vOnly.canUploadEvidence);
+const vSub = A.a2Access(canOf("po_approval2.view", "po_approval2.submit"), "Draft");
+check("view+submit: dapat mengajukan Draft (export), tidak approve", vSub.canExport && !vSub.approve);
+const vApp = A.a2Access(canOf("po_approval2.view", "po_approval2.approve"), "Diajukan");
+check("view+approve: approve & unggah bukti, tidak export", vApp.approve && vApp.canUploadEvidence && !vApp.canExport && !vApp.submit);
+const vPrDraft = A.a2Access(canOf("po_approval2.view", "po_approval2.print"), "Draft");
+const vPr = A.a2Access(canOf("po_approval2.view", "po_approval2.print"), "Diajukan");
+check("view+print: export batch Diajukan, tidak bisa mengajukan Draft", vPr.canExport && vPr.canPreview && !vPrDraft.canExport);
+check("tanpa view: semua tertutup", !A.a2Access(canOf("po_approval2.print", "po_approval2.submit"), "Draft").canExport);
+check("Key izin po_approval2.*", A.A2_PERM.view === "po_approval2.view" && A.A2_PERM.print === "po_approval2.print");
+
 console.log(fail ? `\n${fail} FAILED` : "\nALL PASSED");
 process.exit(fail ? 1 : 0);

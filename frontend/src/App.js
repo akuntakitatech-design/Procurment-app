@@ -19,6 +19,7 @@ import ExcelImport from "@/pages/ExcelImport";
 import MasterData from "@/pages/MasterData";
 import Inventory from "@/pages/Inventory";
 import Users from "@/pages/Users";
+import Profile from "@/pages/Profile";
 import Settings from "@/pages/Settings";
 import Reports from "@/pages/Reports";
 import TraceabilityPage from "@/pages/Traceability";
@@ -128,6 +129,7 @@ function App() {
               <Route path="/dp-supplier" element={<Protected><SupplierDp /></Protected>} />
               <Route path="/dp-supplier/:poId" element={<Protected><SupplierDpDetail /></Protected>} />
               <Route path="/users" element={<Protected><Users /></Protected>} />
+              <Route path="/profile" element={<Protected><Profile /></Protected>} />
               <Route path="/settings" element={<Protected><Settings /></Protected>} />
             </Routes>
           </AuthProvider>

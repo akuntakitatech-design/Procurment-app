@@ -293,8 +293,8 @@ async def _replace(server, module, did, body, user):
         "po": ("date","supplier_id","division_id","payment_term","currency","supplier_bank_id","default_tax_id","eta","default_warehouse_id","default_project_id","default_unit_id","spk","tax_inclusive","supplier_notes","internal_notes"),
         "do": ("date","supplier_id","supplier_dn","supplier_invoice","invoice_date","default_warehouse_id","default_project_id","default_unit_id","spk","receiver","notes"),
         "mi": ("date","division_id","default_warehouse_id","default_project_id","default_unit_id","spk","receiver","department","source_type","notes"),
-        "transfer": ("date","from_warehouse_id","to_warehouse_id","project_id","notes"),
-        "loan": ("date","from_warehouse_id","to_warehouse_id","due_date","project_id","requester","notes"),
+        "transfer": ("date","from_warehouse_id","to_warehouse_id","division_id","project_id","notes"),
+        "loan": ("date","from_warehouse_id","to_warehouse_id","division_id","due_date","project_id","requester","notes"),
         "adjustment": ("date","warehouse_id","division_id","project_id","adj_type","reason","notes"),
         "opname": ("date","warehouse_id","division_id","mode","scope","notes"),
     }[module]

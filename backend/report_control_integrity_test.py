@@ -53,7 +53,7 @@ def create_adjustment(s, div, wh, item, qty):
         "date": datetime.now(timezone.utc).date().isoformat(),
         "warehouse_id": wh["id"], "division_id": div["id"],
         "adj_type": "Saldo Test", "reason": "REPORT CONTROL TEST",
-        "lines": [{"item_id": item["id"], "adjustment": qty, "reason": "Saldo awal test"}],
+        "lines": [{"item_id": item["id"], "adjustment": qty, **({"approved_unit_cost": 1000} if qty > 0 else {}), "reason": "Saldo awal test"}],
     }, timeout=15)
     check(r.status_code == 200, f"Stok test {item['code']} berhasil dibuat")
     return r.json()
@@ -86,6 +86,8 @@ def create_mi(s, div, wh, item, unit, note):
 def main():
     wait_api()
     admin = login(ADMIN_EMAIL, ADMIN_PASSWORD)
+    # fixture: Direct MI default nonaktif (mi_mode mro_only) -> aktifkan untuk tenant test
+    check(admin.put(f"{API}/settings/mi", json={"mi_mode": "mro_plus_direct"}, timeout=15).status_code == 200, "Mode MI + Direct diaktifkan untuk test")
     run = uuid.uuid4().hex[:8]
     common = f"RPT{run}"
 

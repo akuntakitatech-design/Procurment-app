@@ -12,7 +12,8 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { StatusBadge } from "@/components/StatusBadge";
 import { AttachmentPanel, AuditPanel } from "@/components/DocMeta";
 import { Approval2Document } from "@/components/approval2/Approval2Document";
-import { approval2FileName, fmtA2Date, fmtDateTimeSafe, fmtPpn, fmtRp, toggleId } from "@/lib/approval2";
+import { a2Access, approval2FileName, fmtA2Date, fmtDateTimeSafe, fmtPpn, fmtRp, toggleId } from "@/lib/approval2";
+import { useAuth } from "@/context/AuthContext";
 import { ArrowLeft, CheckCheck, Download, Eye, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +31,7 @@ export default function Approval2Batch() {
   const { id } = useParams();
   const nav = useNavigate();
   const docRef = useRef(null);
+  const { can } = useAuth();
   const [b, setB] = useState(null);
   const [error, setError] = useState(null);
   const [sel, setSel] = useState([]);
@@ -80,7 +82,8 @@ export default function Approval2Batch() {
   if (error) return <div className="p-6"><Card><CardContent className="p-8 text-center" data-testid="approval2-batch-error"><div className="mb-3 text-destructive">{error}</div><Button variant="outline" onClick={load}>Coba lagi</Button></CardContent></Card></div>;
   if (!b) return <div className="space-y-4"><Skeleton className="h-10 w-1/3" /><Skeleton className="h-40 w-full" /><Skeleton className="h-64 w-full" /></div>;
   const isDraft = b.status === "Draft";
-  const canApprove = !isDraft && sel.length > 0 && evidenceCount > 0;
+  const acc = a2Access(can, b.status);
+  const canApprove = acc.approve && !isDraft && sel.length > 0 && evidenceCount > 0;
 
   return <div data-testid="approval2-batch-page">
     <Breadcrumb className="mb-3"><BreadcrumbList>
@@ -91,8 +94,8 @@ export default function Approval2Batch() {
     <PageHeader title={b.title} subtitle={`Pengajuan Approval 2 PO · ${b.no}`}>
       <Button variant="outline" onClick={() => nav("/approval?view=approval2")}><ArrowLeft className="h-4 w-4 mr-2" />Kembali</Button>
       <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4 mr-2" />Refresh</Button>
-      <Button variant="outline" onClick={doPreview} disabled={!!busy} data-testid="approval2-preview-jpeg"><Eye className="h-4 w-4 mr-2" />{busy === "preview" ? "Menyiapkan..." : "Preview JPEG"}</Button>
-      <Button onClick={doExport} disabled={!!busy} data-testid="approval2-export-jpeg"><Download className="h-4 w-4 mr-2" />{busy === "export" ? "Mengekspor..." : "Export JPEG"}</Button>
+      {acc.canPreview && <Button variant="outline" onClick={doPreview} disabled={!!busy} data-testid="approval2-preview-jpeg"><Eye className="h-4 w-4 mr-2" />{busy === "preview" ? "Menyiapkan..." : "Preview JPEG"}</Button>}
+      {acc.canExport && <Button onClick={doExport} disabled={!!busy} data-testid="approval2-export-jpeg"><Download className="h-4 w-4 mr-2" />{busy === "export" ? "Mengekspor..." : "Export JPEG"}</Button>}
     </PageHeader>
 
     <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
@@ -110,7 +113,7 @@ export default function Approval2Batch() {
       <Card><CardContent className="p-0">
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
           <div><div className="font-semibold">PO dalam Pengajuan</div><div className="text-xs text-muted-foreground">Centang hanya PO yang disetujui pimpinan. PO lain tetap Approval Level 2 Pending.</div></div>
-          <Button onClick={approve} disabled={!canApprove || !!busy} data-testid="approval2-approve-selected"><CheckCheck className="h-4 w-4 mr-2" />{busy === "approve" ? "Memproses..." : `Approve Terpilih${sel.length ? ` (${sel.length})` : ""}`}</Button>
+          {acc.approve ? <Button onClick={approve} disabled={!canApprove || !!busy} data-testid="approval2-approve-selected"><CheckCheck className="h-4 w-4 mr-2" />{busy === "approve" ? "Memproses..." : `Approve Terpilih${sel.length ? ` (${sel.length})` : ""}`}</Button> : <span className="text-xs text-muted-foreground" data-testid="approval2-approve-no-access">Anda tidak memiliki izin Approve Approval 2.</span>}
         </div>
         {isDraft && <div className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200" data-testid="approval2-draft-hint">Export JPEG terlebih dahulu agar pengajuan berstatus Diajukan.</div>}
         {!isDraft && evidenceCount === 0 && <div className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200" data-testid="approval2-evidence-hint">Upload Bukti Persetujuan Pimpinan sebelum Approve Terpilih.</div>}
@@ -135,7 +138,7 @@ export default function Approval2Batch() {
       <div className="space-y-5">
         <Card data-testid="approval2-evidence-card"><CardContent className="space-y-3 pt-6">
           <div><div className="font-semibold">Bukti Persetujuan Pimpinan *</div><div className="text-xs text-muted-foreground">Screenshot keputusan WA (JPG, JPEG, PNG, WEBP, PDF). Cukup sekali per batch; otomatis tampil di lampiran setiap PO yang di-approve.</div></div>
-          <AttachmentPanel entity="po_approval2_batch" entityId={b.id} canDelete={b.status !== "Selesai"} onFilesChange={onFilesChange} />
+          <AttachmentPanel entity="po_approval2_batch" entityId={b.id} canUpload={acc.canUploadEvidence} canDelete={acc.canUploadEvidence && b.status !== "Selesai"} onFilesChange={onFilesChange} />
         </CardContent></Card>
         <Card><CardContent className="pt-6"><div className="mb-3 font-semibold">Audit Trail</div><AuditPanel key={`${b.status}-${b.approved_count}-${b.export_count}-${evidenceCount}`} entity="po_approval2_batch" entityId={b.id} labels={A2_AUDIT_LABELS} /></CardContent></Card>
       </div>

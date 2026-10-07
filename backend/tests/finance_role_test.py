@@ -62,7 +62,8 @@ def main():
     sc, d = fin("POST", f"supplier-dp/{p1['id']}/draft", {})
     pid = (d.get("active_payment") or {}).get("id") if isinstance(d, dict) else None
     fs = requests.Session()
-    fs.headers.update({"Authorization": f"Bearer {requests.post(f'{T.API}/auth/login', json={'email': email, 'password': V.PW}).json()['token']}"})
+    # Satu sesi aktif per user: pakai token sesi Finance yang sama (multi-tab), bukan login kedua.
+    fs.headers.update({"Authorization": fin.S.headers["Authorization"]})
     up = SD.upload(pid, fs)[0] if pid else None
     sc2, ap = fin("POST", f"supplier-dp/payments/{pid}/approve", {"payment_date": "2026-06-05", "fund_source": "Bank BCA", "reference": "TRF-FIN"})
     check("F11. Finance: buat draft DP, upload bukti, approve pembayaran DP", sc == 200 and up == 200 and sc2 == 200, (sc, up, sc2, ap if sc2 != 200 else ""))

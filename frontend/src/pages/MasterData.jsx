@@ -7,6 +7,7 @@ import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
 import { Combobox } from "@/components/Combobox";
+import { SupplierDocuments } from "@/components/master/SupplierDocuments";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AttachmentPanel } from "@/components/DocMeta";
 import { Card, CardContent } from "@/components/ui/card";
@@ -203,6 +204,10 @@ function SupplierEditor({ form, setForm, refs, invalid }) {
         </div>)}
         <Button type="button" variant="outline" size="sm" onClick={() => setForm((s) => ({ ...s, banks: [...(s.banks || []), { bank_name: "", account_no: "", account_name: "", branch: "", currency: "IDR", is_primary: !(s.banks || []).length }] }))}><Plus className="h-4 w-4 mr-2" />Tambah Rekening</Button>
       </div>
+    </Section>
+
+    <Section title="Dokumen Supplier" subtitle="NPWP, KTP, NIB, SIUP, Akta, Rekening Bank, Surat Penawaran, Kontrak, dan dokumen pendukung lain.">
+      <SupplierDocuments supplierId={form.id} />
     </Section>
 
     <Section title="Ketentuan Pembelian" subtitle="Nilai default ini otomatis dibawa saat supplier dipilih pada PO dan tetap bisa disesuaikan di transaksi.">

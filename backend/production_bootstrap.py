@@ -263,6 +263,12 @@ import supplier_dp_layer  # noqa: E402
 import po_approval2_layer  # noqa: E402
 supplier_dp_layer.install(server)
 po_approval2_layer.install(server)  # PO Approval Level 2 via Pengajuan Batch
+import transaction_input_guard_layer  # noqa: E402
+transaction_input_guard_layer.install(server)  # Divisi wajib + Qty transaksi > 0 (create/edit/submit/post)
+import supplier_document_layer  # noqa: E402
+supplier_document_layer.install(server)  # Dokumen Supplier via attachment engine existing
+import user_profile_layer  # noqa: E402
+user_profile_layer.install(server)  # Profil Saya + Ganti Password (rotasi sesi)
 tenant_isolation_layer.install(server)
 
 # The subscription gate runs after isolation so it can enforce lifecycle access on every tenant

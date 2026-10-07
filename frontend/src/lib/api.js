@@ -18,12 +18,31 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Satu sesi aktif per user: backend menolak token sesi lama dengan pesan ini.
+export const SESSION_REPLACED_DETAIL = "Sesi Anda telah berakhir karena akun ini login di perangkat lain.";
+export const SESSION_REPLACED_REASON = "session_replaced";
+export function isSessionReplaced(error) {
+  return error?.response?.status === 401 && error?.response?.data?.detail === SESSION_REPLACED_DETAIL;
+}
+let redirecting = false;
+function endReplacedSession() {
+  clearToken();
+  if (redirecting || typeof window === "undefined") return;
+  if (window.location.pathname === "/login" && window.location.search.includes(SESSION_REPLACED_REASON)) return;
+  redirecting = true;
+  window.location.assign(`/login?reason=${SESSION_REPLACED_REASON}`);
+}
+
 let refreshing = null;
 api.interceptors.response.use(
   (r) => { if (String(r.config?.method || "get").toLowerCase() !== "get") clearLookupCache(); return r; },
   async (error) => {
-    const orig = error.config;
-    if (error.response?.status === 401 && !orig._retry && !orig.url.includes("/auth/")) {
+    const orig = error.config || {};
+    if (isSessionReplaced(error) && !String(orig.url || "").includes("/auth/login") && !String(orig.url || "").includes("/auth/logout")) {
+      endReplacedSession();
+      return Promise.reject(error);
+    }
+    if (error.response?.status === 401 && !orig._retry && !String(orig.url || "").includes("/auth/")) {
       orig._retry = true;
       try {
         refreshing = refreshing || api.post("/auth/refresh");
@@ -33,6 +52,7 @@ api.interceptors.response.use(
         return api(orig);
       } catch (e) {
         refreshing = null;
+        if (isSessionReplaced(e)) { endReplacedSession(); return Promise.reject(e); }
       }
     }
     return Promise.reject(error);
