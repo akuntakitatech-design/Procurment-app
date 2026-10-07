@@ -11,6 +11,8 @@ import { DataTable } from "@/components/invoice/DataTable";
 import { InvoiceSummary } from "@/components/invoice/InvoiceSummary";
 import { fmtD, optsOf } from "@/lib/invoice";
 import { useServerList } from "@/lib/serverList";
+import { useReportParams } from "@/components/dashboard/ReportFilterChip";
+import { useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 
 const INV_COLS = [
@@ -63,21 +65,24 @@ function RangeUI({ from, to, setFrom, setTo }) {
 }
 
 // Satu tab = satu list server-side (search/filter/sort/pagination di backend). Tab DO baru dimuat saat dibuka.
-function ServerTable({ url, defs, cols, from, to, setFrom, setTo, ...rest }) {
+function ServerTable({ url, defs, cols, from, to, setFrom, setTo, extra = {}, chip = null, ...rest }) {
   const [fParams, setFParams] = useState(() => Object.fromEntries(defs.map(([k]) => [`f_${k}`, ""])));
-  const list = useServerList(url, { ...fParams, date_from: from, date_to: to }, { facets: defs.map(([k]) => k).join(",") });
+  const list = useServerList(url, { ...fParams, ...extra, date_from: from, date_to: to }, { facets: defs.map(([k]) => k).join(",") });
   const fx = useFilterUI(defs, list.facets);
   const key = JSON.stringify(fx.params);
   useEffect(() => { setFParams(JSON.parse(key)); }, [key]);
-  return <DataTable columns={cols} server={list} filters={<>{fx.ui}<RangeUI from={from} to={to} setFrom={setFrom} setTo={setTo} /></>} {...rest} />;
+  return <DataTable columns={cols} server={list} filters={<>{chip}{fx.ui}<RangeUI from={from} to={to} setFrom={setFrom} setTo={setTo} /></>} {...rest} />;
 }
 
 export default function InvoiceMonitoring() {
   const nav = useNavigate();
   const { can } = useAuth();
-  const [tab, setTab] = useState("invoice");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [sp] = useSearchParams();
+  const rpt = useReportParams();
+  const [tab, setTab] = useState(sp.get("tab") === "do" ? "do" : "invoice");
+  const [from, setFrom] = useState(rpt.params.date_from || "");
+  const [to, setTo] = useState(rpt.params.date_to || "");
+  const { date_from: _df, date_to: _dt, ...rfx } = rpt.params; // tanggal dikelola RangeUI existing
   const rp = { from, to, setFrom, setTo };
   return (
     <div className="space-y-5" data-testid="invoice-monitoring-page">
@@ -88,11 +93,11 @@ export default function InvoiceMonitoring() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList><TabsTrigger value="invoice" data-testid="tab-invoice">Invoice Vendor</TabsTrigger><TabsTrigger value="do" data-testid="tab-do-billing">Status Penagihan DO</TabsTrigger></TabsList>
         <TabsContent value="invoice" className="mt-4">
-          <ServerTable url="/vendor-invoices" defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={1700}
+          <ServerTable url="/vendor-invoices" extra={tab === "invoice" ? rfx : {}} chip={tab === "invoice" && rpt.chip} defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={1700}
             emptyText="Belum ada invoice" searchPlaceholder="Cari supplier, no invoice, PO, DO, SPK, proyek..." onOpen={(r) => nav(`/invoice/${r.id}`)} />
         </TabsContent>
         <TabsContent value="do" className="mt-4">
-          {tab === "do" && <ServerTable url="/vendor-invoices/do-billing" defs={DO_FILTERS} cols={DO_COLS} {...rp} testidPrefix="do-billing" countLabel="DO" minWidth={1400}
+          {tab === "do" && <ServerTable url="/vendor-invoices/do-billing" extra={rfx} chip={rpt.chip} defs={DO_FILTERS} cols={DO_COLS} {...rp} testidPrefix="do-billing" countLabel="DO" minWidth={1400}
             emptyText="Belum ada DO" searchPlaceholder="Cari no DO, supplier, PO, SPK, proyek..." onOpen={(r) => nav(`/do/${r.do_id}`)} />}
         </TabsContent>
       </Tabs>

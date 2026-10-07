@@ -384,6 +384,8 @@ def install(server):
         rows.sort(key=lambda r: r["status"] == ST_APPROVED)
         return rows
 
+    server.SUPPLIER_DP_REPORT = list_dp  # Dashboard/Laporan: baris DP Supplier yang sama dengan list (scope + saldo)
+
     async def detail(po_id, user):
         po = await load_po(po_id, user)
         pays = await db().supplier_dp_payments.find({"po_id": po_id}, {"_id": 0}).sort("created_at", 1).to_list(1000)

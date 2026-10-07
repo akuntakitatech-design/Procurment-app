@@ -1,224 +1,190 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "@/lib/api";
-import { PageHeader } from "@/components/PageHeader";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import {
-  ShoppingCart, PackageCheck, Clock3, AlertTriangle, ShieldCheck, FileText,
-  ClipboardList, PackageMinus, Handshake, ArrowRight, ChevronDown, ChevronRight,
-  Boxes, Building2, Layers3, Plus
-} from "lucide-react";
-import { rupiah, num } from "@/lib/format";
+import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { InvoiceSummary } from "@/components/invoice/InvoiceSummary";
+import { useMasters } from "@/hooks/useMasters";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Combobox } from "@/components/Combobox";
+import { KpiCard } from "@/components/dashboard/KpiCard";
+import { TrendChart } from "@/components/dashboard/TrendChart";
+import { StatusDonut } from "@/components/dashboard/StatusDonut";
+import { TopSuppliers } from "@/components/dashboard/TopSuppliers";
+import { AttentionTable } from "@/components/dashboard/AttentionTable";
+import { FinanceMonitor } from "@/components/dashboard/FinanceMonitor";
+import { PERIODS, ccParams, compactRupiah, drillLink, periodText } from "@/lib/dashboard";
+import { rupiah } from "@/lib/format";
+import {
+  AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Clock3, FileClock, FileWarning, Hourglass, HandCoins,
+  Landmark, PackageCheck, PackageOpen, Plus, RefreshCw, RotateCcw, Send, Timer, Truck, AlarmClock, CircleAlert, Boxes,
+} from "lucide-react";
 
-const money = (v, allowed = true) => allowed && v != null ? rupiah(v) : "***";
-
-function MetricCard({ label, value, sub, icon: Icon, onClick, tone = "navy" }) {
-  const tones = {
-    navy: "bg-[#F4F7FB] text-[#244B72] ring-[#DDE7F2]",
-    green: "bg-[#F2F8F5] text-[#2F6B57] ring-[#D9EADF]",
-    amber: "bg-[#FBF7EF] text-[#9A6A22] ring-[#EEE2CA]",
-    red: "bg-[#FBF3F3] text-[#A34B4B] ring-[#EEDADA]",
-  };
-  return <button onClick={onClick} className="group rounded-2xl border bg-card p-4 sm:p-5 text-left transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_16px_40px_-28px_rgba(15,23,42,0.45)]">
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</div>
-        <div className="mt-2 truncate font-head text-2xl font-bold tracking-tight text-foreground sm:text-[28px]">{value}</div>
-        {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
-      </div>
-      {Icon && <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ${tones[tone] || tones.navy}`}><Icon className="h-4.5 w-4.5" /></div>}
-    </div>
-  </button>;
-}
-
-function SectionTitle({ title, subtitle, action }) {
-  return <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-    <div><h2 className="font-head text-lg font-semibold">{title}</h2>{subtitle && <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>}</div>
-    {action}
-  </div>;
-}
-
-function MiniRank({ title, icon: Icon, rows, financial }) {
-  const max = Math.max(...rows.map((r) => Number(r.value) || 0), 1);
-  return <Card className="rounded-2xl shadow-none"><CardContent className="p-5">
-    <div className="flex items-center gap-2"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/8 text-primary"><Icon className="h-4 w-4" /></div><h3 className="font-head text-sm font-semibold">{title}</h3></div>
-    <div className="mt-5 space-y-4">
-      {rows.length === 0 && <div className="text-sm text-muted-foreground">Belum ada data untuk periode ini.</div>}
-      {rows.map((r, i) => <div key={`${r.name}-${i}`}>
-        <div className="flex items-center justify-between gap-3 text-sm"><span className="truncate font-medium">{r.name}</span><span className="shrink-0 font-mono text-xs text-muted-foreground">{money(r.value, financial)}</span></div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(5, (Number(r.value) || 0) / max * 100)}%` }} /></div>
-      </div>)}
-    </div>
-  </CardContent></Card>;
-}
+const DEFAULT = { period: "this_month", division_id: "", project_id: "", supplier_id: "" };
+const REFRESH_MS = 5 * 60 * 1000;
 
 function SubscriptionBanner({ subscription }) {
   if (!subscription?.show_banner) return null;
   const danger = subscription.severity === "danger";
-  const style = danger
-    ? "border-[#EEDADA] bg-[#FBF3F3] text-[#8F3F3F]"
-    : "border-[#EEE2CA] bg-[#FBF7EF] text-[#80571D]";
   const label = ({ trial: "Masa Trial", active: "Langganan", grace: "Masa Tenggang", expired: "Langganan Berakhir", suspended: "Langganan Ditangguhkan" })[subscription.status] || "Informasi Langganan";
-  return <div className={`rounded-2xl border p-4 sm:p-5 ${style}`}>
-    <div className="flex items-start gap-3">
-      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <div className="font-head text-sm font-semibold">{label}</div>
-        <div className="mt-1 text-sm leading-6">{subscription.message}</div>
-        {subscription.tenant_code && <div className="mt-2 text-[11px] opacity-80">Kode Tenant: <span className="font-mono font-semibold">{subscription.tenant_code}</span></div>}
-      </div>
-    </div>
+  return <div className={`rounded-2xl border p-4 ${danger ? "border-[#EEDADA] bg-[#FBF3F3] text-[#8F3F3F]" : "border-[#EEE2CA] bg-[#FBF7EF] text-[#80571D]"}`} data-testid="dash-subscription-banner">
+    <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+      <div className="min-w-0 flex-1"><div className="font-head text-sm font-semibold">{label}</div><div className="mt-1 text-sm leading-6">{subscription.message}</div>
+        {subscription.tenant_code && <div className="mt-2 text-[11px] opacity-80">Kode Tenant: <span className="font-mono font-semibold">{subscription.tenant_code}</span></div>}</div></div>
+  </div>;
+}
+
+function Field({ label, children }) {
+  return <label className="flex min-w-0 flex-col gap-1.5"><span className="text-xs font-medium text-slate-500">{label}</span>{children}</label>;
+}
+
+function SectionLabel({ children, extra }) {
+  return <div className="flex items-center justify-between gap-3 pt-1"><h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">{children}</h2>{extra}</div>;
+}
+
+function LoadingState() {
+  return <div className="space-y-5" data-testid="dash-loading">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9">{Array.from({ length: 9 }).map((_, i) => <Skeleton key={i} className="h-[122px] rounded-2xl" />)}</div>
+    <div className="grid gap-4 xl:grid-cols-12"><Skeleton className="h-[330px] rounded-2xl xl:col-span-7" /><Skeleton className="h-[330px] rounded-2xl xl:col-span-5" /></div>
   </div>;
 }
 
 export default function Dashboard() {
+  const nav = useNavigate();
+  const { can } = useAuth();
+  const { data: m } = useMasters(["divisions", "projects", "suppliers"]);
+  const [f, setF] = useState(DEFAULT);
   const [d, setD] = useState(null);
-  const [p, setP] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [subscription, setSubscription] = useState(null);
-  const [expanded, setExpanded] = useState({});
-  const nav = useNavigate();
-  const { can } = useAuth();
+  const [updated, setUpdated] = useState(null);
 
-  useEffect(() => {
-    Promise.all([
-      api.get("/dashboard"),
-      api.get("/dashboard-premium"),
-      api.get("/subscription/status").catch(() => ({ data: null })),
-    ]).then(([base, premium, sub]) => {
-      setD(base.data);
-      setP(premium.data);
-      setSubscription(sub.data || null);
-    });
-  }, []);
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await api.get("/dashboard/control-center", { params: ccParams(f) });
+      setD(r.data); setUpdated(new Date());
+    } catch (e) { setError(apiError(e.response?.data?.detail) || "Dashboard gagal dimuat."); }
+    finally { setLoading(false); }
+  }, [f]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { const t = setInterval(load, REFRESH_MS); return () => clearInterval(t); }, [load]);
+  useEffect(() => { api.get("/subscription/status").then((r) => setSubscription(r.data)).catch(() => {}); }, []);
 
-  const dateText = useMemo(() => new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" }), []);
-  if (!d || !p) return <div className="rounded-2xl border bg-card p-6 text-sm text-muted-foreground">Memuat control center...</div>;
+  const scopeDivs = d?.scope?.divisions; // null = semua divisi; daftar = cakupan user (backend tetap menolak di luar cakupan)
+  const opts = useMemo(() => ({
+    div: [{ value: "", label: "Semua Divisi" },
+      ...(m.divisions || []).filter((x) => !scopeDivs || scopeDivs.includes(x.id)).map((x) => ({ value: x.id, label: x.name }))],
+    prj: [{ value: "", label: "Semua Project" }, ...(m.projects || []).map((x) => ({ value: x.id, label: x.name }))],
+    sup: [{ value: "", label: "Semua Supplier" }, ...(m.suppliers || []).map((x) => ({ value: x.id, label: x.name }))],
+  }), [m, scopeDivs]);
+  const set = (k) => (v) => setF((c) => ({ ...c, [k]: v || "" }));
+  const dirty = JSON.stringify(f) !== JSON.stringify(DEFAULT);
+  const perms = d?.permissions || {};
+  const go = (kind) => nav(drillLink(kind, f, perms));
+  const P = d?.procurement, F = d?.finance;
+  const val = (x, compact = true) => (x?.value == null ? null : compact ? compactRupiah(x.value) : rupiah(x.value));
+  const sub = (x, extra) => [val(x), extra].filter(Boolean).join(" · ");
+  const STATUS_KIND = { "Waiting Approval 1": "waiting_a1", "Ready Approval 2": "ready_a2", "Waiting Approval 2": "waiting_a2", "Approved": "approved" };
+  const pickStatus = (s) => {
+    if (STATUS_KIND[s]) return nav(drillLink(STATUS_KIND[s], f, {}));
+    const base = drillLink("po_all", f, {});
+    return nav(`${base}${base.includes("?") ? "&" : "?"}f_document_status=${encodeURIComponent(s)}`);
+  };
+  const pickSupplier = (id) => nav(drillLink("valid", { ...f, supplier_id: id }, {}));
 
-  const po = p.po || {};
-  const financial = !!p.financial_visible;
-  const attention = [
-    { label: "Approval menunggu tindakan", value: p.attention?.pending_approvals || 0, to: "/approval", tone: "amber" },
-    { label: "PO melewati estimasi datang", value: p.attention?.overdue_po || 0, to: "/po", tone: "red" },
-    { label: "Pinjaman melewati jatuh tempo", value: p.attention?.overdue_loans || 0, to: "/loan", tone: "amber" },
-    { label: "Item stok habis", value: d.stock?.out_of_stock || 0, to: "/inventory", tone: "red" },
-    { label: "Item stok menipis", value: d.stock?.low_stock || 0, to: "/inventory", tone: "amber" },
-  ].filter((x) => x.value > 0);
+  const procCards = P ? [
+    P.mro_open && { k: "mro_open", label: "MRO Belum Diproses", icon: ClipboardList, tone: "slate", x: P.mro_open, hint: "MRO yang masih memiliki sisa qty belum diproses menjadi RO / MI." },
+    P.ro_open && { k: "ro_open", label: "RO Belum Menjadi PO", icon: PackageOpen, tone: "slate", x: P.ro_open, hint: "RO yang masih memiliki sisa qty belum dibuatkan PO." },
+    { k: "waiting_a1", label: "Menunggu Approval 1", icon: Hourglass, tone: "amber", x: P.waiting_a1 },
+    { k: "ready_a2", label: "Siap Diajukan Approval 2", icon: Send, tone: "blue", x: P.ready_a2 },
+    { k: "waiting_a2", label: "Menunggu Approval 2", icon: Clock3, tone: "amber", x: P.waiting_a2 },
+    { k: "approved", label: "PO Disetujui", icon: CheckCircle2, tone: "green", x: P.approved },
+    { k: "not_received", label: "PO Belum Diterima", icon: Truck, tone: "navy", x: P.not_received },
+    { k: "partial", label: "PO Diterima Sebagian", icon: PackageCheck, tone: "indigo", x: P.partial },
+    { k: "late", label: "PO Terlambat", icon: Timer, tone: "red", x: P.late, alert: P.late.count > 0, hint: "Disetujui, belum diterima penuh, dan ETA sudah lewat." },
+  ].filter(Boolean) : [];
+  const finCards = F ? [
+    { k: "invoice_unbilled", label: "Invoice Belum Diterima", icon: FileClock, tone: "blue", x: F.invoice_unbilled, unit: "DO", hint: "Barang sudah diterima tetapi invoice supplier belum diterima seluruhnya." },
+    { k: "unpaid", label: "Invoice Belum Dibayar", icon: FileWarning, tone: "navy", x: F.invoice_unpaid, hint: "Invoice dengan sisa kewajiban (nilai − DP dialokasikan − pembayaran) > 0." },
+    { k: "due_soon", label: "Jatuh Tempo ≤ 7 Hari", icon: AlarmClock, tone: "amber", x: F.due_soon, alert: F.due_soon.count > 0 },
+    { k: "overdue", label: "Lewat Jatuh Tempo", icon: CircleAlert, tone: "red", x: F.overdue, alert: F.overdue.count > 0 },
+    { k: "payable", label: "Sisa Hutang Supplier", icon: Landmark, tone: "navy", x: F.payable, money: true, hint: "Σ max(nilai invoice − DP dialokasikan − pembayaran, 0)." },
+    F.dp_unallocated && { k: "dp_unallocated", label: "DP Supplier Belum Dialokasikan", icon: HandCoins, tone: "slate", x: F.dp_unallocated, money: true, hint: "DP yang sudah dibayar dikurangi DP yang sudah dialokasikan ke invoice." },
+  ].filter(Boolean) : [];
 
-  const flow = [
-    { code: "MRO", label: "Permintaan Material", value: d.mro_open, to: "/mro", icon: FileText },
-    { code: "RO", label: "Permintaan Pembelian", value: d.ro_open, to: "/ro", icon: ClipboardList },
-    { code: "PO", label: "PO Outstanding", value: d.po_outstanding, to: "/po", icon: ShoppingCart },
-    { code: "DO", label: "Diterima Hari Ini", value: d.do_today, to: "/do", icon: PackageCheck },
-    { code: "MI", label: "Keluar Hari Ini", value: d.mi_today, to: "/mi", icon: PackageMinus },
-  ];
-
-  return <div className="space-y-7">
-    <PageHeader title="Dashboard" subtitle={`Control center operasional · ${dateText}`}>
-      {can("create", "mro") && <Button variant="outline" onClick={() => nav("/mro/new")} className="rounded-xl" data-testid="dashboard-new-mro-btn"><Plus className="mr-2 h-4 w-4" />MRO Baru</Button>}
-      {can("create", "po") && <Button onClick={() => nav("/po/new")} className="rounded-xl" data-testid="dashboard-new-po-btn"><Plus className="mr-2 h-4 w-4" />PO Baru</Button>}
-    </PageHeader>
-
+  return <div className="space-y-5" data-testid="dashboard-page">
     <SubscriptionBanner subscription={subscription} />
-
-    <InvoiceDashboardSection />
-
-    <section className="space-y-4">
-      <SectionTitle title="Ringkasan Pembelian" subtitle={`Kinerja Purchase Order tahun ${p.year}. Nilai menggunakan basis DPP / sebelum pajak.`} />
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <MetricCard label="Total PO" value={num(po.total_docs)} sub={`${num(po.line_count)} item pembelian`} icon={ShoppingCart} onClick={() => nav("/po")} />
-        <MetricCard label="Closed" value={num(po.closed_lines)} sub="item selesai diterima" icon={ShieldCheck} tone="green" onClick={() => nav("/po")} />
-        <MetricCard label="Partial" value={num(po.partial_lines)} sub="item diterima sebagian" icon={Clock3} tone="amber" onClick={() => nav("/po")} />
-        <MetricCard label="Belum Diterima" value={num(po.not_received_lines)} sub="item belum diterima" icon={PackageMinus} tone="amber" onClick={() => nav("/po")} />
-        <MetricCard label="Over Delivery" value={num(po.over_delivery_lines)} sub="item melebihi qty PO" icon={AlertTriangle} tone={po.over_delivery_lines ? "red" : "green"} onClick={() => nav("/po")} />
-        <MetricCard label="Nilai PO" value={money(po.po_value, financial)} sub="DPP sebelum pajak" icon={ShoppingCart} />
-        <MetricCard label="Nilai Diterima" value={money(po.received_value, financial)} sub="berdasarkan harga PO" icon={PackageCheck} tone="green" />
-        <MetricCard label="Outstanding" value={money(po.outstanding_value, financial)} sub="qty pending × harga PO" icon={Clock3} tone="amber" />
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0">
+        <h1 className="font-head text-[26px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">Dashboard Procurement &amp; Finance</h1>
+        <p className="mt-1 text-sm text-slate-500">Ringkasan pembelian, penerimaan, invoice, dan hutang supplier.</p>
       </div>
-    </section>
-
-    <section className="space-y-4">
-      <SectionTitle title="Alur Operasional" subtitle="Posisi pekerjaan utama dari permintaan sampai barang keluar gudang." />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
-        {flow.map((x, i) => <div key={x.code} className="flex items-stretch gap-2">
-          <button onClick={() => nav(x.to)} className="flex-1 rounded-2xl border bg-card p-4 text-left transition-all hover:border-primary/25 hover:shadow-sm">
-            <div className="flex items-center justify-between"><span className="font-head text-xs font-bold tracking-[0.12em] text-primary">{x.code}</span><x.icon className="h-4 w-4 text-muted-foreground" /></div>
-            <div className="mt-3 font-head text-2xl font-bold">{num(x.value)}</div>
-            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{x.label}</div>
-          </button>
-          {i < flow.length - 1 && <div className="hidden items-center text-muted-foreground/40 sm:flex"><ArrowRight className="h-4 w-4" /></div>}
-        </div>)}
+      <div className="flex items-center gap-2">
+        <span className="hidden items-center gap-2 text-xs text-slate-400 md:flex" data-testid="dash-updated">
+          <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#5E9C82] opacity-40" /><span className="relative inline-flex h-2 w-2 rounded-full bg-[#5E9C82]" /></span>
+          {updated ? `Diperbarui ${updated.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}` : "Memuat..."}
+        </span>
+        <Button variant="outline" size="sm" onClick={load} disabled={loading} className="rounded-xl" data-testid="dash-refresh-btn"><RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />Muat Ulang</Button>
+        {can("create", "mro") && <Button variant="outline" size="sm" onClick={() => nav("/mro/new")} className="rounded-xl" data-testid="dashboard-new-mro-btn"><Plus className="mr-2 h-4 w-4" />MRO Baru</Button>}
       </div>
-    </section>
+    </div>
 
-    <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <Card className="rounded-2xl shadow-none"><CardContent className="p-5">
-        <SectionTitle title="Perlu Perhatian" subtitle="Item yang memerlukan tindakan operasional." />
-        <div className="mt-4 divide-y">
-          {attention.length === 0 && <div className="rounded-xl bg-[#F2F8F5] p-4 text-sm text-[#2F6B57]">Tidak ada isu kritis yang terdeteksi saat ini.</div>}
-          {attention.map((x) => <button key={x.label} onClick={() => nav(x.to)} className="flex w-full items-center gap-3 py-3 text-left hover:bg-muted/30 px-1 rounded-lg">
-            <span className={`h-2.5 w-2.5 rounded-full ${x.tone === "red" ? "bg-[#B54747]" : "bg-[#B7791F]"}`} />
-            <span className="flex-1 text-sm font-medium">{x.label}</span>
-            <span className="font-head text-lg font-bold">{num(x.value)}</span><ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </button>)}
+    <div className="dash-rise grid grid-cols-1 gap-3 rounded-2xl border border-slate-200/70 bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto] dark:border-slate-800" data-testid="dash-filters">
+      <Field label="Periode">
+        <Select value={f.period} onValueChange={set("period")}>
+          <SelectTrigger className="h-10 rounded-xl" data-testid="dash-filter-period"><CalendarDays className="mr-2 h-4 w-4 text-slate-400" /><SelectValue /></SelectTrigger>
+          <SelectContent>{PERIODS.map((p) => <SelectItem key={p.key} value={p.key} data-testid={`dash-period-${p.key}`}>{p.key === "this_month" ? `Bulan Ini (${periodText("this_month")})` : p.label}</SelectItem>)}</SelectContent>
+        </Select>
+      </Field>
+      <Field label="Divisi"><Combobox options={opts.div} value={f.division_id} onChange={set("division_id")} placeholder="Semua Divisi" testid="dash-filter-division" /></Field>
+      <Field label="Project"><Combobox options={opts.prj} value={f.project_id} onChange={set("project_id")} placeholder="Semua Project" testid="dash-filter-project" /></Field>
+      <Field label="Supplier"><Combobox options={opts.sup} value={f.supplier_id} onChange={set("supplier_id")} placeholder="Semua Supplier" testid="dash-filter-supplier" /></Field>
+      <div className="flex items-end"><Button variant="secondary" onClick={() => setF(DEFAULT)} disabled={!dirty} className="h-10 w-full rounded-xl lg:w-auto" data-testid="dash-filter-reset"><RotateCcw className="mr-2 h-4 w-4" />Reset</Button></div>
+    </div>
+
+    {error && <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#EEDADA] bg-[#FBF3F3] p-4 text-sm text-[#8F3F3F]" data-testid="dash-error">
+      <span>{error}</span><Button size="sm" variant="outline" onClick={load} data-testid="dash-retry-btn">Coba Lagi</Button></div>}
+    {!d && loading && <LoadingState />}
+
+    {d && <div className={`space-y-5 transition-opacity duration-200 ${loading ? "opacity-60" : "opacity-100"}`}>
+      {P && <>
+        <SectionLabel extra={<span className="text-xs text-slate-400">{periodText(f.period)}</span>}>Procurement</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9" data-testid="dash-procurement-kpis">
+          {procCards.map((c, i) => <KpiCard key={c.k} label={c.label} icon={c.icon} tone={c.tone} count={c.x.count} sub={sub(c.x) || (c.x.count ? "dokumen" : "Tidak ada")}
+            hint={c.hint} alert={c.alert} delay={i * 45} onClick={() => go(c.k)} testid={`dash-kpi-${c.k}`} />)}
         </div>
-      </CardContent></Card>
-
-      <Card className="rounded-2xl shadow-none"><CardContent className="p-5">
-        <SectionTitle title="Kesehatan Persediaan" subtitle="Ringkasan kondisi stok saat ini." />
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <button onClick={() => nav("/inventory")} className="rounded-xl bg-[#F4F7FB] p-4 text-left"><div className="text-xs text-muted-foreground">Total SKU</div><div className="mt-1 font-head text-2xl font-bold">{num(d.stock?.total)}</div></button>
-          <button onClick={() => nav("/inventory")} className="rounded-xl bg-[#F2F8F5] p-4 text-left"><div className="text-xs text-muted-foreground">Normal</div><div className="mt-1 font-head text-2xl font-bold text-[#2F6B57]">{num(d.stock?.normal)}</div></button>
-          <button onClick={() => nav("/inventory")} className="rounded-xl bg-[#FBF7EF] p-4 text-left"><div className="text-xs text-muted-foreground">Menipis</div><div className="mt-1 font-head text-2xl font-bold text-[#9A6A22]">{num(d.stock?.low_stock)}</div></button>
-          <button onClick={() => nav("/inventory")} className="rounded-xl bg-[#FBF3F3] p-4 text-left"><div className="text-xs text-muted-foreground">Habis</div><div className="mt-1 font-head text-2xl font-bold text-[#A34B4B]">{num(d.stock?.out_of_stock)}</div></button>
+      </>}
+      {F && <>
+        <SectionLabel>Finance — Hutang &amp; Pembayaran</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6" data-testid="dash-finance-kpis">
+          {finCards.map((c, i) => <KpiCard key={c.k} label={c.label} icon={c.icon} tone={c.tone} hint={c.hint} alert={c.alert} delay={200 + i * 45}
+            count={c.money ? c.x.value : c.x.count} format={c.money ? (v) => compactRupiah(v) : undefined}
+            sub={c.money ? `${c.x.count} ${c.k === "payable" ? "invoice" : "PO"}` : `${c.unit || "invoice"} · ${compactRupiah(c.x.value)}`}
+            onClick={() => go(c.k)} testid={`dash-kpi-${c.k}`} />)}
         </div>
-      </CardContent></Card>
-    </section>
+      </>}
 
-    <section className="space-y-4">
-      <SectionTitle title="Ringkasan Nilai Bulanan" subtitle="Klik bulan untuk melihat detail nilai per kategori barang." />
-      <Card className="rounded-2xl shadow-none overflow-hidden">
-        <CardContent className="p-0">
-          {!financial && <div className="p-5 text-sm text-muted-foreground">Nilai pembelian disembunyikan karena user tidak memiliki izin melihat harga pembelian.</div>}
-          {financial && <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm">
-            <thead className="bg-muted/55 text-[11px] uppercase tracking-wider text-muted-foreground"><tr><th className="p-3 text-left w-12"></th><th className="p-3 text-left">Bulan</th><th className="p-3 text-right">Nilai PO</th><th className="p-3 text-right">Nilai Diterima</th><th className="p-3 text-right">Outstanding</th></tr></thead>
-            <tbody>{p.monthly.map((r) => <MonthRows key={r.month} row={r} open={!!expanded[r.month]} toggle={() => setExpanded((s) => ({ ...s, [r.month]: !s[r.month] }))} />)}</tbody>
-          </table></div>}
-        </CardContent>
-      </Card>
-    </section>
+      <div className="grid gap-4 xl:grid-cols-12">
+        <div className={`min-w-0 ${d.charts?.composition ? "xl:col-span-7" : "xl:col-span-12"}`}><TrendChart trend={d.charts?.trend} delay={260} /></div>
+        {d.charts?.composition && <div className="min-w-0 xl:col-span-5"><StatusDonut composition={d.charts.composition} onPick={pickStatus} delay={320} /></div>}
+      </div>
 
-    <section className="grid gap-4 xl:grid-cols-2">
-      <MiniRank title="Top Kategori Pembelian" icon={Layers3} rows={p.top_categories || []} financial={financial} />
-      <MiniRank title="Top Supplier" icon={Building2} rows={p.top_suppliers || []} financial={financial} />
-    </section>
+      <div className="grid gap-4 xl:grid-cols-12">
+        <div className={`min-w-0 ${F || d.supplier_rank ? "xl:col-span-8" : "xl:col-span-12"}`}><AttentionTable attention={d.attention} finance={!!F} filters={f} delay={380} /></div>
+        {(F || d.supplier_rank) && <div className="flex min-w-0 flex-col gap-4 xl:col-span-4">
+          {F && <FinanceMonitor finance={F} periodLabel={periodText(f.period)} delay={430} onPick={(k) => go(k === "invoice_unpaid" ? "unpaid" : k)} />}
+          {d.supplier_rank && <TopSuppliers rank={d.supplier_rank} onPick={pickSupplier} delay={480} />}
+        </div>}
+      </div>
+
+      {d.inventory?.stock && <div className="dash-rise flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-slate-200/70 bg-card px-5 py-3 text-sm dark:border-slate-800" style={{ "--d": "500ms" }} data-testid="dash-inventory">
+        <span className="flex items-center gap-2 font-medium text-slate-600"><Boxes className="h-4 w-4 text-[#3D5A80]" />Kesehatan Persediaan</span>
+        {[["Total SKU", d.inventory.stock.total, "text-slate-800"], ["Normal", d.inventory.stock.normal, "text-[#3D7A62]"], ["Menipis", d.inventory.stock.low_stock, "text-[#9A6A22]"], ["Habis", d.inventory.stock.out_of_stock, "text-[#A34B4B]"]].map(([l, v, c]) =>
+          <button key={l} type="button" onClick={() => nav("/inventory")} className="flex items-baseline gap-1.5 hover:underline" data-testid={`dash-inventory-${l.toLowerCase().replace(/\s+/g, "-")}`}><span className="text-xs text-slate-400">{l}</span><b className={`tabular-nums ${c}`}>{v ?? 0}</b></button>)}
+        <span className="ml-auto text-[11px] text-slate-400">Snapshot saat ini · tidak dipengaruhi filter periode</span>
+      </div>}
+    </div>}
   </div>;
-}
-
-function MonthRows({ row, open, toggle }) {
-  return <>
-    <tr className="border-t hover:bg-muted/25 cursor-pointer" onClick={toggle}>
-      <td className="p-3 text-center">{open ? <ChevronDown className="inline h-4 w-4 text-muted-foreground" /> : <ChevronRight className="inline h-4 w-4 text-muted-foreground" />}</td>
-      <td className="p-3 font-mono text-xs font-semibold">{row.month}</td>
-      <td className="p-3 text-right font-medium">{rupiah(row.po_value)}</td>
-      <td className="p-3 text-right">{rupiah(row.received_value)}</td>
-      <td className="p-3 text-right font-semibold">{rupiah(row.outstanding)}</td>
-    </tr>
-    {open && (row.categories || []).map((c) => <tr key={`${row.month}-${c.category}`} className="border-t bg-muted/18">
-      <td></td><td className="p-3 pl-8 text-xs text-muted-foreground">↳ {c.category}</td><td className="p-3 text-right text-xs">{rupiah(c.po_value)}</td><td className="p-3 text-right text-xs">{rupiah(c.received_value)}</td><td className="p-3 text-right text-xs font-medium">{rupiah(c.outstanding)}</td>
-    </tr>)}
-  </>;
-}
-
-function InvoiceDashboardSection() {
-  const { can } = useAuth();
-  const nav = useNavigate();
-  if (!can("invoice.view")) return null;
-  return <section className="space-y-4" data-testid="dashboard-invoice-section">
-    <div className="flex items-end justify-between"><SectionTitle title="Invoice Vendor" subtitle="Ringkasan penerimaan invoice, pembayaran, dan jatuh tempo hutang vendor." />
-      <Button variant="outline" size="sm" onClick={() => nav("/invoice")} data-testid="dashboard-invoice-open">Buka Monitoring</Button></div>
-    <InvoiceSummary compact />
-  </section>;
 }

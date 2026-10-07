@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { apiError } from "@/lib/api";
 import { useServerList } from "@/lib/serverList";
+import { useReportParams } from "@/components/dashboard/ReportFilterChip";
 import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { MasterQuickCreate } from "@/pages/MasterData";
 import { useAuth } from "@/context/AuthContext";
@@ -41,7 +42,8 @@ function FlowMini({ stage }) {
 export function MroList() {
   const nav = useNavigate(); const [stageFilter, setStageFilter] = useState("all");
   // Server-side: lifecycle (Request/RO/PO/DO/MI) & tahap dihitung backend dalam batch; tanpa /reports/mro-traceability.
-  const list = useServerList("/mro", { f_lifecycle_stage: stageFilter === "all" ? "" : stageFilter }, { counts: "lifecycle_stage" });
+  const rp = useReportParams();
+  const list = useServerList("/mro", { f_lifecycle_stage: stageFilter === "all" ? "" : stageFilter, ...rp.params }, { counts: "lifecycle_stage" });
   const reload = list.reload;
   const counts = useMemo(() => { const c = list.facets["count:lifecycle_stage"] || {}; return { all: Object.values(c).reduce((a, b) => a + b, 0), ...c }; }, [list.facets]);
   const cards = [{ key:"all",label:"Total MRO",desc:"Seluruh transaksi"},{key:"MRO",label:"Belum ke RO",desc:"Masih di tahap MRO"},{key:"RO",label:"Sampai RO",desc:"Belum menjadi PO"},{key:"PO",label:"Sampai PO",desc:"Belum ada penerimaan"},{key:"DO",label:"Sampai DO",desc:"Barang sudah diterima"},{key:"MI",label:"Sampai MI",desc:"Pengeluaran masih partial"},{key:"Completed",label:"Selesai",desc:"MI memenuhi request"}];
@@ -50,7 +52,7 @@ export function MroList() {
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7 mb-5">{cards.map((c) => <button key={c.key} onClick={() => setStageFilter(c.key)} className={`rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${stageFilter === c.key ? "border-primary ring-1 ring-primary/20" : ""}`}><div className="text-2xl font-bold tabular-nums" data-testid={`mro-stage-count-${c.key}`}>{counts[c.key] || 0}</div><div className="mt-1 text-sm font-semibold">{c.label}</div><div className="mt-0.5 text-[11px] text-muted-foreground">{c.desc}</div></button>)}</div>
     {list.error && !list.loading && <div className="rounded-xl border bg-card p-10 text-center shadow-sm" data-testid="mro-error"><p className="mb-3 text-muted-foreground">Daftar MRO belum dapat dimuat.</p><Button variant="outline" onClick={reload} data-testid="mro-retry">Coba Lagi</Button></div>}
     {!(list.error && !list.loading) && <TxnList module="mro" columns={columns} server={list} testidPrefix="mro" onReload={reload} resetKey={stageFilter} minWidth={1600} emptyText="Belum ada transaksi pada filter ini"
-      filters={stageFilter !== "all" && <Button variant="outline" onClick={()=>setStageFilter("all")}>Tampilkan Semua</Button>}
+      filters={<>{rp.chip}{stageFilter !== "all" && <Button variant="outline" onClick={()=>setStageFilter("all")}>Tampilkan Semua</Button>}</>}
       onOpen={(r)=>nav(`/mro/${r.id}`)} onEdit={(r)=>nav(`/mro/${r.id}?edit=1`)} onPrint={async (r)=>{const d=await api.get(`/mro/${r.id}`);printDoc("MRO",d.data);}}/>}
   </div>;
 }
