@@ -20,13 +20,24 @@ const dash = src("../pages/Dashboard.jsx");
 const pos = (id) => dash.indexOf(`data-testid="${id}"`);
 const order = ["dash-layer-1", "dash-section-procurement", "dash-section-finance", "dash-section-activity",
   "dash-layer-2", "dash-section-inventory", "dash-section-spk", "dash-section-contract",
-  "dash-layer-3", "dash-layer-4", "dash-section-attention", "dash-layer-detail"].map((id) => [id, dash.indexOf(id === "dash-section-procurement" || id === "dash-section-finance" || id === "dash-section-activity" || id === "dash-section-attention" ? `testid="${id}"` : `data-testid="${id}"`)]);
+  "dash-layer-spk-detail", "dash-section-spk-detail", "dash-layer-3", "dash-layer-4", "dash-section-attention", "dash-layer-detail"].map((id) => [id, dash.indexOf(id === "dash-section-procurement" || id === "dash-section-finance" || id === "dash-section-activity" || id === "dash-section-attention" || id === "dash-section-spk-detail" ? `testid="${id}"` : `data-testid="${id}"`)]);
 check("Semua section/layer ada di Dashboard", order.every(([, i]) => i > 0), order.filter(([, i]) => i < 0));
 check("Urutan: Layer1 (Procurement, Finance, Aktivitas) -> Layer2 (Persediaan, SPK, Kontrak) -> Layer3 -> Layer4 -> detail",
   order.every(([, i], k) => k === 0 || i > order[k - 1][1]), order);
 const l2 = pos("dash-layer-2"), l3 = pos("dash-layer-3");
 check("Section SPK muncul setelah Persediaan (dalam Layer 2)", pos("dash-section-inventory") > l2 && pos("dash-section-spk") > pos("dash-section-inventory") && pos("dash-section-spk") < l3);
 check("Section Kontrak Harga Vendor muncul setelah SPK (dalam Layer 2)", pos("dash-section-contract") > pos("dash-section-spk") && pos("dash-section-contract") < l3);
+check("Pemakaian Budget SPK tepat setelah baris Persediaan | SPK | Kontrak (sebelum Analitik)", pos("dash-layer-spk-detail") > pos("dash-section-contract") && pos("dash-layer-spk-detail") < l3
+  && /<SpkDetailPanel/.test(dash.slice(pos("dash-layer-spk-detail"), l3)));
+const l1Block = dash.slice(pos("dash-layer-1"), l2);
+check("Layer 1 gaya referensi: 3 panel berpita (Procurement navy, Finance & Aktivitas teal) satu baris di layar lebar",
+  (l1Block.match(/<ControlSection/g) || []).length === 3 && /band="navy"/.test(l1Block) && (l1Block.match(/band="teal"/g) || []).length === 2
+  && /min-\[1680px\]:grid-cols-\[11fr_7fr_6fr\]/.test(dash) && /data-testid="dash-layer-1"/.test(dash));
+check("Layer 1: Procurement = RingStat, Finance = SoftStat, Aktivitas = ActivityStat; testid KPI existing dipertahankan",
+  /<RingStat/.test(l1Block) && /<SoftStat/.test(l1Block) && /<ActivityStat/.test(l1Block) && (l1Block.match(/testid=\{`dash-kpi-\$\{c\.k\}`\}/g) || []).length === 3);
+const ctl = src("../components/dashboard/ControlPanels.jsx");
+check("Panel Layer 1: count/sub testid existing (-count, -sub) dan tombol Lihat Detail", (ctl.match(/`\$\{testid\}-count`/g) || []).length === 3 && (ctl.match(/`\$\{testid\}-sub`/g) || []).length === 3 && /Lihat Detail/.test(ctl));
+check("Bar mini Aktivitas dari seri tren existing (tanpa data sintetis 'periode lalu')", /d\?\.charts\?\.trend\?\.series/.test(dash) && !/periode lalu/.test(ctl + dash));
 const l3Block = dash.slice(l3, pos("dash-layer-4"));
 check("Layer 3 = Tren · Komposisi · Top 5 Supplier", /<TrendChart/.test(l3Block) && /<StatusDonut/.test(l3Block) && /<TopSuppliers/.test(l3Block));
 const l4Block = dash.slice(pos("dash-layer-4"), pos("dash-layer-detail"));
