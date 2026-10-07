@@ -4,6 +4,10 @@ const MAP = {
   draft: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700",
   open: "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border-blue-200 dark:border-blue-800",
   "waiting approval": "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800",
+  // Status Dokumen PO (derived backend): posisi PO pada Approval 1 / Approval 2
+  "waiting approval 1": "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800",
+  "ready approval 2": "bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border-sky-200 dark:border-sky-800",
+  "waiting approval 2": "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800",
   submitted: "bg-amber-50 text-amber-700 border-amber-200",
   pending: "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800",
   waiting: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-300 dark:border-slate-700",
@@ -56,6 +60,7 @@ const MAP = {
 
 const LABEL_ID = {
   draft: "Draft", open: "Terbuka", "waiting approval": "Menunggu Persetujuan", approved: "Disetujui", rejected: "Ditolak",
+  "waiting approval 1": "Menunggu Approval 1", "ready approval 2": "Siap Diajukan Approval 2", "waiting approval 2": "Menunggu Approval 2",
   partial: "Sebagian", "partial ordered": "Sebagian di-PO", "fully ordered": "Penuh di-PO", "partial returned": "Kembali Sebagian",
   "partially received": "Diterima Sebagian", "fully received": "Diterima Penuh", "over receipt": "Penerimaan Berlebih",
   posted: "Diposting", completed: "Selesai", closed: "Ditutup", cancelled: "Dibatalkan", submitted: "Diajukan",

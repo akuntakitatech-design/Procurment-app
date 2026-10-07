@@ -93,6 +93,66 @@ def document_status(po, rs):
     return "Closed" if rs in ("Diterima Penuh", "Over Receipt") else "Approved"
 
 
+# ------------------------------------------------------------------ Status Dokumen PO (derived display)
+# PO.status / receipt_status tetap state existing (dipakai source picker, approval, receipt control, dst).
+# Untuk tampilan list/detail, tahap "Waiting Approval" dipecah sesuai posisi PO pada Approval 1 / Approval 2
+# dari state aktual approval_tasks + po_approval2_batch(_items). Tidak disimpan ke DB.
+DOC_WAITING_A1, DOC_READY_A2, DOC_WAITING_A2 = "Waiting Approval 1", "Ready Approval 2", "Waiting Approval 2"
+A2_SUBMITTED_BATCH = ("diajukan", "selesai sebagian")
+
+
+async def po_approval_stage_map(server, pos):
+    """{po_id: stage} hanya untuk PO berstatus Waiting Approval. Batch-load (tanpa N+1).
+    stage: Rejected | Waiting Approval 1 | Ready Approval 2 | Waiting Approval 2 | None (fallback legacy)."""
+    ids = [p["id"] for p in pos or [] if p.get("id") and _norm(p.get("status")) == "waiting approval"
+           and p.get("cancelled") is not True]
+    if not ids:
+        return {}
+    db = server.db
+    tasks = await db.approval_tasks.find({"module": "po", "document_id": {"$in": ids}}, {"_id": 0}).to_list(100000)
+    by_po = {}
+    for t in tasks:
+        by_po.setdefault(t.get("document_id"), []).append(t)
+    legacy_ids = [i for i in ids if i not in by_po]
+    if legacy_ids:  # data lama: hanya mirror po_approvals
+        for t in await db.po_approvals.find({"po_id": {"$in": legacy_ids}}, {"_id": 0}).to_list(100000):
+            by_po.setdefault(t.get("po_id"), []).append(t)
+
+    def current(ts):
+        pend = [t for t in ts if _norm(t.get("status")) == "pending"]
+        return min(pend, key=lambda t: int(t.get("seq") or 0)) if pend else None
+
+    l2_ids = [c["id"] for ts in by_po.values() if (c := current(ts)) and int(c.get("seq") or 0) == 2 and c.get("id")]
+    submitted = set()
+    if l2_ids:
+        items = await db.po_approval2_batch_items.find(
+            {"approval_task_id": {"$in": l2_ids}, "status": "Pending"}, {"_id": 0}).to_list(100000)
+        bids = list({i.get("batch_id") for i in items if i.get("batch_id")})
+        batches = {b["id"]: b for b in await db.po_approval2_batches.find({"id": {"$in": bids}}, {"_id": 0}).to_list(100000)} if bids else {}
+        submitted = {i.get("approval_task_id") for i in items
+                     if _norm((batches.get(i.get("batch_id")) or {}).get("status")) in A2_SUBMITTED_BATCH}
+    out = {}
+    for pid in ids:
+        ts = by_po.get(pid) or []
+        if any(_norm(t.get("status")) == "rejected" for t in ts):
+            out[pid] = "Rejected"
+            continue
+        c = current(ts)
+        seq = int((c or {}).get("seq") or 0)
+        out[pid] = (DOC_WAITING_A1 if seq == 1 else
+                    (DOC_WAITING_A2 if c.get("id") in submitted else DOC_READY_A2) if seq == 2 else None)
+    return out
+
+
+def display_document_status(po, base, stage):
+    """Status Dokumen tampilan. base = document_status() existing; stage dari po_approval_stage_map."""
+    if _norm(base) == "draft":
+        return "Draft"
+    if _norm(base) == "waiting approval":
+        return stage or "Waiting Approval"  # legacy tanpa task approval: fallback state PO existing
+    return base
+
+
 async def po_receipt_batch(server, pos):
     ids = [p["id"] for p in pos if p.get("id")]
     lines = await server.db.po_lines.find({"po_id": {"$in": ids}}, {"_id": 0}).to_list(500000) if ids else []
@@ -425,10 +485,11 @@ async def enrich_list(server, module, rows):
         r["items_search"] = " ".join(f"{x['item']} {x['desc']}" for x in items[:300])
     if module == "po":
         batch, _, _ = await po_receipt_batch(server, rows)
+        stages = await po_approval_stage_map(server, rows)
         for r in rows:
             st = batch.get(r["id"]) or {}
             r["receipt_status"] = st.get("receipt_status")
-            r["document_status"] = st.get("document_status")
+            r["document_status"] = display_document_status(r, st.get("document_status"), stages.get(r["id"]))
     return rows
 
 
@@ -438,7 +499,9 @@ async def decorate_po_detail(server, d):
         return d
     batch, rec, per = await po_receipt_batch(server, [d])
     st = batch[d["id"]]
-    d["receipt_status"], d["document_status"] = st["receipt_status"], st["document_status"]
+    stages = await po_approval_stage_map(server, [d])
+    d["receipt_status"] = st["receipt_status"]
+    d["document_status"] = display_document_status(d, st["document_status"], stages.get(d["id"]))
     overs = await server.db.do_over_receipts.find({"po_id": d["id"]}, {"_id": 0}).to_list(10000)
     over_by = {(o.get("do_id"), o.get("po_line_id")): o for o in overs}
     history = []
