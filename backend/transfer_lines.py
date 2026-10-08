@@ -128,34 +128,40 @@ async def rollback_failed_post(server, did, user):
 
 
 # ---------------- Draft lampiran (upload sebelum posting) ----------------
+# Infrastruktur draft server-side dipakai Transfer dan (dengan guard eksplisit module="loan") Pinjam Barang.
+# Default module="transfer" -> perilaku Transfer identik dengan sebelumnya.
 DRAFT_MODULE = "transfer"
 DRAFT_ENTITY = "transfer_draft"
 DRAFT_TTL_HOURS = 24
+DRAFT_ENTITY_OF = {"transfer": "transfer_draft", "loan": "loan_draft"}
+DRAFT_HEAD_COLL = {"transfer": "transfers", "loan": "loans"}
 
 
-async def get_owned_draft(server, draft_id, user):
-    """Draft milik user aktif (tenant otomatis dibatasi tenant proxy). 404 bila bukan milik user/tenant."""
-    d = await server.db.attachment_drafts.find_one({"id": draft_id, "module": DRAFT_MODULE}, {"_id": 0}) if draft_id else None
+async def get_owned_draft(server, draft_id, user, module=DRAFT_MODULE):
+    """Draft milik user aktif (tenant otomatis dibatasi tenant proxy). 404 bila bukan milik user/tenant/modul.
+    module=None -> draft modul terdaftar mana pun (dipakai endpoint batal draft)."""
+    q = {"id": draft_id, "module": module if module else {"$in": list(DRAFT_ENTITY_OF)}}
+    d = await server.db.attachment_drafts.find_one(q, {"_id": 0}) if draft_id else None
     if not d or d.get("owner_id") != user.get("id"):
         raise HTTPException(404, "Draft lampiran tidak ditemukan")
     return d
 
 
-async def assert_draft_owner(server, draft_id, user):
+async def assert_draft_owner(server, draft_id, user, module=DRAFT_MODULE):
     if not draft_id:
         return
-    d = await get_owned_draft(server, draft_id, user)
+    d = await get_owned_draft(server, draft_id, user, module)
     if d.get("bound_to"):
         raise HTTPException(409, "Draft lampiran sudah terikat ke transaksi lain")
 
 
-async def claim_draft(server, draft_id, user, transfer_id):
+async def claim_draft(server, draft_id, user, transfer_id, module=DRAFT_MODULE):
     """Kunci draft untuk satu posting (cegah bind ganda / double submit). Return True bila diklaim."""
     if not draft_id:
         return False
-    await assert_draft_owner(server, draft_id, user)
+    await assert_draft_owner(server, draft_id, user, module)
     r = await server.db.attachment_drafts.update_one(
-        {"id": draft_id, "module": DRAFT_MODULE, "owner_id": user.get("id"), "bound_to": None},
+        {"id": draft_id, "module": module, "owner_id": user.get("id"), "bound_to": None},
         {"$set": {"bound_to": transfer_id, "binding": True}})
     if not getattr(r, "matched_count", 0):
         raise HTTPException(409, "Draft lampiran sudah terikat ke transaksi lain")
@@ -168,17 +174,17 @@ async def release_draft(server, draft_id, transfer_id):
                                                  {"$set": {"bound_to": None, "binding": False}})
 
 
-async def bind_draft_attachments(server, draft_id, transfer_id, user):
-    """Setelah Transfer BENAR-BENAR sukses: ikat semua lampiran draft ke Transfer final."""
+async def bind_draft_attachments(server, draft_id, transfer_id, user, module=DRAFT_MODULE):
+    """Setelah transaksi BENAR-BENAR sukses: ikat semua lampiran draft ke dokumen final (entity = module)."""
     if not draft_id:
         return 0
-    d = await server.db.attachment_drafts.find_one({"id": draft_id, "module": DRAFT_MODULE}, {"_id": 0})
+    d = await server.db.attachment_drafts.find_one({"id": draft_id, "module": module}, {"_id": 0})
     if not d or d.get("owner_id") != user.get("id") or d.get("bound_to") != transfer_id:
         return 0
-    rows = await server.db.attachments.find({"entity": DRAFT_ENTITY, "entity_id": draft_id, "is_deleted": False},
+    rows = await server.db.attachments.find({"entity": DRAFT_ENTITY_OF[module], "entity_id": draft_id, "is_deleted": False},
                                             {"_id": 0, "id": 1}).to_list(500)
     for r in rows:
-        await server.db.attachments.update_one({"id": r["id"]}, {"$set": {"entity": "transfer", "entity_id": transfer_id,
+        await server.db.attachments.update_one({"id": r["id"]}, {"$set": {"entity": module, "entity_id": transfer_id,
                                                                           "bound_from_draft": draft_id}})
     await server.db.attachment_drafts.update_one({"id": draft_id}, {"$set": {"binding": False, "bound_at": server.now_iso(),
                                                                              "attachment_count": len(rows)}})
@@ -187,7 +193,8 @@ async def bind_draft_attachments(server, draft_id, transfer_id, user):
 
 async def purge_draft(dbh, draft, storage):
     """Hapus row draft + row lampiran draft + object storage. Aman bila object sudah hilang (idempotent)."""
-    q = {"entity": DRAFT_ENTITY, "entity_id": draft["id"]}
+    module = draft.get("module") or DRAFT_MODULE
+    q = {"entity": DRAFT_ENTITY_OF.get(module, DRAFT_ENTITY), "entity_id": draft["id"]}
     if draft.get("tenant_id"):
         q["tenant_id"] = draft["tenant_id"]  # jalur global (startup): batasi ke tenant draft itu sendiri
     rows = await dbh.attachments.find(q, {"_id": 0, "id": 1, "storage_path": 1}).to_list(500)
@@ -200,7 +207,7 @@ async def purge_draft(dbh, draft, storage):
             pass
         await dbh.attachments.delete_one({**q, "id": r["id"]})
         removed += 1
-    dq = {"id": draft["id"], "module": DRAFT_MODULE}
+    dq = {"id": draft["id"], "module": module}
     if draft.get("tenant_id"):
         dq["tenant_id"] = draft["tenant_id"]
     await dbh.attachment_drafts.delete_one(dq)
@@ -212,16 +219,17 @@ def _cutoff(hours=DRAFT_TTL_HOURS):
     return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
 
-async def cleanup_expired_drafts(server, all_tenants=False):
-    """Draft > 24 jam yang BELUM ter-bind ke Transfer final dihapus (row + object). Lampiran final tidak disentuh
-    (entity-nya sudah 'transfer'). all_tenants=True dipakai saat startup (raw db, filter tenant per draft)."""
+async def cleanup_expired_drafts(server, all_tenants=False, module=DRAFT_MODULE):
+    """Draft > 24 jam yang BELUM ter-bind ke dokumen final dihapus (row + object). Lampiran final tidak disentuh
+    (entity-nya sudah modul final). all_tenants=True dipakai saat startup (raw db, filter tenant per draft)."""
     import storage as S
     dbh = server.db
     if all_tenants:
         raw = getattr(dbh, "_raw", None)
         dbh = raw if raw is not None else dbh
     cutoff = _cutoff()
-    olds = await dbh.attachment_drafts.find({"module": DRAFT_MODULE, "created_at": {"$lt": cutoff}}, {"_id": 0}).to_list(2000)
+    head = DRAFT_HEAD_COLL[module]
+    olds = await dbh.attachment_drafts.find({"module": module, "created_at": {"$lt": cutoff}}, {"_id": 0}).to_list(2000)
     done = 0
     for d in olds:
         bound = d.get("bound_to")
@@ -229,7 +237,7 @@ async def cleanup_expired_drafts(server, all_tenants=False):
             continue  # sudah final
         if bound and d.get("binding"):
             tq = {"id": bound, **({"tenant_id": d["tenant_id"]} if d.get("tenant_id") else {})}
-            if await dbh.transfers.find_one(tq, {"_id": 0, "id": 1}):
+            if await getattr(dbh, head).find_one(tq, {"_id": 0, "id": 1}):
                 continue  # klaim posting sukses tetapi bind belum tercatat: jangan hapus
         try:
             await purge_draft(dbh, d, S)

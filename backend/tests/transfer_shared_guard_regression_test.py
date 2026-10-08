@@ -1,4 +1,6 @@
-"""Regression: perubahan shared layer untuk Transfer multi gudang TIDAK mengubah Loan / Adjustment / Opname / MRO / MWA.
+"""Regression: perubahan shared layer untuk Transfer multi gudang TIDAK mengubah Adjustment / Opname / MRO / MWA.
+Catatan fase Pinjam Barang multi gudang: Loan kini SENGAJA memakai gudang per baris (guard eksplisit module "loan");
+bagian LOAN di bawah memverifikasi perilaku baru tersebut, aturan Adjustment/Opname/MRO tetap tidak berubah.
 Shared file yang disentuh (semua di-guard khusus Transfer): access_control_layer (line_warehouse_ids & key gudang baris
 hanya untuk module transfer), transaction_mutation_layer (cabang module == "transfer"), attachment_integrity_guard_layer
 (entity transfer_draft), doc_warehouse (fungsi Transfer + draft). Tenant QA sementara; tidak menyentuh tenant lain."""
@@ -34,12 +36,12 @@ def main():
     sc, adjd = call("GET", f"adjustments/{adj['id']}")
     check("ADJ. Detail adjustment terbaca", sc == 200 and adjd.get("lines"))
 
-    # ---------- Loan: header warehouse tetap sumber posting; key gudang pada baris DIABAIKAN (bukan aturan Transfer)
+    # ---------- Loan (fase Pinjam multi gudang): gudang BARIS = sumber posting; baris kosong diisi default header
     today = __import__("datetime").date.today().isoformat()
     sc, loan = call("POST", "loans", {"date": today, "from_warehouse_id": WA["id"], "to_warehouse_id": WB["id"], "division_id": asset["id"],
-                                      "lines": [{"item_id": item["id"], "qty": 2, "uom_id": uom["id"], "to_warehouse_id": WC["id"], "from_warehouse_id": WC["id"]}]})
+                                      "lines": [{"item_id": item["id"], "qty": 2, "uom_id": uom["id"]}]})
     check("LOAN. Loan dibuat -> 200", sc == 200, loan)
-    check("LOAN. Stok mengikuti HEADER (A=8, B=2, C=0) — key gudang baris tidak dipakai", TM.stock(item["id"], WA["id"]) == 8 and TM.stock(item["id"], WB["id"]) == 2
+    check("LOAN. Stok mengikuti gudang baris (= default header A->B): A=8, B=2, C=0", TM.stock(item["id"], WA["id"]) == 8 and TM.stock(item["id"], WB["id"]) == 2
           and TM.stock(item["id"], WC["id"]) == 0)
     sc, vl = call("GET", "reports/valuation-ledger")
     rows = [x for x in (vl if isinstance(vl, list) else vl.get("rows", [])) if x.get("doc_id") == loan["id"] or x.get("doc_no") == loan["no"]]
@@ -49,7 +51,7 @@ def main():
     with ldoc() as cx, cx.cursor() as cur:
         cur.execute("SELECT JSON_EXTRACT(doc,'$.from_warehouse_id'), JSON_EXTRACT(doc,'$.to_warehouse_id') FROM loan_lines WHERE JSON_UNQUOTE(JSON_EXTRACT(doc,'$.loan_id'))=%s", (loan["id"],))
         lr = cur.fetchall()
-    check("LOAN. Baris loan tidak menyimpan gudang per baris (skema loan tidak berubah)", lr and all(a is None and b is None for a, b in lr), lr)
+    check("LOAN. Baris loan menyimpan gudang per baris eksplisit (A->B)", lr and all(str(a).strip('"') == WA["id"] and str(b).strip('"') == WB["id"] for a, b in lr), lr)
 
     # ---------- MRO + lampiran existing (non-draft): perilaku hapus tetap soft-delete
     sc, mro = call("POST", "mro", {"no": f"MRO-SG{u}", "division_id": asset["id"], "requester": "QA", "lines": [{"item_id": item["id"], "qty": 1, "warehouse_id": WA["id"], "project_id": proj["id"]}]})
@@ -71,14 +73,14 @@ def main():
     sc, opn = call("POST", "opname", {"date": today, "warehouse_id": WA["id"], "division_id": asset["id"], "scope": "all"})
     check("OPN. Opname dibuat dengan snapshot stok gudang A (8)", sc == 200 and any(float(x.get("snapshot") or 0) == 8 for x in opn.get("lines", [])), opn)
 
-    # ---------- Scope divisi: aturan baris Transfer TIDAK menempel ke Loan
+    # ---------- Scope divisi: gudang baris Loan kini ikut divalidasi (guard eksplisit module "loan")
     email = f"sgr_{u}@example.com"
     _, usr = call("POST", "users", {"email": email, "password": PW, "name": "QA Asset", "role": "warehouse"}, 200)
     call("PUT", f"access/users/{usr['id']}", {"overrides": {}, "division_override": {"mode": "selected", "divisions": [asset["id"]]}}, 200)
     C = U(email)
     sc, r = C("POST", "loans", {"date": today, "from_warehouse_id": WA["id"], "to_warehouse_id": WB["id"], "division_id": asset["id"],
                                 "lines": [{"item_id": item["id"], "qty": 1, "uom_id": uom["id"], "from_warehouse_id": WC["id"]}]})
-    check("SCOPE. Loan user Asset dengan key from_warehouse_id baris divisi lain tetap 200 (perilaku lama)", sc == 200, (sc, r))
+    check("SCOPE. Loan user Asset dengan Gudang Pemberi baris divisi lain -> 403", sc == 403, (sc, r))
     sc, r = C("POST", "loans", {"date": today, "from_warehouse_id": WA["id"], "to_warehouse_id": WC["id"], "division_id": asset["id"],
                                 "lines": [{"item_id": item["id"], "qty": 1, "uom_id": uom["id"]}]})
     check("SCOPE. Loan ke gudang header divisi lain tetap 403 (scope header tidak berubah)", sc == 403, (sc, r))
@@ -89,7 +91,7 @@ def main():
         cur.execute("UPDATE loans SET doc = JSON_SET(doc, '$.line_warehouse_ids', JSON_ARRAY(%s)) WHERE id=%s", (WC["id"], loan["id"]))
     sc, lst = C("GET", "loans")
     sc2, _ = C("GET", f"loans/{loan['id']}")
-    check("SCOPE. Field line_warehouse_ids pada Loan diabaikan (visibility Loan tetap dari header)", sc == 200 and any(x["id"] == loan["id"] for x in lst) and sc2 == 200, (sc, sc2))
+    check("SCOPE. line_warehouse_ids Loan ikut cakupan: gudang baris divisi lain -> Loan tidak terlihat user Asset", sc == 200 and not any(x["id"] == loan["id"] for x in lst) and sc2 == 403, (sc, sc2))
 
     failed = [n for n, ok in T.RESULTS if not ok]
     print(f"\n{len(T.RESULTS) - len(failed)}/{len(T.RESULTS)} passed")

@@ -24,8 +24,9 @@ ENTITY_COLLECTIONS = {
     "po_approval2_batch": "po_approval2_batches",  # bukti persetujuan Pengajuan Approval 2 PO
     "supplier": "suppliers",  # Dokumen Supplier (Master Supplier)
     "transfer_draft": "attachment_drafts",  # lampiran Transfer sebelum posting (milik user, di-bind saat posting)
+    "loan_draft": "attachment_drafts",  # lampiran Pinjam Barang sebelum posting (infrastruktur draft yang sama)
 }
-DRAFT_ENTITIES = {"transfer_draft": "transfer"}
+DRAFT_ENTITIES = {"transfer_draft": "transfer", "loan_draft": "loan"}
 
 
 async def _assert_draft_owner(server, entity, entity_id, user, for_upload=False):
@@ -186,4 +187,9 @@ def install(server):
             import transfer_lines as TL
             await TL.cleanup_expired_drafts(server, all_tenants=True)
         except Exception:  # noqa: BLE001 - cleanup tidak boleh menggagalkan startup
+            pass
+        try:  # Pinjam Barang: modul draft "loan" (guard eksplisit; Transfer di atas tidak berubah)
+            import transfer_lines as TL
+            await TL.cleanup_expired_drafts(server, all_tenants=True, module="loan")
+        except Exception:  # noqa: BLE001
             pass

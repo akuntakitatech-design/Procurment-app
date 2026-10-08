@@ -276,9 +276,15 @@ async def _replace(server, module, did, body, user):
             _items = {i["id"]: i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(20000)}
             await TL.validate_lines(server, _tl, user, reversal_credit=reversal_by_key, item_names=_items)
         elif module == "loan":
-            frm = normalized.get("from_warehouse_id")
-            for line, _, _ in prepared:
-                required_out[(line.get("item_id"), frm)] = required_out.get((line.get("item_id"), frm), 0.0) + float(line.get("qty") or 0)
+            # Multi gudang per item (Pinjam Barang): gudang/project/unit per LINE; stok per (barang, Gudang Pemberi LINE)
+            # + kredit reversal dokumen ini. Divalidasi SEBELUM reversal agar edit tidak valid tidak menulis apa pun.
+            import loan_lines as LL
+            _ll = LL.resolve_lines({**normalized, "lines": [ln for ln, _s, _u in prepared]})
+            for (line, _s, _u), resolved in zip(prepared, _ll):
+                for _k in ("from_warehouse_id", "to_warehouse_id", "project_id", "unit_id"):
+                    line[_k] = resolved[_k]
+            _items = {i["id"]: i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(20000)}
+            await LL.validate_lines(server, _ll, user, reversal_credit=reversal_by_key, item_names=_items)
         for key, qty in required_out.items():
             available = float(await server.stock_balance(*key) or 0) + reversal_by_key.get(key, 0.0)
             if qty > available + 1e-6 and not server.has_perm(user, "override_qty"):
@@ -330,7 +336,7 @@ async def _replace(server, module, did, body, user):
         elif module == "transfer":
             rec = {"id": lid, "transfer_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "unit": line.get("unit"), "from_warehouse_id": line.get("from_warehouse_id"), "to_warehouse_id": line.get("to_warehouse_id"), "project_id": line.get("project_id"), "unit_id": line.get("unit_id"), "notes": line.get("notes")}
         elif module == "loan":
-            rec = {"id": lid, "loan_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "returned": 0, "unit": line.get("unit"), "project_id": line.get("project_id"), "unit_id": line.get("unit_id"), "notes": line.get("notes")}
+            rec = {"id": lid, "loan_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "returned": 0, "unit": line.get("unit"), "from_warehouse_id": line.get("from_warehouse_id"), "to_warehouse_id": line.get("to_warehouse_id"), "project_id": line.get("project_id"), "unit_id": line.get("unit_id"), "notes": line.get("notes")}
         elif module == "adjustment":
             wh = normalized.get("warehouse_id")
             before = await server.stock_balance(line.get("item_id"), wh)
@@ -386,18 +392,13 @@ async def _replace(server, module, did, body, user):
             out = await TL.post_line(server, no, did, rec, user, normalized.get("date"))
             await line_col.update_one({"id": rec.get("id")}, {"$set": {"cost_snapshot": out.get("unit_cost"), "transfer_value": float(out.get("value_out") or 0)}})
     elif module == "loan":
-        frm, to = normalized.get("from_warehouse_id"), normalized.get("to_warehouse_id")
-        if frm == to:
-            raise HTTPException(400, "Gudang pemberi dan peminjam sama")
+        # Posting ulang membaca gudang LINE baru (reversal lama sudah memakai ledger asli per line); engine MWA tidak berubah.
+        import loan_lines as LL
+        await head_col.update_one({"id": did}, {"$set": {"warehouse_source": LL.WAREHOUSE_SOURCE_LINE,
+                                                         "line_warehouse_ids": LL.line_warehouse_ids(new_lines)}})
         for rec in new_lines:
-            out = await server.post_movement("Loan Out", no, did, rec["item_id"], frm, 0, rec["qty"], user=user,
-                                             line_id=rec.get("id"), source_key=f"LOAN-O::{rec.get('id')}",
-                                             txn_at=normalized.get("date"))
-            lv = float(out.get("value_out") or 0)
-            await line_col.update_one({"id": rec.get("id")}, {"$set": {"cost_snapshot": out.get("unit_cost"), "loan_value": lv}})
-            await server.post_movement("Loan In", no, did, rec["item_id"], to, rec["qty"], 0, user=user,
-                                       value_in=lv, line_id=rec.get("id"), source_key=f"LOAN-I::{rec.get('id')}",
-                                       txn_at=normalized.get("date"), require_cost=True)
+            out = await LL.post_line(server, no, did, rec, user, normalized.get("date"))
+            await line_col.update_one({"id": rec.get("id")}, {"$set": {"cost_snapshot": out.get("unit_cost"), "loan_value": float(out.get("value_out") or 0)}})
     elif module == "adjustment":
         wh = normalized.get("warehouse_id")
         import doc_warehouse as _dw

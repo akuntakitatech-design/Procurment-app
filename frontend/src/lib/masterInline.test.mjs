@@ -55,7 +55,11 @@ for (const [n, pre] of [["Mro.jsx", "mro"], ["Ro.jsx", "ro"], ["Po.jsx", "po"]])
 t("Mi.jsx: Project/Unit baris Direct pakai komponen reusable", src("pages/Mi.jsx").includes("<MasterProjectCombobox masters={masters} options={projOpts}") && src("pages/Mi.jsx").includes("<MasterUnitCombobox masters={masters} options={unitOpts}"));
 // Transfer: Project Default tetap komponen reusable; opsi nama-saja (cari kode+nama) dari transferLines.nameOnlyOptions.
 t("Transfer.jsx: Project header pakai komponen reusable", src("pages/Transfer.jsx").includes('<MasterProjectCombobox masters={masters} options={projOpts} value={h.project_id}') && src("pages/Transfer.jsx").includes("const projOpts = nameOnlyOptions(masters.data.projects)"));
-t("Loan.jsx: ItemLines project/unit (reusable) + divisi", src("pages/Loan.jsx").includes("fields={{ project: true, unit: true, notes: true }} division={h.division_id}"));
+// Pinjam Barang multi gudang: baris khusus Loan (LoanItemLines) tetap memakai komponen Project/Unit reusable + divisi;
+// Project Default header pakai komponen reusable dengan opsi nama-saja.
+t("Loan.jsx: LoanItemLines project/unit (reusable) + divisi", src("pages/Loan.jsx").includes("<LoanItemLines lines={lines} onChange={setLines} masters={masters} defaults={defaults} issues={shownIssues} stockOf={stockOf} division={h.division_id}")
+  && src("components/LoanItemLines.jsx").includes("<MasterProjectCombobox masters={masters} options={projOpts}") && src("components/LoanItemLines.jsx").includes("<MasterUnitCombobox masters={masters} options={unitOpts}"));
+t("Loan.jsx: Project Default header pakai komponen reusable", src("pages/Loan.jsx").includes('<MasterProjectCombobox masters={masters} options={projOpts} value={h.project_id}') && src("pages/Loan.jsx").includes("const projOpts = nameOnlyOptions(masters.data.projects)"));
 t("Spk.jsx: Project/Site pakai komponen reusable + daftar lokal ikut refresh", src("pages/Spk.jsx").includes("<MasterProjectCombobox") && src("pages/Spk.jsx").includes("onCreated={(doc) => setProjects("));
 const raw = /<Combobox[^>]*options=\{(projOpts|projectOpts|unitOpts|projects|units|masters\.opts\("(projects|units)"[^)]*\))\}/;
 for (const n of ["Mro.jsx", "Ro.jsx", "Po.jsx", "Do.jsx", "Mi.jsx", "Transfer.jsx", "Loan.jsx", "Spk.jsx"]) t(`${n}: tidak ada Combobox Project/Unit mentah tersisa`, !raw.test(src(`pages/${n}`)));
