@@ -130,14 +130,15 @@ async def create_transfer(body: dict, user=Depends(current_user)):
 # ---------------- ATTACHMENT DRAFT TRANSFER (upload sebelum posting) ----------------
 @api.post("/attachment-drafts")
 async def create_attachment_draft(body: dict, user=Depends(current_user)):
-    if (body or {}).get("module") != TL.DRAFT_MODULE:
+    module = (body or {}).get("module")
+    if module not in TL.DRAFT_ENTITY_OF:  # "transfer" | "loan" (Pinjam Barang memakai infrastruktur yang sama)
         raise HTTPException(400, "Modul draft lampiran tidak didukung")
-    if not has_perm(user, "transfer.create"):
+    if not has_perm(user, f"{module}.create"):
         raise HTTPException(403, "Anda tidak memiliki izin untuk menambah data")
     require(user, "upload_attachment")
-    await TL.cleanup_expired_drafts(server)  # draft orphan > 24 jam milik tenant aktif
+    await TL.cleanup_expired_drafts(server, module=module)  # draft orphan > 24 jam milik tenant aktif
     # tenant_id/owner diambil dari konteks server (tenant proxy + user terautentikasi), bukan dari payload.
-    doc = {"id": str(uuid.uuid4()), "module": TL.DRAFT_MODULE, "owner_id": user.get("id"), "owner_email": user.get("email"),
+    doc = {"id": str(uuid.uuid4()), "module": module, "owner_id": user.get("id"), "owner_email": user.get("email"),
            "bound_to": None, "binding": False, "created_at": now_iso()}
     await db.attachment_drafts.insert_one(doc)
     return clean(doc)
@@ -145,7 +146,7 @@ async def create_attachment_draft(body: dict, user=Depends(current_user)):
 
 @api.delete("/attachment-drafts/{draft_id}")
 async def discard_attachment_draft(draft_id: str, user=Depends(current_user)):
-    d = await TL.get_owned_draft(server, draft_id, user)
+    d = await TL.get_owned_draft(server, draft_id, user, module=None)
     if d.get("bound_to"):
         return {"ok": True, "bound_to": d["bound_to"]}  # sudah final: lampiran final tidak dihapus
     removed = await TL.purge_draft(db, d, S)
@@ -153,9 +154,36 @@ async def discard_attachment_draft(draft_id: str, user=Depends(current_user)):
 
 
 # ---------------- LOAN ----------------
+# Multi gudang per item: HEADER = metadata + default; LINE = sumber posting/return (lihat loan_lines.py).
+import loan_lines as LL
+
+
 async def loan_line_state(l):
     returned = l.get("returned", 0)
     return {"qty": l.get("qty", 0), "returned": returned, "outstanding": max(0, l.get("qty", 0) - returned)}
+
+
+def _loan_status(lines, outs):
+    return "Completed" if outs == 0 and lines else ("Partial Returned" if any(l.get("returned", 0) for l in lines) else "Open")
+
+
+async def _enrich_loan_lines(d, lines):
+    """Baca gudang/project/unit per LINE (legacy: fallback header hanya saat baca, data asli tidak diubah)."""
+    wm = await _wh_map(); im = await _item_map()
+    pm = await _named("projects", [LL.line_project(l, d) for l in lines] + [d.get("project_id")])
+    um = await _named("units", [LL.line_unit(l, d) for l in lines])
+    legacy_doc = LL.is_legacy(d)
+    for l in lines:
+        it = im.get(l["item_id"], {}); l["item_code"] = it.get("code"); l["item_name"] = it.get("name")
+        l["legacy_header_warehouse"] = legacy_doc and (not l.get("from_warehouse_id") or not l.get("to_warehouse_id"))
+        l["from_warehouse_id"] = LL.line_from(l, d); l["to_warehouse_id"] = LL.line_to(l, d)
+        l["project_id"] = LL.line_project(l, d); l["unit_id"] = LL.line_unit(l, d)
+        l["from_name"] = wm.get(l["from_warehouse_id"], {}).get("name")
+        l["to_name"] = wm.get(l["to_warehouse_id"], {}).get("name")
+        l["project_name"] = (pm.get(l.get("project_id")) or {}).get("name")
+        u = um.get(l.get("unit_id")) or {}
+        l["unit_name"] = u.get("plate_no") or u.get("name")
+    return wm, pm
 
 
 @api.get("/loans")
@@ -167,9 +195,14 @@ async def list_loans(user=Depends(current_user)):
         lines = await db.loan_lines.find({"loan_id": d["id"]}, {"_id": 0}).to_list(500)
         outs = sum(max(0, l.get("qty", 0) - l.get("returned", 0)) for l in lines)
         d["outstanding_total"] = outs
-        d["status"] = "Completed" if outs == 0 and lines else ("Partial Returned" if any(l.get("returned", 0) for l in lines) else "Open")
-        d["from_name"] = wm.get(d.get("from_warehouse_id"), {}).get("name")
-        d["to_name"] = wm.get(d.get("to_warehouse_id"), {}).get("name")
+        d["status"] = _loan_status(lines, outs)
+        froms = list(dict.fromkeys(LL.line_from(l, d) for l in lines)) or [d.get("from_warehouse_id")]
+        tos = list(dict.fromkeys(LL.line_to(l, d) for l in lines)) or [d.get("to_warehouse_id")]
+        # Ringkasan dari LINE (bukan default header): "Gudang A" atau "Gudang A +1".
+        d["from_name"] = _summary([wm.get(x, {}).get("name") for x in froms])
+        d["to_name"] = _summary([wm.get(x, {}).get("name") for x in tos])
+        d["multi_warehouse"] = len(froms) > 1 or len(tos) > 1
+        d["line_count"] = len(lines)
     return docs
 
 
@@ -178,49 +211,62 @@ async def get_loan(did: str, user=Depends(current_user)):
     require(user, "view")
     d = await db.loans.find_one({"id": did}, {"_id": 0})
     if not d: raise HTTPException(404, "Pinjaman tidak ditemukan")
-    wm = await _wh_map(); im = await _item_map()
     lines = await db.loan_lines.find({"loan_id": did}, {"_id": 0}).to_list(500)
+    wm, pm = await _enrich_loan_lines(d, lines)
     outs = 0
+    see_value = has_perm(user, "view_purchase_price")  # nilai MWA/carrying value hanya untuk yang berhak (izin existing)
     for l in lines:
-        it = im.get(l["item_id"], {}); l["item_code"] = it.get("code"); l["item_name"] = it.get("name")
         l["outstanding"] = max(0, l.get("qty", 0) - l.get("returned", 0)); outs += l["outstanding"]
+        if not see_value:
+            l.pop("cost_snapshot", None); l.pop("loan_value", None)
     d["lines"] = lines
     d["outstanding_total"] = outs
-    d["status"] = "Completed" if outs == 0 and lines else ("Partial Returned" if any(l.get("returned", 0) for l in lines) else "Open")
+    d["status"] = _loan_status(lines, outs)
+    d["legacy_header_warehouse"] = LL.is_legacy(d)
     d["from_name"] = wm.get(d.get("from_warehouse_id"), {}).get("name")
     d["to_name"] = wm.get(d.get("to_warehouse_id"), {}).get("name")
+    d["project_name"] = (pm.get(d.get("project_id")) or {}).get("name")
+    d["division_name"] = (await _named("divisions", [d.get("division_id")])).get(d.get("division_id"), {}).get("name")
     return d
 
 
 @api.post("/loans")
 async def create_loan(body: dict, user=Depends(current_user)):
     require(user, "create")
-    did = gid(); no = await next_number("LOAN")
-    frm = body["from_warehouse_id"]; to = body["to_warehouse_id"]
-    if frm == to: raise HTTPException(400, "Gudang pemberi dan peminjam sama")
-    await db.loans.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
-        "from_warehouse_id": frm, "to_warehouse_id": to, "due_date": body.get("due_date"),
-        "division_id": body.get("division_id"),
-        "project_id": body.get("project_id"), "requester": body.get("requester", user.get("name")),
-        "notes": body.get("notes"), "created_by": user.get("email"), "created_at": now_iso()})
-    for l in body.get("lines", []):
-        qty = float(l.get("qty", 0))
-        if qty <= 0: continue
-        avail = await stock_balance(l["item_id"], frm)
-        if qty > avail + 1e-6 and not has_perm(user, "override_qty"):
-            raise HTTPException(400, f"Stok pemberi tidak cukup (tersedia {avail})")
-        lid = gid()
-        await db.loan_lines.insert_one({"id": lid, "loan_id": did, "item_id": l["item_id"],
-            "qty": qty, "returned": 0, "unit": l.get("unit"), "project_id": l.get("project_id"),
-            "unit_id": l.get("unit_id"), "notes": l.get("notes")})
-        # OUT at source moving-average snapshot; store the loan cost so returns reuse it (no P/L).
-        out = await post_movement("Loan Out", no, did, l["item_id"], frm, 0, qty, user=user,
-                                  line_id=lid, source_key=f"LOAN-O::{lid}", txn_at=body.get("date"))
-        lv = float(out.get("value_out") or 0); uc = out.get("unit_cost")
-        await db.loan_lines.update_one({"id": lid}, {"$set": {"cost_snapshot": uc, "loan_value": lv}})
-        # Borrowing warehouse physically receives the stock carrying the ORIGINAL loan value.
-        await post_movement("Loan In", no, did, l["item_id"], to, qty, 0, user=user, value_in=lv,
-                            line_id=lid, source_key=f"LOAN-I::{lid}", txn_at=body.get("date"), require_cost=True)
+    lines = [l for l in LL.resolve_lines(body) if float(l.get("qty", 0) or 0) > 0]
+    im = await _item_map()
+    # Hard-block SEBELUM ada penulisan: gudang/project/unit per line, pemberi != peminjam, stok per (barang, pemberi LINE).
+    await LL.validate_lines(server, lines, user, item_names={k: v.get("name") for k, v in im.items()})
+    draft_id = body.get("attachment_draft_id") or None
+    did = gid()
+    claimed = await TL.claim_draft(server, draft_id, user, did, module="loan")  # 404/409 sebelum ada penulisan stok
+    try:
+        no = await next_number("LOAN")
+        await db.loans.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
+            # Header = default/snapshot dokumen; posting & return membaca gudang LINE.
+            "from_warehouse_id": body.get("from_warehouse_id") or None, "to_warehouse_id": body.get("to_warehouse_id") or None,
+            "due_date": body.get("due_date"), "division_id": body.get("division_id"),
+            "project_id": body.get("project_id") or None, "requester": body.get("requester", user.get("name")),
+            "warehouse_source": LL.WAREHOUSE_SOURCE_LINE, "line_warehouse_ids": LL.line_warehouse_ids(lines),
+            "notes": body.get("notes"), "created_by": user.get("email"), "created_at": now_iso()})
+        for l in lines:
+            lid = gid()
+            rec = {"id": lid, "loan_id": did, "item_id": l["item_id"], "qty": float(l.get("qty", 0)), "returned": 0,
+                   "unit": l.get("unit"), "from_warehouse_id": l["from_warehouse_id"], "to_warehouse_id": l["to_warehouse_id"],
+                   "project_id": l.get("project_id"), "unit_id": l.get("unit_id"), "notes": l.get("notes")}
+            await db.loan_lines.insert_one(rec)
+            # OUT di MWA gudang pemberi line; nilai pinjaman disimpan agar return memakai nilai yang sama (tanpa L/R).
+            out = await LL.post_line(server, no, did, rec, user, body.get("date"))
+            await db.loan_lines.update_one({"id": lid}, {"$set": {"cost_snapshot": out.get("unit_cost"),
+                                                                  "loan_value": float(out.get("value_out") or 0)}})
+    except Exception:
+        # Posting gagal: Pinjaman tidak terbentuk (movement direversal); draft lampiran tetap draft -> bisa retry.
+        await LL.rollback_failed_post(server, did, user)
+        if claimed:
+            await TL.release_draft(server, draft_id, did)
+        raise
+    if claimed:
+        await TL.bind_draft_attachments(server, draft_id, did, user, module="loan")  # bind HANYA setelah posting sukses
     await audit(user, "create", "loan", did, no)
     await notify("Pinjaman baru", f"{no} dibuat", "loan", None)
     return await get_loan(did, user)
@@ -228,16 +274,22 @@ async def create_loan(body: dict, user=Depends(current_user)):
 
 @api.get("/loans/{did}/returnable")
 async def loan_returnable(did: str, user=Depends(current_user)):
-    im = await _item_map()
+    loan = await db.loans.find_one({"id": did}, {"_id": 0})
+    if not loan: raise HTTPException(404, "Pinjaman tidak ditemukan")
     lines = await db.loan_lines.find({"loan_id": did}, {"_id": 0}).to_list(500)
+    await _enrich_loan_lines(loan, lines)
     out = []
     for l in lines:
         outstanding = max(0, l.get("qty", 0) - l.get("returned", 0))
         if outstanding > 0:
-            it = im.get(l["item_id"], {})
-            out.append({"loan_line_id": l["id"], "item_id": l["item_id"], "item_code": it.get("code"),
-                "item_name": it.get("name"), "unit": l.get("unit"), "qty": l.get("qty", 0),
-                "returned": l.get("returned", 0), "outstanding": outstanding})
+            # Konteks line agar user tidak salah pilih; arah return = Gudang Peminjam -> Gudang Pemberi line asli.
+            out.append({"loan_line_id": l["id"], "item_id": l["item_id"], "item_code": l.get("item_code"),
+                "item_name": l.get("item_name"), "unit": l.get("unit"), "qty": l.get("qty", 0),
+                "returned": l.get("returned", 0), "outstanding": outstanding,
+                "from_warehouse_id": l.get("from_warehouse_id"), "to_warehouse_id": l.get("to_warehouse_id"),
+                "from_name": l.get("from_name"), "to_name": l.get("to_name"),
+                "project_name": l.get("project_name"), "unit_name": l.get("unit_name"),
+                "return_direction": f"{l.get('to_name') or '-'} → {l.get('from_name') or '-'}"})
     return out
 
 
@@ -260,10 +312,14 @@ async def return_loan(did: str, body: dict, user=Depends(current_user)):
         await db.loan_lines.update_one({"id": ll["id"]}, {"$inc": {"returned": qty}})
         # Return reuses the ORIGINAL loan cost snapshot deterministically (no gain/loss from avg drift).
         uc = float(ll.get("cost_snapshot") or 0); rv = qty * uc
-        await post_movement("Loan Return Out", no, rid, ll["item_id"], loan["to_warehouse_id"], 0, qty,
+        # Gudang return dari LINE asli (Peminjam -> Pemberi); legacy: fallback header existing.
+        ret_out, ret_in = LL.return_warehouses(ll, loan)
+        await post_movement("Loan Return Out", no, rid, ll["item_id"], ret_out, 0, qty,
+                            project_id=LL.line_project(ll, loan), unit_id=LL.line_unit(ll, loan),
                             user=user, reversal_value=rv, line_id=ll["id"],
                             source_key=f"LOANRET-O::{rid}::{ll['id']}", txn_at=body.get("date"))
-        await post_movement("Loan Return In", no, rid, ll["item_id"], loan["from_warehouse_id"], qty, 0,
+        await post_movement("Loan Return In", no, rid, ll["item_id"], ret_in, qty, 0,
+                            project_id=LL.line_project(ll, loan), unit_id=LL.line_unit(ll, loan),
                             user=user, value_in=rv, line_id=ll["id"],
                             source_key=f"LOANRET-I::{rid}::{ll['id']}", txn_at=body.get("date"), require_cost=True)
     await audit(user, "create", "loan_return", rid, no)

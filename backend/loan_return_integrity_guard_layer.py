@@ -6,6 +6,8 @@ writes on invalid return requests.
 """
 from fastapi import Depends, HTTPException
 
+import loan_lines as LL
+
 
 def _find_route(app, path, method):
     for route in list(app.router.routes):
@@ -22,6 +24,7 @@ def _replace_route(app, route, path, method, endpoint):
 
 async def _normalized_requests(server, loan_id, body, restore_by_line=None):
     restore_by_line = restore_by_line or {}
+    loan = await server.db.loans.find_one({"id": loan_id}, {"_id": 0}) or {}
     requested = {}
     item_totals = {}
     positive = 0
@@ -44,8 +47,9 @@ async def _normalized_requests(server, loan_id, body, restore_by_line=None):
             continue
         positive += 1
         requested[line_id] = requested.get(line_id, 0.0) + qty
-        item_id = loan_line.get("item_id")
-        item_totals[item_id] = item_totals.get(item_id, 0.0) + qty
+        # Stok peminjam divalidasi per (barang, Gudang Peminjam LINE asli); legacy: fallback header.
+        key = (loan_line.get("item_id"), LL.line_to(loan_line, loan))
+        item_totals[key] = item_totals.get(key, 0.0) + qty
 
     if positive == 0:
         raise HTTPException(400, "Qty return harus lebih dari 0")
@@ -63,10 +67,9 @@ async def _normalized_requests(server, loan_id, body, restore_by_line=None):
 
 async def _validate_borrower_stock(server, loan, item_totals, user, restore_by_item=None):
     restore_by_item = restore_by_item or {}
-    borrower_wh = loan.get("to_warehouse_id")
-    for item_id, qty in item_totals.items():
+    for (item_id, borrower_wh), qty in item_totals.items():
         current = float(await server.stock_balance(item_id, borrower_wh) or 0)
-        available = current + float(restore_by_item.get(item_id) or 0)
+        available = current + float(restore_by_item.get((item_id, borrower_wh)) or 0)
         if qty > available + 1e-6 and not server.has_perm(user, "override_qty"):
             raise HTTPException(400, f"Stok gudang peminjam tidak cukup untuk return (tersedia {available})")
 
@@ -106,9 +109,10 @@ def install(server):
             for line in old_lines:
                 qty = float(line.get("qty") or 0)
                 line_id = line.get("loan_line_id")
-                item_id = line.get("item_id")
+                ll = await server.db.loan_lines.find_one({"id": line_id}, {"_id": 0}) or {}
+                key = (line.get("item_id"), LL.line_to(ll, loan))
                 restore_by_line[line_id] = restore_by_line.get(line_id, 0.0) + qty
-                restore_by_item[item_id] = restore_by_item.get(item_id, 0.0) + qty
+                restore_by_item[key] = restore_by_item.get(key, 0.0) + qty
 
             item_totals = await _normalized_requests(
                 server, ret.get("loan_id"), body, restore_by_line=restore_by_line

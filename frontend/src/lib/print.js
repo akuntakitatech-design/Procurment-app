@@ -77,6 +77,11 @@ const metaValue = (key, doc, buyerText) => {
     trf_from_default: doc.from_name || "",
     trf_to_default: doc.to_name || "",
     trf_project_default: doc.project_name || "",
+    // Pinjam Barang: default header (bukan sumber pergerakan barang) + Target Pengembalian.
+    loan_from_default: doc.from_name || "",
+    loan_to_default: doc.to_name || "",
+    loan_project_default: doc.project_name || "",
+    loan_due: doc.due_date ? fmtDate(doc.due_date) : "",
   };
   return values[key] || "";
 };
@@ -86,9 +91,10 @@ const metaLabel = (key) => ({
   payment_term: "Payment Term", delivery_term: "Delivery Term", division: "Divisi", warehouse: "Gudang", project: "Proyek", unit: "Unit / Aset",
   supplier_invoice: "No. Faktur", notes: "Keterangan",
   trf_from_default: "Gudang Asal Default", trf_to_default: "Gudang Tujuan Default", trf_project_default: "Project Default",
+  loan_from_default: "Gudang Pemberi Default", loan_to_default: "Gudang Peminjam Default", loan_project_default: "Project Default", loan_due: "Target Pengembalian",
 }[key] || key);
 
-const columnLabel = (key) => ({ item: "Barang", qty: "Qty", unit: "Satuan", spk: "SPK", alokasi: "Alokasi SPK", price: "Harga", discount: "Diskon", tax: "Pajak", total: "Total", notes: "Keterangan", from_wh: "Gudang Asal", to_wh: "Gudang Tujuan", project: "Project", unit_asset: "Unit/Aset" }[key] || key);
+const columnLabel = (key) => ({ item: "Barang", qty: "Qty", unit: "Satuan", spk: "SPK", alokasi: "Alokasi SPK", price: "Harga", discount: "Diskon", tax: "Pajak", total: "Total", notes: "Keterangan", from_wh: "Gudang Asal", to_wh: "Gudang Tujuan", project: "Project", unit_asset: "Unit/Aset", loan_from_wh: "Gudang Pemberi", loan_to_wh: "Gudang Peminjam" }[key] || key);
 
 const lineValue = (key, line) => {
   const factor = Number(line.conversion_factor) || 1;
@@ -109,6 +115,9 @@ const lineValue = (key, line) => {
   if (key === "to_wh") return esc(line.to_name || "");
   if (key === "project") return esc(line.project_name || "");
   if (key === "unit_asset") return esc(line.unit_name || "");
+  // Pinjam Barang multi gudang: gudang pemberi/peminjam per baris.
+  if (key === "loan_from_wh") return esc(line.from_name || "");
+  if (key === "loan_to_wh") return esc(line.to_name || "");
   return "";
 };
 
@@ -365,6 +374,20 @@ export async function printDoc(type, doc, opts = {}) {
     columns.splice(ui >= 0 ? ui + 1 : columns.length, 0, ...extra);
     if (!columns.includes("notes")) { const ii = columns.indexOf("item"); columns.splice(ii >= 0 ? ii + 1 : 0, 0, "notes"); }
     layout.meta_fields = (layout.meta_fields || []).flatMap((k) => (k === "warehouse" ? ["trf_from_default", "trf_to_default"] : k === "project" ? ["trf_project_default"] : [k]));
+  }
+  if (key === "loan") {
+    // Khusus Pinjam Barang: satu dokumen bisa multi gudang -> gudang/project/unit dicetak PER BARIS;
+    // header hanya default dokumen (label "... Default") + Target Pengembalian & Pemohon.
+    const si = columns.indexOf("spk");
+    if (si >= 0) columns.splice(si, 1);
+    const ui = columns.indexOf("unit");
+    const extra = ["loan_from_wh", "loan_to_wh", "project", "unit_asset"].filter((c) => !columns.includes(c));
+    columns.splice(ui >= 0 ? ui + 1 : columns.length, 0, ...extra);
+    if (!columns.includes("notes")) { const ii = columns.indexOf("item"); columns.splice(ii >= 0 ? ii + 1 : 0, 0, "notes"); }
+    const mf = (layout.meta_fields || []).flatMap((k) => (k === "warehouse" ? ["loan_from_default", "loan_to_default"] : k === "project" ? ["loan_project_default"] : [k]));
+    if (!mf.includes("loan_due")) mf.splice(Math.max(0, mf.indexOf("date") + 1), 0, "loan_due");
+    if (!mf.includes("requester")) mf.push("requester");
+    layout.meta_fields = mf;
   }
   if (SPK_DOC_TYPES.has(key) && !columns.includes("notes")) {
     const ii = columns.indexOf("item");

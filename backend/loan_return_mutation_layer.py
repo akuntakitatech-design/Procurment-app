@@ -6,6 +6,8 @@ when the loan contains a unique line per item.
 """
 from fastapi import Depends, HTTPException
 
+import loan_lines as LL
+
 
 def _find_route(app, path, method):
     for route in list(app.router.routes):
@@ -77,6 +79,17 @@ async def _decrement_old(server, lines):
             await server.db.loan_lines.update_one({"id":l.get("loan_line_id")},{"$set":{"returned":0}})
 
 
+async def _direction(server, loan, rl):
+    """Konteks histori Return: arah gudang mengikuti line pinjaman asli (Peminjam -> Pemberi)."""
+    ll=await server.db.loan_lines.find_one({"id":rl.get("loan_line_id")},{"_id":0}) or {}
+    out_wh,in_wh=LL.return_warehouses(ll,loan)
+    names={}
+    for wid in (out_wh,in_wh):
+        if wid and wid not in names:
+            names[wid]=((await server.db.warehouses.find_one({"id":wid},{"_id":0,"name":1})) or {}).get("name")
+    return {"return_from_name":names.get(out_wh),"return_to_name":names.get(in_wh)}
+
+
 def install(server):
     app=server.app
 
@@ -104,12 +117,13 @@ def install(server):
     async def list_returns(did:str,user=Depends(server.current_user)):
         server.require(user,"view")
         docs=await server.db.loan_returns.find({"loan_id":did},{"_id":0}).sort("created_at",-1).to_list(1000)
+        loan=await server.db.loans.find_one({"id":did},{"_id":0}) or {}
         items={i["id"]:i for i in await server.db.items.find({}, {"_id":0}).to_list(5000)}
         out=[]
         for ret in docs:
             lines=await _get_lines(server,ret)
             ret["legacy_ambiguous"]=lines is None
-            ret["lines"]=[] if lines is None else [{**l,"item_code":items.get(l.get("item_id"),{}).get("code"),"item_name":items.get(l.get("item_id"),{}).get("name")} for l in lines]
+            ret["lines"]=[] if lines is None else [{**l,"item_code":items.get(l.get("item_id"),{}).get("code"),"item_name":items.get(l.get("item_id"),{}).get("name"),**await _direction(server,loan,l)} for l in lines]
             out.append(ret)
         return out
 
@@ -148,8 +162,11 @@ def install(server):
             if qty<=0: continue
             await server.db.loan_lines.update_one({"id":ll["id"]},{"$inc":{"returned":qty}})
             uc=float(ll.get("cost_snapshot") or 0); rv=qty*uc
-            await server.post_movement("Loan Return Out",ret.get("no"),rid,ll.get("item_id"),loan.get("to_warehouse_id"),0,qty,user=user,reversal_value=rv,line_id=ll["id"],source_key=f"LOANRET-O::{rid}::{ll['id']}::e{rev}",txn_at=(body or {}).get("date"))
-            await server.post_movement("Loan Return In",ret.get("no"),rid,ll.get("item_id"),loan.get("from_warehouse_id"),qty,0,user=user,value_in=rv,line_id=ll["id"],source_key=f"LOANRET-I::{rid}::{ll['id']}::e{rev}",txn_at=(body or {}).get("date"),require_cost=True)
+            # Gudang return dari LINE pinjaman asli (Peminjam -> Pemberi); legacy: fallback header existing.
+            ret_out,ret_in=LL.return_warehouses(ll,loan)
+            prj,unt=LL.line_project(ll,loan),LL.line_unit(ll,loan)
+            await server.post_movement("Loan Return Out",ret.get("no"),rid,ll.get("item_id"),ret_out,0,qty,project_id=prj,unit_id=unt,user=user,reversal_value=rv,line_id=ll["id"],source_key=f"LOANRET-O::{rid}::{ll['id']}::e{rev}",txn_at=(body or {}).get("date"))
+            await server.post_movement("Loan Return In",ret.get("no"),rid,ll.get("item_id"),ret_in,qty,0,project_id=prj,unit_id=unt,user=user,value_in=rv,line_id=ll["id"],source_key=f"LOANRET-I::{rid}::{ll['id']}::e{rev}",txn_at=(body or {}).get("date"),require_cost=True)
             new.append({"id":server.gid(),"return_id":rid,"loan_id":ret.get("loan_id"),"loan_line_id":ll["id"],"item_id":ll.get("item_id"),"qty":qty})
         await server.db.loan_return_lines.delete_many({"return_id":rid})
         if new: await server.db.loan_return_lines.insert_many(new)
