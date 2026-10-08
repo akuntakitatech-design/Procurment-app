@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import api, { API, apiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, FileText, Loader2, RotateCcw, Trash2, Upload, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, Loader2, RotateCcw, Trash2, Upload, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { isRetryableUploadError } from "@/lib/adjustmentLines";
 
 // Lampiran Penyesuaian Stok SEBELUM posting (pola sama dengan Transfer: pilih file -> Posting sekali klik).
 // File diunggah sebagai draft server-side (entity adjustment_draft, milik tenant + user aktif) dan baru terikat ke
 // Penyesuaian Stok final setelah posting sukses. Validasi tipe/ukuran memakai aturan lampiran existing di backend.
+// Penolakan validasi (4xx) tidak bisa di-retry dengan file yang sama -> hanya tombol hapus; gangguan jaringan/server -> unggah ulang.
+
 export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, onStateChange, testid = "adj-draft-attachments" }) {
-  const [files, setFiles] = useState([]); // {key, name, status: uploading|ready|failed, id?, error?, file?}
+  const [files, setFiles] = useState([]); // {key, name, status: uploading|ready|failed, id?, error?, file?, canRetry?}
   const cb = useRef(onStateChange);
   cb.current = onStateChange;
 
@@ -39,7 +43,10 @@ export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, 
       const r = await api.post("/attachments", fd, { headers: { "Content-Type": "multipart/form-data" } });
       setFiles((fs) => fs.filter((f) => f.key === key || f.id !== r.data.id).map((f) => (f.key === key ? { ...f, status: "ready", id: r.data.id, file: null } : f)));
     } catch (e) {
-      patch(key, { status: "failed", error: apiError(e.response?.data?.detail) || "Gagal mengunggah", file });
+      const msg = apiError(e.response?.data?.detail) || "Gagal mengunggah";
+      const canRetry = isRetryableUploadError(e);
+      patch(key, { status: "failed", error: msg, file: canRetry ? file : null, canRetry });
+      toast.error(`Lampiran ${file.name} gagal diunggah: ${msg}`);
     }
   };
   const pick = (e) => {
@@ -66,6 +73,7 @@ export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, 
     );
   }
 
+  const failedCount = files.filter((f) => f.status === "failed").length;
   return (
     <div className="space-y-3" data-testid={testid}>
       <label className="inline-flex">
@@ -75,17 +83,21 @@ export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, 
       <div className="space-y-2">
         {files.length === 0 && <p className="text-sm text-muted-foreground" data-testid={`${testid}-empty`}>Belum ada lampiran (opsional).</p>}
         {files.map((f, i) => (
-          <div key={f.key} className="flex items-center gap-2 rounded-md border p-2 text-sm" data-testid={`${testid}-file-${i}`}>
-            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-            {f.id ? <a href={`${API}/attachments/${f.id}/download`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:underline">{f.name}</a> : <span className="min-w-0 flex-1 truncate">{f.name}</span>}
-            {f.status === "uploading" && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" data-testid={`${testid}-file-status-${i}`}><Loader2 className="h-3 w-3 animate-spin" />Mengunggah...</span>}
-            {f.status === "ready" && <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700" data-testid={`${testid}-file-status-${i}`}><CheckCircle2 className="h-3.5 w-3.5" />siap</span>}
-            {f.status === "failed" && <span className="inline-flex items-center gap-1 text-xs text-destructive" title={f.error} data-testid={`${testid}-file-status-${i}`}><XCircle className="h-3.5 w-3.5" />{f.error}</span>}
-            {f.status === "failed" && f.file && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => send(f.key, f.file)} aria-label="Unggah ulang" data-testid={`${testid}-file-retry-${i}`}><RotateCcw className="h-3.5 w-3.5" /></Button>}
-            <Button variant="ghost" size="icon" className="h-7 w-7" disabled={f.status === "uploading"} onClick={() => remove(f)} aria-label={`Hapus ${f.name}`} data-testid={`${testid}-file-remove-${i}`}><Trash2 className="h-3.5 w-3.5" /></Button>
+          <div key={f.key} data-status={f.status} className={cn("rounded-md border p-2 text-sm", f.status === "failed" && "border-destructive/40 bg-destructive/5")} data-testid={`${testid}-file-${i}`}>
+            <div className="flex items-center gap-2">
+              <FileText className={cn("h-4 w-4 shrink-0", f.status === "failed" ? "text-destructive" : "text-muted-foreground")} />
+              {f.id ? <a href={`${API}/attachments/${f.id}/download`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:underline">{f.name}</a> : <span className="min-w-0 flex-1 truncate" title={f.name}>{f.name}</span>}
+              {f.status === "uploading" && <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground" data-testid={`${testid}-file-status-${i}`}><Loader2 className="h-3 w-3 animate-spin" />Mengunggah...</span>}
+              {f.status === "ready" && <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-700" data-testid={`${testid}-file-status-${i}`}><CheckCircle2 className="h-3.5 w-3.5" />siap</span>}
+              {f.status === "failed" && <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-destructive" data-testid={`${testid}-file-status-${i}`}><XCircle className="h-3.5 w-3.5" />Gagal</span>}
+              {f.status === "failed" && f.canRetry && f.file && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => send(f.key, f.file)} aria-label="Unggah ulang" title="Unggah ulang" data-testid={`${testid}-file-retry-${i}`}><RotateCcw className="h-3.5 w-3.5" /></Button>}
+              <Button variant="ghost" size="icon" className="h-7 w-7" disabled={f.status === "uploading"} onClick={() => remove(f)} aria-label={`Hapus ${f.name}`} data-testid={`${testid}-file-remove-${i}`}><Trash2 className="h-3.5 w-3.5" /></Button>
+            </div>
+            {f.status === "failed" && <div role="alert" className="mt-1 pl-6 text-xs text-destructive" data-testid={`${testid}-file-error-${i}`}>{f.error}{f.canRetry ? " — klik unggah ulang untuk mencoba lagi." : " — hapus file ini lalu pilih file lain."}</div>}
           </div>
         ))}
       </div>
+      {failedCount > 0 && <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid={`${testid}-failed-summary`}><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{failedCount} file gagal diunggah dan tidak akan ikut terikat saat Posting.</div>}
     </div>
   );
 }

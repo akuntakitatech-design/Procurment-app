@@ -126,3 +126,10 @@ export function adjLinesPayload(lines) {
     warehouse_id: l.warehouse_id || null, project_id: l.project_id || null, unit_id: l.unit_id || null,
   }));
 }
+
+/** Unggah lampiran draft gagal: penolakan validasi (4xx) tidak berguna di-retry dengan file yang sama;
+ *  gangguan jaringan (tanpa respons), timeout (408), rate limit (429), atau 5xx boleh diunggah ulang. */
+export const isRetryableUploadError = (e) => {
+  const st = e?.response?.status;
+  return !e?.response || st >= 500 || st === 408 || st === 429;
+};

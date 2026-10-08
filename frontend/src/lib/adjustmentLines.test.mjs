@@ -130,5 +130,11 @@ check("11j Loan.jsx tidak memakai komponen/lib Adjustment", !loanPage.includes("
 check("11k Transfer.jsx tidak memakai komponen/lib Adjustment", !trfPage.includes("adjustmentLines") && !trfPage.includes("AdjustmentItemLines"));
 check("11l loanLines/transferLines tidak mengimpor adjustmentLines", !src("lib/loanLines.js").includes("adjustmentLines") && !src("lib/transferLines.js").includes("adjustmentLines"));
 
+const R = A.isRetryableUploadError;
+check("12a lampiran draft: 4xx validasi (400/413/415) tidak di-retry", [400, 403, 404, 413, 415].every((s) => R({ response: { status: s } }) === false));
+check("12b lampiran draft: jaringan/408/429/5xx boleh unggah ulang", R({}) && R({ response: { status: 408 } }) && R({ response: { status: 429 } }) && R({ response: { status: 500 } }) && R({ response: { status: 503 } }));
+const dra = src("components/AdjustmentDraftAttachments.jsx");
+check("12c UI lampiran: status gagal + pesan per file + ringkasan, retry hanya bila retryable", dra.includes("file-error-") && dra.includes("failed-summary") && dra.includes("f.canRetry && f.file") && dra.includes("isRetryableUploadError(e)"));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
