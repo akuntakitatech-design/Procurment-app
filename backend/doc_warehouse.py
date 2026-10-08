@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from server import (api, db, gid, now_iso, clean, current_user, require, has_perm,
                     audit, notify, next_number, post_ledger, post_movement, stock_balance)
 import storage as S
+import server
 
 
 async def _wh_map():
@@ -15,15 +16,44 @@ async def _item_map():
 
 
 # ---------------- TRANSFER ----------------
+# Multi gudang per item: HEADER = metadata + default; LINE = sumber posting (lihat transfer_lines.py).
+import transfer_lines as TL
+
+
+async def _named(coll, ids):
+    ids = [x for x in set(ids) if x]
+    if not ids:
+        return {}
+    rows = await getattr(db, coll).find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1, "code": 1, "plate_no": 1}).to_list(len(ids) + 5)
+    return {r["id"]: r for r in rows}
+
+
+def _summary(names):
+    names = [n for n in names if n]
+    if not names:
+        return None
+    return names[0] if len(names) == 1 else f"{names[0]} +{len(names) - 1}"
+
+
 @api.get("/transfers")
 async def list_transfers(user=Depends(current_user)):
     require(user, "view")
     docs = await db.transfers.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     wm = await _wh_map()
+    ids = [d["id"] for d in docs]
+    all_lines = await db.transfer_lines.find({"transfer_id": {"$in": ids}}, {"_id": 0, "transfer_id": 1, "from_warehouse_id": 1, "to_warehouse_id": 1}).to_list(500000) if ids else []
+    by_doc = {}
+    for l in all_lines:
+        by_doc.setdefault(l.get("transfer_id"), []).append(l)
     for d in docs:
-        d["from_name"] = wm.get(d.get("from_warehouse_id"), {}).get("name")
-        d["to_name"] = wm.get(d.get("to_warehouse_id"), {}).get("name")
-        d["line_count"] = await db.transfer_lines.count_documents({"transfer_id": d["id"]})
+        ls = by_doc.get(d["id"], [])
+        froms = list(dict.fromkeys(TL.line_from(l, d) for l in ls)) or [d.get("from_warehouse_id")]
+        tos = list(dict.fromkeys(TL.line_to(l, d) for l in ls)) or [d.get("to_warehouse_id")]
+        # Ringkasan dari LINE (bukan header default): "Gudang A" atau "Gudang A +1".
+        d["from_name"] = _summary([wm.get(x, {}).get("name") for x in froms])
+        d["to_name"] = _summary([wm.get(x, {}).get("name") for x in tos])
+        d["multi_warehouse"] = len(froms) > 1 or len(tos) > 1
+        d["line_count"] = len(ls)
     return docs
 
 
@@ -34,55 +64,92 @@ async def get_transfer(did: str, user=Depends(current_user)):
     if not d: raise HTTPException(404, "Transfer tidak ditemukan")
     wm = await _wh_map(); im = await _item_map()
     lines = await db.transfer_lines.find({"transfer_id": did}, {"_id": 0}).to_list(500)
+    pm = await _named("projects", [TL.line_project(l, d) for l in lines] + [d.get("project_id")])
+    um = await _named("units", [TL.line_unit(l, d) for l in lines])
+    d["legacy_header_warehouse"] = TL.is_legacy(d)
     for l in lines:
         it = im.get(l["item_id"], {}); l["item_code"] = it.get("code"); l["item_name"] = it.get("name")
+        legacy = TL.is_legacy(d) and (not l.get("from_warehouse_id") or not l.get("to_warehouse_id"))
+        # Transaksi LAMA: fallback header hanya saat dibaca (tidak disimpan ulang). Transaksi BARU: murni line.
+        l["from_warehouse_id"] = TL.line_from(l, d); l["to_warehouse_id"] = TL.line_to(l, d)
+        l["project_id"] = TL.line_project(l, d); l["unit_id"] = TL.line_unit(l, d)
+        l["legacy_header_warehouse"] = legacy
+        l["from_name"] = wm.get(l["from_warehouse_id"], {}).get("name")
+        l["to_name"] = wm.get(l["to_warehouse_id"], {}).get("name")
+        l["project_name"] = (pm.get(l.get("project_id")) or {}).get("name")
+        u = um.get(l.get("unit_id")) or {}
+        l["unit_name"] = u.get("plate_no") or u.get("name")
     d["lines"] = lines
     d["from_name"] = wm.get(d.get("from_warehouse_id"), {}).get("name")
     d["to_name"] = wm.get(d.get("to_warehouse_id"), {}).get("name")
+    d["project_name"] = (pm.get(d.get("project_id")) or {}).get("name")
+    d["division_name"] = (await _named("divisions", [d.get("division_id")])).get(d.get("division_id"), {}).get("name")
     return d
 
 
 @api.post("/transfers")
 async def create_transfer(body: dict, user=Depends(current_user)):
     require(user, "create")
-    did = gid(); no = await next_number("TRF")
-    frm = body["from_warehouse_id"]; to = body["to_warehouse_id"]
-    if frm == to: raise HTTPException(400, "Gudang asal dan tujuan sama")
-    await db.transfers.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
-        "from_warehouse_id": frm, "to_warehouse_id": to, "project_id": body.get("project_id"),
-        "division_id": body.get("division_id"),
-        "notes": body.get("notes"), "status": "Posted", "created_by": user.get("email"), "created_at": now_iso()})
-    for l in body.get("lines", []):
-        qty = float(l.get("qty", 0))
-        if qty <= 0: continue
-        avail = await stock_balance(l["item_id"], frm)
-        if qty > avail + 1e-6 and not has_perm(user, "override_qty"):
-            raise HTTPException(400, f"Stok gudang asal tidak cukup (tersedia {avail})")
-        lid = gid()
-        await db.transfer_lines.insert_one({"id": lid, "transfer_id": did, "item_id": l["item_id"],
-            "qty": qty, "unit": l.get("unit"), "project_id": l.get("project_id"),
-            "unit_id": l.get("unit_id"), "notes": l.get("notes")})
-        # OUT at source moving-average snapshot; carry the EXACT value to destination (no P/L).
-        out = await post_movement("Transfer Out", no, did, l["item_id"], frm, 0, qty,
-                                  project_id=l.get("project_id"), user=user, line_id=lid,
-                                  source_key=f"TRF-O::{lid}", txn_at=body.get("date"))
-        transfer_value = float(out.get("value_out") or 0)
-        await db.transfer_lines.update_one({"id": lid}, {"$set": {
-            "cost_snapshot": out.get("unit_cost"), "transfer_value": transfer_value}})
-        try:
-            await post_movement("Transfer In", no, did, l["item_id"], to, qty, 0,
-                                project_id=l.get("project_id"), user=user, value_in=transfer_value,
-                                line_id=lid, source_key=f"TRF-I::{lid}", txn_at=body.get("date"),
-                                require_cost=True)
-        except Exception:
-            # Atomicity: destination leg failed -> restore the source OUT so no stock/value is lost.
-            await post_movement("Reversal Transfer Out", no, did, l["item_id"], frm, qty, 0,
-                                project_id=l.get("project_id"), user=user, reversal_value=transfer_value,
-                                is_reversal=True, reversal_of=out.get("valuation_ledger_id"),
-                                source_key=f"TRF-O-REV::{lid}", backdate_guard=False)
-            raise
+    lines = [l for l in TL.resolve_lines(body) if float(l.get("qty", 0) or 0) > 0]
+    im = await _item_map()
+    # Hard-block SEBELUM ada penulisan: gudang per line, asal != tujuan, stok per (barang, gudang asal LINE).
+    await TL.validate_lines(server, lines, user, item_names={k: v.get("name") for k, v in im.items()})
+    draft_id = body.get("attachment_draft_id") or None
+    did = gid()
+    claimed = await TL.claim_draft(server, draft_id, user, did)  # 404/409 sebelum ada penulisan stok
+    try:
+        no = await next_number("TRF")
+        await db.transfers.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
+            # Header = default/snapshot dokumen; posting membaca gudang line.
+            "from_warehouse_id": body.get("from_warehouse_id") or None, "to_warehouse_id": body.get("to_warehouse_id") or None,
+            "project_id": body.get("project_id"), "division_id": body.get("division_id"),
+            "warehouse_source": TL.WAREHOUSE_SOURCE_LINE, "line_warehouse_ids": TL.line_warehouse_ids(lines),
+            "notes": body.get("notes"), "status": "Posted", "created_by": user.get("email"), "created_at": now_iso()})
+        for l in lines:
+            qty = float(l.get("qty", 0))
+            lid = gid()
+            rec = {"id": lid, "transfer_id": did, "item_id": l["item_id"], "qty": qty, "unit": l.get("unit"),
+                   "from_warehouse_id": l["from_warehouse_id"], "to_warehouse_id": l["to_warehouse_id"],
+                   "project_id": l.get("project_id"), "unit_id": l.get("unit_id"), "notes": l.get("notes")}
+            await db.transfer_lines.insert_one(rec)
+            out = await TL.post_line(server, no, did, rec, user, body.get("date"))
+            await db.transfer_lines.update_one({"id": lid}, {"$set": {
+                "cost_snapshot": out.get("unit_cost"), "transfer_value": float(out.get("value_out") or 0)}})
+    except Exception:
+        # Posting gagal: transaksi tidak terbentuk (movement direversal), draft lampiran tetap draft -> bisa retry.
+        await TL.rollback_failed_post(server, did, user)
+        if claimed:
+            await TL.release_draft(server, draft_id, did)
+        raise
+    if claimed:
+        await TL.bind_draft_attachments(server, draft_id, did, user)  # bind HANYA setelah posting sukses
     await audit(user, "create", "transfer", did, no)
     return await get_transfer(did, user)
+
+
+# ---------------- ATTACHMENT DRAFT TRANSFER (upload sebelum posting) ----------------
+@api.post("/attachment-drafts")
+async def create_attachment_draft(body: dict, user=Depends(current_user)):
+    if (body or {}).get("module") != TL.DRAFT_MODULE:
+        raise HTTPException(400, "Modul draft lampiran tidak didukung")
+    if not has_perm(user, "transfer.create"):
+        raise HTTPException(403, "Anda tidak memiliki izin untuk menambah data")
+    require(user, "upload_attachment")
+    await TL.cleanup_expired_drafts(server)  # draft orphan > 24 jam milik tenant aktif
+    # tenant_id/owner diambil dari konteks server (tenant proxy + user terautentikasi), bukan dari payload.
+    doc = {"id": str(uuid.uuid4()), "module": TL.DRAFT_MODULE, "owner_id": user.get("id"), "owner_email": user.get("email"),
+           "bound_to": None, "binding": False, "created_at": now_iso()}
+    await db.attachment_drafts.insert_one(doc)
+    return clean(doc)
+
+
+@api.delete("/attachment-drafts/{draft_id}")
+async def discard_attachment_draft(draft_id: str, user=Depends(current_user)):
+    d = await TL.get_owned_draft(server, draft_id, user)
+    if d.get("bound_to"):
+        return {"ok": True, "bound_to": d["bound_to"]}  # sudah final: lampiran final tidak dihapus
+    removed = await TL.purge_draft(db, d, S)
+    return {"ok": True, "removed": removed}
 
 
 # ---------------- LOAN ----------------

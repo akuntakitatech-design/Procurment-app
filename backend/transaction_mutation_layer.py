@@ -267,7 +267,15 @@ async def _replace(server, module, did, body, user):
             for line, _, _ in prepared:
                 wh = line.get("warehouse_id") or normalized.get("default_warehouse_id")
                 required_out[(line.get("item_id"), wh)] = required_out.get((line.get("item_id"), wh), 0.0) + float(line.get("qty") or 0)
-        elif module in ("transfer", "loan"):
+        elif module == "transfer":
+            # Multi gudang per item: stok divalidasi per (barang, gudang asal LINE) + kredit reversal dokumen ini.
+            import transfer_lines as TL
+            _tl = TL.resolve_lines({**normalized, "lines": [ln for ln, _s, _u in prepared]})
+            for (line, _s, _u), resolved in zip(prepared, _tl):
+                line["from_warehouse_id"], line["to_warehouse_id"] = resolved["from_warehouse_id"], resolved["to_warehouse_id"]
+            _items = {i["id"]: i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(20000)}
+            await TL.validate_lines(server, _tl, user, reversal_credit=reversal_by_key, item_names=_items)
+        elif module == "loan":
             frm = normalized.get("from_warehouse_id")
             for line, _, _ in prepared:
                 required_out[(line.get("item_id"), frm)] = required_out.get((line.get("item_id"), frm), 0.0) + float(line.get("qty") or 0)
@@ -320,7 +328,7 @@ async def _replace(server, module, did, body, user):
         elif module == "mi":
             rec = {"id": lid, "mi_id": did, "mro_line_id": (specs[0][1] if specs else line.get("mro_line_id")), "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "unit": line.get("unit"), "warehouse_id": line.get("warehouse_id") or normalized.get("default_warehouse_id"), "project_id": line.get("project_id") or normalized.get("default_project_id"), "unit_id": line.get("unit_id") or normalized.get("default_unit_id"), "notes": line.get("notes")}
         elif module == "transfer":
-            rec = {"id": lid, "transfer_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "unit": line.get("unit"), "project_id": line.get("project_id"), "unit_id": line.get("unit_id"), "notes": line.get("notes")}
+            rec = {"id": lid, "transfer_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "unit": line.get("unit"), "from_warehouse_id": line.get("from_warehouse_id"), "to_warehouse_id": line.get("to_warehouse_id"), "project_id": line.get("project_id"), "unit_id": line.get("unit_id"), "notes": line.get("notes")}
         elif module == "loan":
             rec = {"id": lid, "loan_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "returned": 0, "unit": line.get("unit"), "project_id": line.get("project_id"), "unit_id": line.get("unit_id"), "notes": line.get("notes")}
         elif module == "adjustment":
@@ -370,20 +378,13 @@ async def _replace(server, module, did, body, user):
         for rec in new_lines:
             await server.post_ledger("MI", no, did, rec["item_id"], rec["warehouse_id"], 0, rec["qty"], project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), division_id=normalized.get("division_id"), user=user, line_id=rec.get("id"), source_key=f"MI::{rec.get('id')}", txn_at=normalized.get("date"))
     elif module == "transfer":
-        frm, to = normalized.get("from_warehouse_id"), normalized.get("to_warehouse_id")
-        if frm == to:
-            raise HTTPException(400, "Gudang asal dan tujuan sama")
-        await head_col.update_one({"id": did}, {"$set": {"status": "Posted"}})
+        # Posting membaca gudang LINE (header hanya default/metadata); engine stok/MWA existing tidak berubah.
+        import transfer_lines as TL
+        await head_col.update_one({"id": did}, {"$set": {"status": "Posted", "warehouse_source": TL.WAREHOUSE_SOURCE_LINE,
+                                                         "line_warehouse_ids": TL.line_warehouse_ids(new_lines)}})
         for rec in new_lines:
-            out = await server.post_movement("Transfer Out", no, did, rec["item_id"], frm, 0, rec["qty"],
-                                             project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user,
-                                             line_id=rec.get("id"), source_key=f"TRF-O::{rec.get('id')}",
-                                             txn_at=normalized.get("date"))
-            tv = float(out.get("value_out") or 0)
-            await server.post_movement("Transfer In", no, did, rec["item_id"], to, rec["qty"], 0,
-                                       project_id=rec.get("project_id"), unit_id=rec.get("unit_id"), user=user,
-                                       value_in=tv, line_id=rec.get("id"), source_key=f"TRF-I::{rec.get('id')}",
-                                       txn_at=normalized.get("date"), require_cost=True)
+            out = await TL.post_line(server, no, did, rec, user, normalized.get("date"))
+            await line_col.update_one({"id": rec.get("id")}, {"$set": {"cost_snapshot": out.get("unit_cost"), "transfer_value": float(out.get("value_out") or 0)}})
     elif module == "loan":
         frm, to = normalized.get("from_warehouse_id"), normalized.get("to_warehouse_id")
         if frm == to:
