@@ -45,6 +45,15 @@ import SupplierDp from "@/pages/SupplierDp";
 import SupplierDpDetail from "@/pages/SupplierDpDetail";
 
 function Loading() {
+  const auth = useAuth();
+  // Gangguan sementara saat memulihkan sesi (5xx/network): jangan dianggap anonim, tawarkan coba lagi.
+  if (auth?.authError) return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-6 text-center" role="alert" data-testid="auth-bootstrap-error">
+      <p className="text-sm text-muted-foreground">{auth.authError}</p>
+      <button type="button" onClick={auth.retryBootstrap} data-testid="auth-bootstrap-retry"
+        className="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Coba lagi</button>
+    </div>
+  );
   return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Memuat...</div>;
 }
 

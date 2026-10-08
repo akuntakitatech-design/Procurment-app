@@ -9,12 +9,14 @@ const src = (p) => readFileSync(join(here, "..", p), "utf8");
 let pass = 0, fail = 0;
 const t = (name, cond) => { if (cond) { pass += 1; console.log("PASS " + name); } else { fail += 1; console.log("FAIL " + name); } };
 
+// Alur interceptor dipindah ke lib/authInterceptor.js (diuji perilakunya di authInterceptor.test.mjs).
 const api = src("lib/api.js");
-t("api: deteksi pesan 401 sesi digantikan (sama dengan backend)", api.includes('"Sesi Anda telah berakhir karena akun ini login di perangkat lain."'));
-t("api: hapus token lokal saat sesi digantikan", /function endReplacedSession\(\) \{\s*clearToken\(\);/.test(api));
-t("api: redirect ke /login?reason=session_replaced", api.includes("window.location.assign(`/login?reason=${SESSION_REPLACED_REASON}`)"));
+const ai = src("lib/authInterceptor.js");
+t("api: deteksi pesan 401 sesi digantikan (sama dengan backend)", ai.includes('"Sesi Anda telah berakhir karena akun ini login di perangkat lain."'));
+t("api: hapus token lokal saat sesi berakhir", /const terminate = \(reason\) => \{[\s\S]*?clearToken\(\);/.test(ai));
+t("api: redirect ke /login?reason=<alasan sesi>", api.includes("window.location.assign(`/login?reason=${reason}`)") && ai.includes('SESSION_REPLACED_REASON = "session_replaced"'));
 t("api: tidak loop redirect di halaman login", api.includes('window.location.pathname === "/login"'));
-t("api: deteksi diperiksa sebelum auto refresh", api.indexOf("isSessionReplaced(error)") < api.indexOf('api.post("/auth/refresh")'));
+t("api: deteksi diperiksa sebelum auto refresh", ai.indexOf("isSessionReplaced(error) && !skipsSessionReplaced") < ai.indexOf("await refreshOnce()"));
 const login = src("pages/Login.jsx");
 t("Login: pesan Bahasa Indonesia sesi berakhir", login.includes("Sesi Anda berakhir karena akun ini telah digunakan untuk login di perangkat lain.") && login.includes('params.get("reason") === "session_replaced"'));
 const app = src("App.js");

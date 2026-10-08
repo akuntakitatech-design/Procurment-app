@@ -22,7 +22,7 @@ export function MasterCreateProvider({ children }) {
  * Setelah Save: master tersimpan, daftar di-refresh, dan id baru dipilih HANYA pada field pemanggil
  * (onChange milik header / baris tertentu).
  */
-export function MasterRefCombobox({ name, masters, options, value, onChange, onCreated, prefill, testid, disabled, ...rest }) {
+export function MasterRefCombobox({ name, masters, options, value, onChange, onCreated, prefill, testid, disabled, lookup, ...rest }) {
   const { can } = useAuth();
   const ctxOpen = useContext(MasterCreateCtx);
   const [local, setLocal] = useState(null);
@@ -41,8 +41,10 @@ export function MasterRefCombobox({ name, masters, options, value, onChange, onC
     if (ctxOpen) ctxOpen(name, opts); else setLocal({ ...opts, key: Date.now() });
   };
   const footerAction = allowed ? { label: inlineCreateLabel(name), testid: `${testid || name}-create-new`, onClick: openCreate } : null;
+  // Status lookup jujur (loading/error/izin): dari prop, dari opts(), atau dari useMasters().status(name).
+  const lk = lookup !== undefined ? lookup : options?.__lookup || masters?.status?.(name);
   return <>
-    <Combobox {...rest} options={options} value={value} onChange={onChange} testid={testid} disabled={disabled} footerAction={footerAction} />
+    <Combobox {...rest} options={options} value={value} onChange={onChange} testid={testid} disabled={disabled} footerAction={footerAction} lookup={lk} />
     {local && <MasterQuickCreate key={local.key} name={name} open prefill={local.prefill} onClose={() => setLocal(null)} onCreated={local.onCreated} />}
   </>;
 }

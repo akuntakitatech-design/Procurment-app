@@ -30,6 +30,7 @@ export default function Login() {
   const [err, setErr] = useState("");
   const [params] = useSearchParams();
   const sessionReplaced = params.get("reason") === "session_replaced";
+  const sessionExpired = params.get("reason") === "session_expired";
   const [loading, setLoading] = useState(false);
   const [brand, setBrand] = useState({
     name: "KelolaKita Procurement",
@@ -309,6 +310,12 @@ export default function Login() {
             {sessionReplaced && !err && (
               <div role="status" className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="login-session-replaced">
                 Sesi Anda berakhir karena akun ini telah digunakan untuk login di perangkat lain.
+              </div>
+            )}
+
+            {sessionExpired && !err && (
+              <div role="status" className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="login-session-expired">
+                Sesi Anda telah berakhir. Silakan login kembali.
               </div>
             )}
 
