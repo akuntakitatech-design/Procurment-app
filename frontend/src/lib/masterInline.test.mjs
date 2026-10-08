@@ -66,8 +66,11 @@ for (const n of ["Mro.jsx", "Ro.jsx", "Po.jsx", "Do.jsx", "Mi.jsx", "Transfer.js
 t("ItemLines/DocumentHeaderDefaults: tidak ada Combobox Project/Unit mentah", !raw.test(IL) && !raw.test(DH));
 
 // --- tidak merusak tampilan UOM Penyesuaian Stok ---
-const adj = src("pages/Adjustment.jsx");
-t("Adjustment.jsx: tidak disentuh inline master (UOM terpilih tetap nama saja)", adj.includes("selectedLabel: adjustmentSelectedUnitLabel(u)") && !adj.includes("MasterRefCombobox"));
+// Multi gudang per item: UOM per baris ada di AdjustmentItemLines; Project/Unit per baris memakai MasterRefCombobox,
+// sedangkan UOM tetap Combobox biasa (tidak disentuh inline master; label terpilih tetap nama saja).
+const adj = src("components/AdjustmentItemLines.jsx");
+const adjUom = adj.slice(adj.indexOf("testid={`${testidPrefix}-uom-"), adj.indexOf("/>", adj.indexOf("testid={`${testidPrefix}-uom-")));
+t("Adjustment.jsx: tidak disentuh inline master (UOM terpilih tetap nama saja)", adj.includes("selectedLabel: adjustmentSelectedUnitLabel(u)") && /<Combobox dense testid=\{`\$\{testidPrefix\}-uom-/.test(adj) && !adjUom.includes("Master"));
 
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

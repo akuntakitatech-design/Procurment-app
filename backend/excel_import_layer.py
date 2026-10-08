@@ -107,7 +107,8 @@ TRANSACTION_DATASETS = {
     "adjustment": {
         "label": "Penyesuaian Stok",
         "path": "/api/adjustments",
-        "columns": ["batch_ref", "date", "warehouse_code", "division_code", "project_code", "adj_type", "reason", "notes", "item_code", "adjustment", "line_reason"],
+        # line_warehouse_code OPSIONAL (multi gudang per item); kosong -> warehouse_code header (Gudang Default).
+        "columns": ["batch_ref", "date", "warehouse_code", "division_code", "project_code", "adj_type", "reason", "notes", "item_code", "adjustment", "line_reason", "line_warehouse_code"],
         "required": ["batch_ref", "date", "warehouse_code", "item_code", "adjustment"],
     },
     "opname": {
@@ -213,6 +214,8 @@ def _template_bytes(key, spec):
     guide.append(["Aturan", "Jangan mengubah nama header. Gunakan kode master (bukan ID internal)."])
     if key in TRANSACTION_DATASETS:
         guide.append(["batch_ref", "Baris dengan batch_ref yang sama digabung menjadi 1 transaksi dengan banyak item."])
+    if key == "adjustment":
+        guide.append(["line_warehouse_code", "Opsional. Gudang per baris barang (multi gudang dalam 1 dokumen). Kosong = memakai warehouse_code (Gudang Default)."])
         guide.append(["Nomor transaksi", "Nomor resmi tetap dibuat otomatis oleh sistem saat import."])
         guide.append(["Sumber", "Isi source_mro_no/source_ro_no/source_po_no bila transaksi harus menjaga traceability."])
     if key == "stock_limits":
@@ -380,7 +383,7 @@ async def _source_line(server, module, doc_no, item_id):
     return head, lines[0]
 
 
-async def _transaction_payload(server, key, group, maps, errors):
+async def _transaction_payload(server, key, group, maps, errors, user=None):
     first = group[0]; n0 = first["__row__"]
     def rid(kind, field, required=False, row=None):
         rr = row or first
@@ -426,7 +429,24 @@ async def _transaction_payload(server, key, group, maps, errors):
             else: line.update({"mro_line_id": sl["id"], "sources": [{"mro_id": dh["id"], "line_id": sl["id"], "qty": qty}]})
         if key in ("transfer", "loan"):
             if _text(r.get("line_project_code")): line["project_id"] = rid("projects", "line_project_code", row=r)
-        if key == "adjustment": line = {"item_id": item_id, "adjustment": _float(r.get("adjustment"), 0), "reason": _text(r.get("line_reason")) or None}
+        if key == "adjustment":
+            line = {"item_id": item_id, "adjustment": _float(r.get("adjustment"), 0), "reason": _text(r.get("line_reason")) or None}
+            if _text(r.get("line_warehouse_code")):
+                # Gudang per baris (source of truth). Kode tidak valid/tidak aktif/di luar cakupan -> error baris Excel,
+                # TIDAK diam-diam memakai Gudang Default.
+                code = _text(r.get("line_warehouse_code"))
+                wrec = maps.get("warehouses", {}).get(code.upper())
+                if not wrec:
+                    errors.append(f"Baris {n}: line_warehouse_code '{code}' tidak ditemukan")
+                elif wrec.get("is_active") is False or wrec.get("deleted") or wrec.get("is_deleted"):
+                    errors.append(f"Baris {n}: line_warehouse_code '{code}' tidak aktif")
+                elif user is not None and not server.is_global(user) and wrec.get("division_id") \
+                        and str(wrec["division_id"]) not in {str(x) for x in (user.get("divisions") or [])}:
+                    errors.append(f"Baris {n}: line_warehouse_code '{code}' berada di luar cakupan divisi Anda")
+                else:
+                    line["warehouse_id"] = wrec.get("id")
+                if "warehouse_id" not in line:
+                    line["warehouse_id"] = None  # baris error: jangan pernah jatuh ke Gudang Default
         if key == "opname": line = {"item_id": item_id, "counted": _float(r.get("counted"), 0)}
         lines.append(line)
 
@@ -464,7 +484,7 @@ async def _import_transactions(server, key, rows, user):
     if key == "loan_return":
         for batch, group in groups.items(): prepared.append((batch, group))
     else:
-        for batch, group in groups.items(): prepared.append((batch, await _transaction_payload(server, key, group, maps, errors)))
+        for batch, group in groups.items(): prepared.append((batch, await _transaction_payload(server, key, group, maps, errors, user)))
     if errors: return {"ok": False, "imported": 0, "errors": errors[:200]}
 
     imported = 0; created_docs = []
@@ -495,10 +515,20 @@ async def _import_transactions(server, key, rows, user):
                 count_lines = [{"line_id": by_item[x["item_id"]]["id"], "counted": x["counted"]} for x in counted if x.get("item_id") in by_item]
                 route = _find_route(server.app, "/api/opname/{did}/count", "PUT")
                 if route and count_lines: result = await route.endpoint(did, {"lines": count_lines, "status": "Review"}, user)
+            elif key == "adjustment":
+                # Penyesuaian Stok: panggil endpoint dengan keyword agar layer validasi (input guard divisi, dll.)
+                # menerima body. (Pemanggilan positional pada modul lain tidak diubah di scope ini.)
+                route = _find_route(server.app, TRANSACTION_DATASETS[key]["path"], "POST")
+                if not route: raise HTTPException(500, "Endpoint transaksi tidak tersedia")
+                result = await route.endpoint(body=payload, user=user)
             else:
                 result = await _call(server.app, TRANSACTION_DATASETS[key]["path"], payload, user)
             imported += 1
-            created_docs.append({"batch_ref": batch, "id": result.get("id") if isinstance(result, dict) else None, "no": result.get("no") if isinstance(result, dict) else None})
+            doc_row = {"batch_ref": batch, "id": result.get("id") if isinstance(result, dict) else None, "no": result.get("no") if isinstance(result, dict) else None}
+            if key == "adjustment" and isinstance(result, dict):  # preview hasil: gudang masing-masing barang
+                doc_row["lines"] = [{"item": x.get("item_code") or x.get("item_name"), "warehouse": x.get("warehouse_name"),
+                                     "adjustment": x.get("adjustment")} for x in (result.get("lines") or [])]
+            created_docs.append(doc_row)
         except Exception as e:
             detail = getattr(e, "detail", None) or str(e)
             errors.append(f"Batch {batch}: {detail}")

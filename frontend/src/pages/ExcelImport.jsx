@@ -45,22 +45,22 @@ function ImportCard({ item }) {
     } finally { setBusy(false); }
   };
 
-  return <Card className="overflow-hidden">
+  return <Card className="overflow-hidden" data-testid={`excel-import-card-${item.key}`}>
     <CardContent className="pt-5 space-y-4">
       <div className="flex items-start gap-3">
         <div className="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0"><FileSpreadsheet className="h-5 w-5" /></div>
         <div className="min-w-0 flex-1"><div className="font-head font-semibold">{item.label}</div><div className="text-xs text-muted-foreground mt-1">Kolom wajib: {(item.required || []).join(", ") || "-"}</div></div>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={template} disabled={busy}><Download className="h-4 w-4 mr-2" />Download Template</Button>
-        <Button size="sm" onClick={choose} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}Upload Excel</Button>
-        <input ref={inputRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={upload} />
+        <Button variant="outline" size="sm" onClick={template} disabled={busy} data-testid={`excel-template-${item.key}`}><Download className="h-4 w-4 mr-2" />Download Template</Button>
+        <Button size="sm" onClick={choose} disabled={busy} data-testid={`excel-upload-${item.key}`}>{busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}Upload Excel</Button>
+        <input ref={inputRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={upload} data-testid={`excel-file-${item.key}`} />
       </div>
       {item.key === "opening_inventory" && <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-900">Harga beli diisi per satuan yang dipilih. Jika file yang sama diperbaiki dan diupload ulang, saldo awal item + gudang + proyek akan dikoreksi dengan selisih, bukan digandakan.</div>}
-      {result && <div className={`rounded-lg border p-3 text-xs ${result.ok ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/60"}`}>
+      {result && <div data-testid={`excel-result-${item.key}`} className={`rounded-lg border p-3 text-xs ${result.ok ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/60"}`}>
         <div className="flex items-center gap-2 font-semibold">{result.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <AlertTriangle className="h-4 w-4 text-amber-600" />}{result.ok ? "Import selesai" : "Ada data yang perlu diperbaiki"}</div>
         <div className="mt-1 text-muted-foreground">Baris terbaca: {result.rows ?? "-"} · Berhasil: {result.imported ?? 0}{result.created != null ? ` · Baru: ${result.created} · Update: ${result.updated}` : ""}</div>
-        {(result.created_docs || []).length > 0 && <div className="mt-2 space-y-1">{result.created_docs.slice(0, 12).map((x, i) => <div key={i} className="font-mono">{x.batch_ref} → {x.no || x.id || "tersimpan"}</div>)}</div>}
+        {(result.created_docs || []).length > 0 && <div className="mt-2 space-y-1">{result.created_docs.slice(0, 12).map((x, i) => <div key={i}><div className="font-mono">{x.batch_ref} → {x.no || x.id || "tersimpan"}</div>{Array.isArray(x.lines) && x.lines.length > 0 && <ul className="ml-4 mt-0.5 space-y-0.5 text-muted-foreground" data-testid={`excel-import-lines-${i}`}>{x.lines.slice(0, 20).map((l, j) => <li key={j}>{l.item} · {l.warehouse || "-"} · {Number(l.adjustment) > 0 ? "+" : ""}{l.adjustment}</li>)}</ul>}</div>)}</div>}
         {(result.errors || []).length > 0 && <div className="mt-2 max-h-36 overflow-auto space-y-1 text-amber-900">{result.errors.map((x, i) => <div key={i}>• {x}</div>)}</div>}
       </div>}
     </CardContent>

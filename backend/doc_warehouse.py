@@ -131,7 +131,7 @@ async def create_transfer(body: dict, user=Depends(current_user)):
 @api.post("/attachment-drafts")
 async def create_attachment_draft(body: dict, user=Depends(current_user)):
     module = (body or {}).get("module")
-    if module not in TL.DRAFT_ENTITY_OF:  # "transfer" | "loan" (Pinjam Barang memakai infrastruktur yang sama)
+    if module not in TL.DRAFT_ENTITY_OF:  # "transfer" | "loan" | "adjustment" (infrastruktur draft yang sama)
         raise HTTPException(400, "Modul draft lampiran tidak didukung")
     if not has_perm(user, f"{module}.create"):
         raise HTTPException(403, "Anda tidak memiliki izin untuk menambah data")
@@ -352,14 +352,45 @@ async def _resolve_in_cost(item_id, wh, approved, reason):
     return ap, True
 
 
+# Multi gudang per item: HEADER = metadata + default; LINE = sumber gudang/project/unit/stok/ledger/valuasi
+# (lihat adjustment_lines.py). Legacy (tanpa warehouse_source) -> fallback header hanya saat baca.
+import adjustment_lines as AL
+
+
+async def _enrich_adjustment_lines(d, lines, see_value=True):
+    wm = await _wh_map(); im = await _item_map()
+    pm = await _named("projects", [AL.line_project(l, d) for l in lines] + [d.get("project_id")])
+    um = await _named("units", [AL.line_unit(l, d) for l in lines])
+    legacy_doc = AL.is_legacy(d)
+    _uids = list({im.get(l["item_id"], {}).get("base_uom_id") for l in lines} - {None})
+    uomm = {u["id"]: u for u in await db.uoms.find({"id": {"$in": _uids}}, {"_id": 0, "id": 1, "name": 1, "code": 1, "symbol": 1}).to_list(len(_uids) + 5)} if _uids else {}
+    for l in lines:
+        it = im.get(l["item_id"], {}); l["item_code"] = it.get("code"); l["item_name"] = it.get("name")
+        _u = uomm.get(it.get("base_uom_id")) or {}
+        l["uom_label"] = _u.get("symbol") or _u.get("name") or _u.get("code") or it.get("unit")  # qty tersimpan dlm satuan dasar
+        l["legacy_header_warehouse"] = legacy_doc and not l.get("warehouse_id")
+        l["warehouse_id"] = AL.line_warehouse(l, d); l["project_id"] = AL.line_project(l, d); l["unit_id"] = AL.line_unit(l, d)
+        l["warehouse_name"] = wm.get(l["warehouse_id"], {}).get("name")
+        l["project_name"] = (pm.get(l.get("project_id")) or {}).get("name")
+        u = um.get(l.get("unit_id")) or {}
+        l["unit_name"] = u.get("plate_no") or u.get("name")
+        if not see_value:  # biaya/MWA hanya untuk izin harga existing (view_purchase_price) — dibatasi di API
+            l.pop("approved_unit_cost", None); l.pop("cost_overridden", None)
+    return wm, pm
+
+
 @api.get("/adjustments")
 async def list_adjustments(user=Depends(current_user)):
     require(user, "view")
     docs = await db.adjustments.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     wm = await _wh_map()
     for d in docs:
-        d["warehouse_name"] = wm.get(d.get("warehouse_id"), {}).get("name")
-        d["line_count"] = await db.adjustment_lines.count_documents({"adjustment_id": d["id"]})
+        lines = await db.adjustment_lines.find({"adjustment_id": d["id"]}, {"_id": 0, "warehouse_id": 1}).to_list(500)
+        whs = list(dict.fromkeys(AL.line_warehouse(l, d) for l in lines)) or [d.get("warehouse_id")]
+        # Ringkasan dari LINE (bukan default header): "Gudang A" atau "Gudang A +1".
+        d["warehouse_name"] = _summary([wm.get(x, {}).get("name") for x in whs])
+        d["multi_warehouse"] = len(whs) > 1
+        d["line_count"] = len(lines)
     return docs
 
 
@@ -368,45 +399,58 @@ async def get_adjustment(did: str, user=Depends(current_user)):
     require(user, "view")
     d = await db.adjustments.find_one({"id": did}, {"_id": 0})
     if not d: raise HTTPException(404, "Adjustment tidak ditemukan")
-    wm = await _wh_map(); im = await _item_map()
     lines = await db.adjustment_lines.find({"adjustment_id": did}, {"_id": 0}).to_list(500)
-    for l in lines:
-        it = im.get(l["item_id"], {}); l["item_code"] = it.get("code"); l["item_name"] = it.get("name")
+    wm, pm = await _enrich_adjustment_lines(d, lines, see_value=has_perm(user, "view_purchase_price"))
     d["lines"] = lines
+    d["legacy_header_warehouse"] = AL.is_legacy(d)
     d["warehouse_name"] = wm.get(d.get("warehouse_id"), {}).get("name")
+    d["project_name"] = (pm.get(d.get("project_id")) or {}).get("name")
+    d["division_name"] = (await _named("divisions", [d.get("division_id")])).get(d.get("division_id"), {}).get("name")
     return d
 
 
 @api.post("/adjustments")
 async def create_adjustment(body: dict, user=Depends(current_user)):
     require(user, "stock_adjustment")
-    did = gid(); no = await next_number("ADJ")
-    wh = body["warehouse_id"]
-    await db.adjustments.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
-        "warehouse_id": wh, "division_id": body.get("division_id"), "project_id": body.get("project_id"),
-        "adj_type": body.get("adj_type", "Koreksi"), "reason": body.get("reason"), "notes": body.get("notes"),
-        "status": "Posted", "created_by": user.get("email"), "created_at": now_iso()})
-    for l in body.get("lines", []):
-        before = await stock_balance(l["item_id"], wh)
-        delta = float(l.get("adjustment", 0))
-        if abs(delta) < 1e-9: continue
-        after = before + delta
-        lid = gid()
-        unit_cost = None; overridden = False
-        if delta > 0:
-            unit_cost, overridden = await _resolve_in_cost(l["item_id"], wh, l.get("approved_unit_cost"), l.get("reason"))
-        await db.adjustment_lines.insert_one({"id": lid, "adjustment_id": did, "item_id": l["item_id"],
-            "before": before, "adjustment": delta, "after": after, "reason": l.get("reason"),
-            "approved_unit_cost": unit_cost, "cost_overridden": overridden})
-        qty_in = delta if delta > 0 else 0
-        qty_out = -delta if delta < 0 else 0
-        await post_movement("Stock Adjustment", no, did, l["item_id"], wh, qty_in, qty_out,
-                            division_id=body.get("division_id"), user=user, line_id=lid,
-                            unit_cost_in=(unit_cost if delta > 0 else None), require_cost=(delta > 0),
-                            source_key=f"ADJ::{lid}", txn_at=body.get("date"))
-        if delta > 0 and overridden:
-            await audit(user, "override_cost", "adjustment", did, no, reason=l.get("reason"),
-                        after={"item_id": l["item_id"], "approved_unit_cost": unit_cost})
+    if not body.get("warehouse_id"):
+        raise HTTPException(400, "Gudang adjustment wajib dipilih")
+    lines = AL.resolve_lines(body)
+    im = await _item_map()
+    # Hard-block SEBELUM ada penulisan: gudang/project/unit per line, stok per (barang, gudang LINE), biaya masuk.
+    await AL.validate_lines(server, lines, user, item_names={k: v.get("name") for k, v in im.items()})
+    draft_id = body.get("attachment_draft_id") or None
+    did = gid()
+    claimed = await TL.claim_draft(server, draft_id, user, did, module="adjustment")  # 404/409 sebelum penulisan stok
+    try:
+        no = await next_number("ADJ")
+        await db.adjustments.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
+            # Header = default/snapshot dokumen; posting membaca gudang LINE.
+            "warehouse_id": body["warehouse_id"], "division_id": body.get("division_id"), "project_id": body.get("project_id") or None,
+            "adj_type": body.get("adj_type", "Koreksi"), "reason": body.get("reason"), "notes": body.get("notes"),
+            "warehouse_source": AL.WAREHOUSE_SOURCE_LINE, "line_warehouse_ids": AL.line_warehouse_ids(lines),
+            "status": "Posted", "created_by": user.get("email"), "created_at": now_iso()})
+        for l in lines:
+            before = await stock_balance(l["item_id"], l["warehouse_id"])
+            delta = float(l.get("adjustment", 0))
+            lid = gid()
+            rec = {"id": lid, "adjustment_id": did, "item_id": l["item_id"], "warehouse_id": l["warehouse_id"],
+                   "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
+                   "before": before, "adjustment": delta, "after": before + delta, "reason": l.get("reason"),
+                   "approved_unit_cost": l.get("approved_unit_cost")}
+            await db.adjustment_lines.insert_one(rec)  # qty disimpan dalam satuan dasar (konvensi existing)
+            unit_cost, overridden = await AL.post_line(server, _resolve_in_cost, no, did, rec, user, body.get("date"), body.get("division_id"))
+            await db.adjustment_lines.update_one({"id": lid}, {"$set": {"approved_unit_cost": unit_cost, "cost_overridden": overridden}})
+            if delta > 0 and overridden:
+                await audit(user, "override_cost", "adjustment", did, no, reason=l.get("reason"),
+                            after={"item_id": l["item_id"], "approved_unit_cost": unit_cost})
+    except Exception:
+        # Posting gagal: Adjustment tidak terbentuk (movement direversal); draft lampiran tetap draft -> bisa retry.
+        await AL.rollback_failed_post(server, did, user)
+        if claimed:
+            await TL.release_draft(server, draft_id, did)
+        raise
+    if claimed:
+        await TL.bind_draft_attachments(server, draft_id, did, user, module="adjustment")  # bind HANYA setelah sukses
     await audit(user, "create", "adjustment", did, no, reason=body.get("reason"))
     return await get_adjustment(did, user)
 

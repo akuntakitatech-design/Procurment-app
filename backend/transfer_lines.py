@@ -128,13 +128,17 @@ async def rollback_failed_post(server, did, user):
 
 
 # ---------------- Draft lampiran (upload sebelum posting) ----------------
-# Infrastruktur draft server-side dipakai Transfer dan (dengan guard eksplisit module="loan") Pinjam Barang.
+# Infrastruktur draft server-side dipakai Transfer dan (dengan guard eksplisit module="loan"/"adjustment")
+# Pinjam Barang serta Penyesuaian Stok.
 # Default module="transfer" -> perilaku Transfer identik dengan sebelumnya.
 DRAFT_MODULE = "transfer"
 DRAFT_ENTITY = "transfer_draft"
 DRAFT_TTL_HOURS = 24
-DRAFT_ENTITY_OF = {"transfer": "transfer_draft", "loan": "loan_draft"}
-DRAFT_HEAD_COLL = {"transfer": "transfers", "loan": "loans"}
+DRAFT_ENTITY_OF = {"transfer": "transfer_draft", "loan": "loan_draft", "adjustment": "adjustment_draft"}
+DRAFT_HEAD_COLL = {"transfer": "transfers", "loan": "loans", "adjustment": "adjustments"}
+# Penyesuaian Stok: klaim draft dicap waktu agar draft yang SEDANG diproses (posting berjalan) dilindungi dari cleanup.
+CLAIM_STAMP_MODULES = {"adjustment"}
+CLAIM_GRACE_MINUTES = 60
 
 
 async def get_owned_draft(server, draft_id, user, module=DRAFT_MODULE):
@@ -160,9 +164,12 @@ async def claim_draft(server, draft_id, user, transfer_id, module=DRAFT_MODULE):
     if not draft_id:
         return False
     await assert_draft_owner(server, draft_id, user, module)
+    patch = {"bound_to": transfer_id, "binding": True}
+    if module in CLAIM_STAMP_MODULES:
+        patch["claimed_at"] = server.now_iso()
     r = await server.db.attachment_drafts.update_one(
         {"id": draft_id, "module": module, "owner_id": user.get("id"), "bound_to": None},
-        {"$set": {"bound_to": transfer_id, "binding": True}})
+        {"$set": patch})
     if not getattr(r, "matched_count", 0):
         raise HTTPException(409, "Draft lampiran sudah terikat ke transaksi lain")
     return True
@@ -214,6 +221,11 @@ async def purge_draft(dbh, draft, storage):
     return removed
 
 
+def _cutoff_minutes(minutes):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+
+
 def _cutoff(hours=DRAFT_TTL_HOURS):
     from datetime import datetime, timedelta, timezone
     return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
@@ -235,6 +247,8 @@ async def cleanup_expired_drafts(server, all_tenants=False, module=DRAFT_MODULE)
         bound = d.get("bound_to")
         if bound and not d.get("binding"):
             continue  # sudah final
+        if bound and d.get("binding") and module in CLAIM_STAMP_MODULES and (d.get("claimed_at") or "") >= _cutoff_minutes(CLAIM_GRACE_MINUTES):
+            continue  # Penyesuaian Stok: posting sedang berjalan (klaim baru) -> jangan hapus
         if bound and d.get("binding"):
             tq = {"id": bound, **({"tenant_id": d["tenant_id"]} if d.get("tenant_id") else {})}
             if await getattr(dbh, head).find_one(tq, {"_id": 0, "id": 1}):
