@@ -73,6 +73,10 @@ const metaValue = (key, doc, buyerText) => {
     unit: doc.default_unit_name || doc.unit_name || "",
     supplier_invoice: doc.supplier_invoice || "",
     notes: doc.notes || doc.internal_notes || "",
+    // Transfer: default header (bukan sumber pergerakan barang).
+    trf_from_default: doc.from_name || "",
+    trf_to_default: doc.to_name || "",
+    trf_project_default: doc.project_name || "",
   };
   return values[key] || "";
 };
@@ -81,9 +85,10 @@ const metaLabel = (key) => ({
   date: "Tanggal", status: "Status", requester: "Pemohon", receiver: "Penerima", supplier: "Supplier", buyer: "Buyer Contact",
   payment_term: "Payment Term", delivery_term: "Delivery Term", division: "Divisi", warehouse: "Gudang", project: "Proyek", unit: "Unit / Aset",
   supplier_invoice: "No. Faktur", notes: "Keterangan",
+  trf_from_default: "Gudang Asal Default", trf_to_default: "Gudang Tujuan Default", trf_project_default: "Project Default",
 }[key] || key);
 
-const columnLabel = (key) => ({ item: "Barang", qty: "Qty", unit: "Satuan", spk: "SPK", alokasi: "Alokasi SPK", price: "Harga", discount: "Diskon", tax: "Pajak", total: "Total", notes: "Keterangan" }[key] || key);
+const columnLabel = (key) => ({ item: "Barang", qty: "Qty", unit: "Satuan", spk: "SPK", alokasi: "Alokasi SPK", price: "Harga", discount: "Diskon", tax: "Pajak", total: "Total", notes: "Keterangan", from_wh: "Gudang Asal", to_wh: "Gudang Tujuan", project: "Project", unit_asset: "Unit/Aset" }[key] || key);
 
 const lineValue = (key, line) => {
   const factor = Number(line.conversion_factor) || 1;
@@ -99,6 +104,11 @@ const lineValue = (key, line) => {
   if (key === "tax") return esc(line.tax_name || (line.tax != null ? `${num(line.tax)}%` : ""));
   if (key === "total") return rupiah(line.total || 0);
   if (key === "notes") return esc(line.notes || "");
+  // Transfer multi gudang: gudang/project/unit dibaca per baris (bukan default header).
+  if (key === "from_wh") return esc(line.from_name || "");
+  if (key === "to_wh") return esc(line.to_name || "");
+  if (key === "project") return esc(line.project_name || "");
+  if (key === "unit_asset") return esc(line.unit_name || "");
   return "";
 };
 
@@ -345,6 +355,17 @@ export async function printDoc(type, doc, opts = {}) {
   const financialCols = new Set(["price", "discount", "tax", "total"]);
   const columns = (layout.columns || []).filter(c => showPrice || !financialCols.has(c));
   // CP4 UX: item-level Keterangan must print — inject right after "Barang".
+  if (key === "transfer") {
+    // Khusus Transfer: satu dokumen bisa multi gudang -> gudang/project/unit dicetak PER BARIS;
+    // header hanya dicetak sebagai default dokumen (label "... Default").
+    const si = columns.indexOf("spk");
+    if (si >= 0) columns.splice(si, 1);
+    const ui = columns.indexOf("unit");
+    const extra = ["from_wh", "to_wh", "project", "unit_asset"].filter((c) => !columns.includes(c));
+    columns.splice(ui >= 0 ? ui + 1 : columns.length, 0, ...extra);
+    if (!columns.includes("notes")) { const ii = columns.indexOf("item"); columns.splice(ii >= 0 ? ii + 1 : 0, 0, "notes"); }
+    layout.meta_fields = (layout.meta_fields || []).flatMap((k) => (k === "warehouse" ? ["trf_from_default", "trf_to_default"] : k === "project" ? ["trf_project_default"] : [k]));
+  }
   if (SPK_DOC_TYPES.has(key) && !columns.includes("notes")) {
     const ii = columns.indexOf("item");
     columns.splice(ii >= 0 ? ii + 1 : 0, 0, "notes");

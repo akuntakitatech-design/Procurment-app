@@ -53,7 +53,8 @@ for (const [n, pre] of [["Mro.jsx", "mro"], ["Ro.jsx", "ro"], ["Po.jsx", "po"]])
   t(`${n}: ItemLines menerima Divisi (prefill Unit baru)`, s.includes("division={h.division_id}"));
 }
 t("Mi.jsx: Project/Unit baris Direct pakai komponen reusable", src("pages/Mi.jsx").includes("<MasterProjectCombobox masters={masters} options={projOpts}") && src("pages/Mi.jsx").includes("<MasterUnitCombobox masters={masters} options={unitOpts}"));
-t("Transfer.jsx: Project header pakai komponen reusable", src("pages/Transfer.jsx").includes('<MasterProjectCombobox masters={masters} options={masters.opts("projects")}'));
+// Transfer: Project Default tetap komponen reusable; opsi nama-saja (cari kode+nama) dari transferLines.nameOnlyOptions.
+t("Transfer.jsx: Project header pakai komponen reusable", src("pages/Transfer.jsx").includes('<MasterProjectCombobox masters={masters} options={projOpts} value={h.project_id}') && src("pages/Transfer.jsx").includes("const projOpts = nameOnlyOptions(masters.data.projects)"));
 t("Loan.jsx: ItemLines project/unit (reusable) + divisi", src("pages/Loan.jsx").includes("fields={{ project: true, unit: true, notes: true }} division={h.division_id}"));
 t("Spk.jsx: Project/Site pakai komponen reusable + daftar lokal ikut refresh", src("pages/Spk.jsx").includes("<MasterProjectCombobox") && src("pages/Spk.jsx").includes("onCreated={(doc) => setProjects("));
 const raw = /<Combobox[^>]*options=\{(projOpts|projectOpts|unitOpts|projects|units|masters\.opts\("(projects|units)"[^)]*\))\}/;
