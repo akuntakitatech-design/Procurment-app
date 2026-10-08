@@ -343,7 +343,7 @@ def install(server):
             divs.add(doc["division_id"])
         if mod in WAREHOUSE_DOCS:
             divs |= await wh_divs([doc.get(k) for k in ("warehouse_id", "from_warehouse_id", "to_warehouse_id")]
-                                  + (list(doc.get("line_warehouse_ids") or []) if mod in ("transfer", "loan") else []))  # Transfer/Pinjam: gudang per baris
+                                  + (list(doc.get("line_warehouse_ids") or []) if mod in ("transfer", "loan", "adjustment") else []))  # Transfer/Pinjam/Penyesuaian: gudang per baris
         return divs
 
     def visible(mod, divs, alw):
@@ -442,7 +442,7 @@ def install(server):
                     if r.get("division_id"):
                         divs.add(r["division_id"])
                     divs |= {whd.get(r.get(k)) for k in ("warehouse_id", "from_warehouse_id", "to_warehouse_id") if whd.get(r.get(k))}
-                    if mod in ("transfer", "loan"):  # Transfer/Pinjam: gudang per baris
+                    if mod in ("transfer", "loan", "adjustment"):  # Transfer/Pinjam/Penyesuaian: gudang per baris
                         divs |= {whd.get(x) for x in (r.get("line_warehouse_ids") or []) if whd.get(x)}
                     if visible(mod, divs, alw) or r.get("id") in ok_ids:
                         out.append(r)

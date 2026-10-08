@@ -59,7 +59,11 @@ async def _adjustment_reversal_impact(server, did):
     return impact
 
 
-async def _validate_adjustment(server, body, did=None):
+async def _validate_adjustment(server, body, did=None, user=None):
+    """Penyesuaian Stok multi gudang per item: validasi per (barang, gudang LINE) — baris barang+gudang sama
+    diakumulasi, kredit reversal dokumen lama dihitung saat edit — SELURUHNYA sebelum reversal/penulisan.
+    Legacy/klien lama: baris tanpa gudang memakai Gudang Default header."""
+    import adjustment_lines as AL
     body = body or {}
     old = None
     if did:
@@ -75,31 +79,10 @@ async def _validate_adjustment(server, body, did=None):
     if not isinstance(lines, list) or not lines:
         raise HTTPException(400, "Adjustment minimal memiliki satu baris barang")
 
-    deltas = {}
-    for line in lines:
-        item_id = line.get("item_id")
-        if not item_id:
-            raise HTTPException(400, "Barang adjustment wajib dipilih")
-        try:
-            delta = float(line.get("adjustment") or 0)
-        except (TypeError, ValueError):
-            raise HTTPException(400, "Qty adjustment tidak valid")
-        deltas[item_id] = deltas.get(item_id, 0.0) + delta
-
+    resolved = AL.resolve_lines({**body, "warehouse_id": warehouse_id})
     reversal = await _adjustment_reversal_impact(server, did)
-    for item_id, delta in deltas.items():
-        current = float(await server.stock_balance(item_id, warehouse_id) or 0)
-        available_after_old_reversal = current + reversal.get((item_id, warehouse_id), 0.0)
-        after = available_after_old_reversal + delta
-        if after < -1e-9:
-            item = await server.db.items.find_one({"id": item_id}, {"_id": 0}) or {}
-            wh = await server.db.warehouses.find_one({"id": warehouse_id}, {"_id": 0}) or {}
-            label = item.get("code") or item.get("name") or item_id
-            wh_name = wh.get("name") or warehouse_id
-            raise HTTPException(
-                400,
-                f"Adjustment {label} melebihi stok {wh_name}. Stok tersedia {available_after_old_reversal:g}; hasil adjustment {after:g}",
-            )
+    items = {i["id"]: i.get("code") or i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "code": 1, "name": 1}).to_list(20000)}
+    await AL.validate_lines(server, resolved, user or {}, reversal_credit=reversal, item_names=items)
 
 
 def install(server):
@@ -112,7 +95,7 @@ def install(server):
         app.router.routes.remove(adjustment_route)
 
         async def safe_create_adjustment(body: dict, user=Depends(server.current_user)):
-            await _validate_adjustment(server, body)
+            await _validate_adjustment(server, body, user=user)
             return await original_adjustment(body, user)
 
         app.add_api_route(
@@ -150,7 +133,7 @@ def install(server):
                 if stock:
                     raise HTTPException(409, "Stok dari transaksi ini sudah terpakai. Hapus/koreksi transaksi pemakaian stok terlebih dahulu.")
                 if module == "adjustment":
-                    await _validate_adjustment(server, body, did)
+                    await _validate_adjustment(server, body, did, user=user)
                 return await original_endpoint(module, did, body, user)
             return safe_edit
 

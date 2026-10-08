@@ -285,6 +285,17 @@ async def _replace(server, module, did, body, user):
                     line[_k] = resolved[_k]
             _items = {i["id"]: i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(20000)}
             await LL.validate_lines(server, _ll, user, reversal_credit=reversal_by_key, item_names=_items)
+        elif module == "adjustment":
+            # Multi gudang per item (Penyesuaian Stok): gudang/project/unit per LINE; stok per (barang, gudang LINE)
+            # + kredit reversal dokumen ini; biaya masuk per gudang LINE. Divalidasi SEBELUM reversal.
+            import adjustment_lines as AL
+            _hdr_wh = normalized.get("warehouse_id") or doc.get("warehouse_id")
+            _al = AL.resolve_lines({**normalized, "warehouse_id": _hdr_wh, "lines": [ln for ln, _s, _u in prepared]})
+            for (line, _s, _u), resolved in zip(prepared, _al):
+                for _k in ("warehouse_id", "project_id", "unit_id"):
+                    line[_k] = resolved[_k]
+            _items = {i["id"]: i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(20000)}
+            await AL.validate_lines(server, _al, user, reversal_credit=reversal_by_key, item_names=_items)
         for key, qty in required_out.items():
             available = float(await server.stock_balance(*key) or 0) + reversal_by_key.get(key, 0.0)
             if qty > available + 1e-6 and not server.has_perm(user, "override_qty"):
@@ -338,10 +349,9 @@ async def _replace(server, module, did, body, user):
         elif module == "loan":
             rec = {"id": lid, "loan_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "returned": 0, "unit": line.get("unit"), "from_warehouse_id": line.get("from_warehouse_id"), "to_warehouse_id": line.get("to_warehouse_id"), "project_id": line.get("project_id"), "unit_id": line.get("unit_id"), "notes": line.get("notes")}
         elif module == "adjustment":
-            wh = normalized.get("warehouse_id")
-            before = await server.stock_balance(line.get("item_id"), wh)
+            wh = line.get("warehouse_id")  # gudang LINE (sudah di-resolve + divalidasi sebelum reversal)
             delta = float(line.get("adjustment") or 0)
-            rec = {"id": lid, "adjustment_id": did, "item_id": line.get("item_id"), "before": before, "adjustment": delta, "after": before + delta, "reason": line.get("reason"), "approved_unit_cost": line.get("approved_unit_cost")}
+            rec = {"id": lid, "adjustment_id": did, "item_id": line.get("item_id"), "warehouse_id": wh, "project_id": line.get("project_id"), "unit_id": line.get("unit_id"), "before": None, "adjustment": delta, "after": None, "reason": line.get("reason"), "approved_unit_cost": line.get("approved_unit_cost")}
         else:  # opname
             old = old_line_by_id.get(line.get("id")) or {}
             snapshot = float(line.get("snapshot") if line.get("snapshot") is not None else old.get("snapshot") or 0)
@@ -400,16 +410,17 @@ async def _replace(server, module, did, body, user):
             out = await LL.post_line(server, no, did, rec, user, normalized.get("date"))
             await line_col.update_one({"id": rec.get("id")}, {"$set": {"cost_snapshot": out.get("unit_cost"), "loan_value": float(out.get("value_out") or 0)}})
     elif module == "adjustment":
-        wh = normalized.get("warehouse_id")
+        # Posting ulang membaca gudang/project/unit LINE baru (reversal lama memakai ledger asli per line);
+        # before/after per line dihitung berurutan saat posting; engine MWA/_resolve_in_cost tidak berubah.
         import doc_warehouse as _dw
+        import adjustment_lines as AL
+        await head_col.update_one({"id": did}, {"$set": {"warehouse_source": AL.WAREHOUSE_SOURCE_LINE,
+                                                         "line_warehouse_ids": AL.line_warehouse_ids(new_lines)}})
         for rec in new_lines:
-            delta = float(rec.get("adjustment") or 0)
-            if abs(delta) < 1e-9:
-                continue
-            uc = None
-            if delta > 0:
-                uc, _ov = await _dw._resolve_in_cost(rec["item_id"], wh, rec.get("approved_unit_cost"), rec.get("reason"))
-            await server.post_movement("Stock Adjustment", no, did, rec["item_id"], wh, delta if delta > 0 else 0, -delta if delta < 0 else 0, division_id=normalized.get("division_id"), user=user, line_id=rec.get("id"), unit_cost_in=uc, require_cost=(delta > 0), source_key=f"ADJ::{rec.get('id')}", txn_at=normalized.get("date"))
+            before = float(await server.stock_balance(rec["item_id"], rec["warehouse_id"]) or 0)
+            uc, ov = await AL.post_line(server, _dw._resolve_in_cost, no, did, rec, user, normalized.get("date"), normalized.get("division_id"))
+            await line_col.update_one({"id": rec["id"]}, {"$set": {"before": before, "after": before + float(rec.get("adjustment") or 0),
+                                                                   "approved_unit_cost": uc, "cost_overridden": ov}})
     elif module == "opname":
         old_status = doc.get("status")
         if old_status == "Posted":

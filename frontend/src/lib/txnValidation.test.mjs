@@ -67,7 +67,8 @@ t("Mi.jsx: Divisi terkunci saat sumber MRO", tag("Mi.jsx", "mi-division-field").
 t("Mi.jsx: helper text 'Divisi mengikuti MRO sumber' (bukan PO)", tag("Mi.jsx", "mi-division-field").includes('lockedHint="Divisi mengikuti MRO sumber') && !tag("Mi.jsx", "mi-division-field").includes("PO sumber"));
 t("Mi.jsx: tidak ada sumber PO untuk MI (hanya MRO/Direct)", !/TabsTrigger value="PO"/.test(page("Mi.jsx")));
 
-const adj = page("Adjustment.jsx");
+// Penyesuaian Stok multi gudang: UOM per baris dipindah ke komponen khusus AdjustmentItemLines (perilaku sama).
+const adj = page("Adjustment.jsx") + comp("AdjustmentItemLines.jsx");
 t("Adjustment.jsx: selectedLabel nama satuan", adj.includes("selectedLabel: adjustmentSelectedUnitLabel(u)"));
 t("Adjustment.jsx: label dropdown memuat kode + nama + konversi (cari via kode/nama)", adj.includes("label: `${u.code && u.name && u.code !== u.name ? `${u.code} · ` : \"\"}${u.name || u.code || \"Satuan\"}") && adj.includes("— Dasar"));
 // simulasi: label dropdown vs label terpilih untuk PCS/Pieces
