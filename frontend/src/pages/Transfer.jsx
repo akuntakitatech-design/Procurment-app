@@ -14,6 +14,7 @@ import { MasterProjectCombobox } from "@/components/MasterRefCombobox";
 import { DivisionField } from "@/components/DivisionField";
 import { divisionError, lineQtyError } from "@/lib/txnValidation";
 import { StatusBadge } from "@/components/StatusBadge";
+import { LookupStatusAlert } from "@/components/LookupStatusAlert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,7 +72,7 @@ export default function Transfer() {
         <Button variant="outline" onClick={() => { setMode("list"); setEditingId(null); }}><ArrowLeft className="h-4 w-4 mr-2" />Kembali</Button>
         <Button onClick={save} disabled={lines.length === 0}>{editingId ? "Simpan Perubahan" : "Posting Transfer"}</Button>
       </TransactionPageHeader>
-      <div className="space-y-4"><Card><CardContent className="pt-6 space-y-6">
+      <div className="space-y-4"><LookupStatusAlert masters={masters} names={["divisions", "warehouses", "projects", "units", "items", "uoms"]} testid="trf-lookup-status" /><Card><CardContent className="pt-6 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Field label="No. Transfer"><Input value={editingId ? selected?.no || "" : "Otomatis saat disimpan"} disabled className="font-mono" /></Field>
           <Field label="Tanggal"><DatePicker value={h.date} onChange={(v) => setH({ ...h, date: v })} testid="trf-date" /></Field>

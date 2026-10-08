@@ -489,7 +489,7 @@ async def refresh(request: Request, response: Response):
         if payload.get("ver", 0) != u.get("token_version", 0):
             raise HTTPException(status_code=401, detail=A.SESSION_REPLACED_MSG)
         A.set_auth_cookies(response, A.create_access_token(u["id"], u["email"], u.get("token_version", 0)),
-                           A.create_refresh_token(u["id"], u.get("token_version", 0)))
+                           A.create_refresh_token(u["id"], u.get("token_version", 0)), request)
         return {"ok": True, "token": A.create_access_token(u["id"], u["email"], u.get("token_version", 0))}
     except _jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
