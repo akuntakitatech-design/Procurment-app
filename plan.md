@@ -413,7 +413,7 @@ tercakup oleh `report_inventory_test` 63/63 + `report_procurement_test` 39/39 + 
 Catatan eksekusi: run integrity pertama tercampur dengan run lain (kredensial DB salah) -> sesi bentrok; diulang sendiri -> 13/13.
 
 ## Urutan kerja (keputusan user 2026-10-09)
-1. **H1 Performance Hotfix** (PR kecil terpisah dari `main` b5d4722) — Status: IN PROGRESS.
+1. **H1 Performance Hotfix** (PR #60 dari `main` b5d4722) — Status: COMPLETED, menunggu review/merge.
 2. **P2b** — dari `main` terbaru SETELAH H1 merged.
 3. **Performance Optimization menyeluruh** — PR terpisah SETELAH P2b merged (prioritas: pagination sebenarnya, N+1,
    agregasi Dashboard, optimasi frontend). **Perubahan indeks/migrasi DB dan multi-worker wajib diaudit & disetujui
@@ -434,7 +434,7 @@ tanpa lazy route, subscription/status 3×, tanpa cache data antarhalaman (duplik
 Insiden: saat setup, worker backend PREVIEW sempat terhenti (PID salah) ±1–2 menit, dipulihkan `supervisorctl restart`;
 sejak itu setiap PID diverifikasi (cmd + port) sebelum tindakan.
 
-### H1 — Performance Hotfix `$in` set-based (Status: IN PROGRESS — branch `hotfix/perf-h1-in-set` dari `main` b5d4722)
+### H1 — Performance Hotfix `$in` set-based (Status: COMPLETED — Quality Gates PASS; branch `hotfix/perf-h1-in-set` dari `main` b5d4722; PR #60 OPEN, STOP menunggu review — tanpa merge/deploy)
 Scope: hanya `backend/mariadb_motor.py` — `_InList` (lookup `(is_bool, nilai)` = semantik `_eq` identik), `_compile_filter`
 sekali per query di `_select_rows` & `$match` aggregate (filter asli tidak dimutasi, tanpa cache global), `_in_fast`; fallback
 linear lama untuk elemen di luar str/int/float/bool/None (regex, list, dict, enum/subclass) dan NaN. Kontrak query, pushdown SQL,
