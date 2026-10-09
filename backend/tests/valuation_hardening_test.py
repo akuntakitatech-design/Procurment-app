@@ -13,11 +13,11 @@ import threading
 from datetime import datetime, timedelta
 
 # Read backend URL from frontend/.env
-BASE = ""
+BASE = (os.environ.get("TEST_API_URL") or "").rstrip("/").removesuffix("/api")
 try:
     with open("/app/frontend/.env") as f:
         for line in f:
-            if line.startswith("REACT_APP_BACKEND_URL="):
+            if not BASE and line.startswith("REACT_APP_BACKEND_URL="):
                 BASE = line.split("=", 1)[1].strip().rstrip("/")
 except Exception:
     pass
@@ -397,14 +397,18 @@ class ValuationTester:
                     "line_id": line["id"],
                     "counted": line.get("snapshot", 0) + (5 if i == 0 else 0),
                     "approved_unit_cost": 1500,
+                    "cost_reason": "Harga beli terakhir (QA)",  # override harga wajib beralasan (Stock Opname hardening)
                     "reason": "Test surplus"
                 } for i, line in enumerate(lines)],
-                "status": "Review"
+                "status": "Review"  # diabaikan server: status hanya berubah lewat workflow
             }
             
             success, _ = self.test("Set Counted Values", "PUT", f"opname/{opname_id}/count", 200, data=count_data)
             if not success:
                 return False
+        # Workflow server-side: Counting -> Review -> Waiting Approval sebelum Approve & Posting.
+        self.test("Opname Review", "POST", f"opname/{opname_id}/workflow", 200, data={"action": "review"})
+        self.test("Opname Submit Approval", "POST", f"opname/{opname_id}/submit", 200, data={})
         
         # Try to post opname
         success, _ = self.test("Post Opname", "POST", f"opname/{opname_id}/post", 200, data={})

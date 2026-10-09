@@ -1,179 +1,206 @@
 # Inventory Valuation Hardening — Plan (baseline `aab5ed4`)
 
+> **Update konteks (Stock Opname Hardening — PT REAL)**
+> - Basis kerja: `main` merge PR #55 (`b63de0e`), branch aktif: `feature/stock-opname-hardening`.
+> - Keputusan user yang mengikat:
+>   - **1A**: maksimal **1 Stock Opname aktif per gudang** (Counting/Review/Waiting Approval), validasi backend concurrency-safe.
+>   - **2A**: Approval/Reject memakai permission existing **`opname.post` / `post_stock_opname`**; **reject wajib alasan** dan kembali ke proses perbaikan.
+>   - **3A**: **Freeze** wajib memblokir **SELURUH** mutasi stok server-side pada gudang Freeze sampai posting sukses atau pembatalan sah.
+>   - Opsi 1: jalur **direct-write** yang mengubah stok/ledger/valuasi juga harus diblokir saat Freeze; proses **read-only** tetap boleh.
+> - Ketentuan delivery: 1 PR ke `main`, **tanpa merge/deploy/reset DB production**. Token GitHub diminta **hanya saat push** dan tidak disimpan/ditampilkan.
+
 ## 1) Objectives
-- Make moving weighted average valuation **end-to-end safe + auditable** for all warehouse stock modules in scope: Transfer, Loan, Adjustment, Stock Opname, Opening Valuation, Reversal/Cancellation, Backdate safety, Concurrency/Atomicity, Reconciliation.
-- Enforce: **no negative inventory**, **no hidden re-costing**, **immutable historical cost snapshots**, **no normal-path estimated valuation**.
-- Deliver as **incremental local commits per checkpoint**, final reconciliation + regression + `CI=true yarn build`.
+- Menjaga moving weighted average valuation tetap **end-to-end aman + auditable** dan **tidak merusak perilaku modul lain**.
+- Menyelesaikan hardening **Stock Opname 1 dokumen = 1 gudang** (bukan multi-gudang per item) dengan workflow lengkap:
+  - Counting → Review → Waiting Approval → Posted
+  - Return/Reject/Cancel beralasan, audit trail
+  - Posting **atomic**, idempotent/retry-safe, reversal/correction aman
+  - Mode **Freeze** dan **Live** (kronologis + penanda “perlu hitung ulang”)
+- Menegakkan **security harga**:
+  - Redaksi server-side untuk user tanpa `view_purchase_price` pada API/detail/list/print/export-import/report
+  - Audit log & error tidak membocorkan nilai harga
+- Memenuhi seluruh quality gates:
+  - Backend tests + integrity suite full (DB terisolasi)
+  - Frontend tests + `CI=true yarn build`
+  - Browser UAT + `testing_agent_v3` sampai **0 temuan**
+  - `git diff --check`, secret scan, scope audit
 
 ## 2) Implementation Steps
 
 ### Phase 1 — Core POC (isolation) for the valuation engine hard parts
-User stories:
-1. As an accountant, I need concurrent postings on the same pool to serialize so stock/value never goes negative.
-2. As an auditor, I need a single posting attempt to be idempotent so double-click/retry doesn’t double-post value.
-3. As a controller, I need reversals to post compensating entries referencing original cost snapshots.
-4. As an admin, I need transfers to carry value exactly so there is no P/L.
-5. As QA, I need backdated postings blocked to avoid mid-history moving average corruption.
-
-Steps:
-1. **Web research (best practice)**: confirm recommended patterns for moving-average valuation with MariaDB/InnoDB concurrency (row locks / optimistic version / idempotency keys) and reversal accounting patterns.
-2. Create a minimal isolated test harness (python in `/tmp`) that calls backend functions (or hits API) to simulate:
-   - concurrent OUT (two issues) on same item/warehouse
-   - idempotent retry
-   - reversal of a movement using original valuation snapshot
-   - transfer OUT/IN value carry
-3. Refactor valuation core:
-   - Implement `post_movement(...) -> result dict` as the only engine.
-   - Keep `post_ledger(...) -> running` wrapper for backward compatibility.
-4. Add optimistic concurrency + atomicity:
-   - Add `_ver` to `item_warehouse` docs.
-   - Use `find_one_and_update(..., $inc: {_ver:1}, for_update semantics)` or transaction-level lock to serialize per pool.
-   - Make stock_ledger + valuation_ledger + item_warehouse update atomic (single transaction block).
-5. Add idempotency:
-   - Define `source_key` (doc_type+doc_id+line_id+direction or a canonical string).
-   - Enforce uniqueness by checking existing `valuation_ledger` by `source_key` before posting; if exists return prior result.
-6. Remove normal-path `valuation_estimated`:
-   - Change default behavior: IN without explicit cost source => **hard-block** with clear error.
-   - Leave `valuation_estimated` only for legacy diagnostics if encountered, not created going forward.
-
-Deliverable: core POC script passes and first checkpoint commit.
+> **Status:** COMPLETED (sebelum konteks Stock Opname hardening ini). Tidak diulang.
 
 ### Phase 2 — V1 App development (checkpoint-driven hardening)
 
 #### Checkpoint 1 — Concurrency / Atomicity (commit)
-User stories:
-1. As a warehouse operator, I cannot accidentally post negative stock when another operator issues stock simultaneously.
-2. As finance, I need stock_ledger + valuation_ledger + item_warehouse to always reconcile after any post.
-3. As the system, I must reject IN postings without valid cost sources.
-4. As the system, I must reject duplicate post attempts for the same doc line.
-5. As QA, I can reproduce concurrency and see only one succeeds.
-
-Steps:
-- Implement transaction wrapper in DB layer usage (use `MariaDatabase._transaction()`), applied inside `post_movement`.
-- Add backdate guard plumbing to `post_movement` (but enforce later checkpoint): accept `txn_at/txn_date` param.
-- Ensure all callers pass `line_id` consistently; patch missing `line_id` in mutation flows.
+> **Status:** COMPLETED (baseline engine + safeguards). Tidak diulang.
 
 #### Checkpoint 2 — Reversal / Cancellation (commit)
-User stories:
-1. As an auditor, I can see original valuation entries remain and reversals are compensating entries.
-2. As an operator, I cannot reverse the same document twice.
-3. As inventory control, reversal is blocked if it would cause negative stock.
-4. As finance, reversal uses **original cost snapshot**, not current avg.
-5. As admin, delete/edit flows remain functional but now valuation-safe.
-
-Steps:
-- Build `reverse_document_valuation(doc_id, reason, user)`:
-  - Find original `valuation_ledger` rows for doc_id not reversed.
-  - Post compensating movements through `post_movement` using stored `value_in/value_out` snapshots.
-  - Mark originals `reversed=true` + link reversal ids.
-  - Idempotent guard: if already reversed return ok.
-- Wire `transaction_mutation_layer._reverse_ledgers` to delegate to the new valuation reversal (and stop direct item_warehouse qty-only updates).
-- Wire `loan_return_mutation_layer._reverse` similarly.
-- Add DO/MI reversal safety: block reversal if stock would go negative.
+> **Status:** COMPLETED (engine reversal `reverse_document_valuation` sudah ada). Ditambah wrapper/guard untuk Freeze (lihat Checkpoint 4).
 
 #### Checkpoint 3 — Transfer valuation (commit)
-User stories:
-1. As finance, transfer does not create profit/loss and carries exact value.
-2. As a warehouse user, transfer posts as one logical operation (no half-post).
-3. As an auditor, transfer reversal references the original transfer value.
-4. As QA, total company inventory value is conserved after transfer.
-5. As a dev, transfer edit/delete uses the same valuation-safe engine.
-
-Steps:
-- Transfer OUT: post OUT using current avg_before snapshot.
-- Transfer IN: pass `value_in=source_transfer_value` (not unit_cost_in) so destination receives exact carrying value.
-- Atomic app-level safety: if IN fails after OUT, compensate by reversing OUT within same request (or single DB transaction if feasible across both pools).
-- Transfer reversal: reverse both legs using original snapshot values; ensure atomic.
+> **Status:** COMPLETED. Regresi `transfer_multi_warehouse_test.py` perlu dijalankan dengan `STORAGE_DRIVER=local` sesuai asumsi test (sudah dilakukan).
 
 #### Checkpoint 4 — Adjustment + Stock Opname valuation (commit)
-User stories:
-1. As stock control, negative adjustments use current avg snapshot.
-2. As accounting, positive adjustments require approved cost when avg not available.
-3. As a supervisor, overriding default cost requires a reason and is audited.
-4. As an opname approver, posting creates valuation entries once and never duplicates on reopen.
-5. As a limited user, I do not see cost inputs without permission.
+> **Status:** **IN PROGRESS → mayoritas selesai (agent-tested)**
 
-Steps:
-- Adjustment OUT: valued at avg_before; block insufficient stock.
-- Adjustment IN: cost rules:
-  - if pool has avg and qty>0: default cost=avg; allow override only with permission + reason.
-  - if qty==0/no avg: approved cost mandatory; block missing/<=0.
-- Minimal UI changes on Adjustment screen to capture: valuation basis, approved unit cost, reason when required; permission-gated.
-- Opname shortage: OUT at avg_before snapshot.
-- Opname surplus: IN with default avg if valid else require approved cost; reason on override.
+**Implementasi Stock Opname Hardening (sudah dilakukan):**
+- Backend: `backend/stock_opname_workflow_layer.py` + terdaftar di `backend/production_bootstrap.py`.
+  - Workflow server-side (WF v2): Counting → Review → Waiting Approval → Posted.
+  - Return/Reject/Cancel: alasan wajib, audit trail.
+  - **Lock 1 gudang 1 opname aktif** via `opname_locks` PK deterministik, aman concurrency.
+  - Mode **Freeze**:
+    - Freeze guard di `MariaCollection` untuk `item_warehouse` (insert/update/replace/delete/find_one_and_delete/bulk_write)
+    - Resolusi warehouse bila filter tidak punya `warehouse_id` (mis. delete master)
+    - Mengizinkan perubahan **min/max** tanpa mengubah saldo.
+    - Guard valuation replay: insert `valuation_replays` status `applying` precheck gudang sebelum ada perubahan.
+    - Precheck import Excel yang bisa menyentuh saldo: `stock_limits` bila ada `current_stock` dan dataset `opening_inventory`.
+    - Freeze race safety: transaksi yang lolos tepat saat snapshot freeze → baris ditandai `needs_recount`.
+  - Mode **Live**:
+    - Mutasi yang diinput setelah hitung namun bertanggal <= waktu hitung → tandai `needs_recount`, submit/post diblokir.
+  - Posting:
+    - Atomic posting, retry-safe dengan `source_key` suffix attempt.
+    - Pemulihan `status=Posting` basi / `Gagal Posting` → reversal cleanup lalu retry.
+    - Koreksi Posted via reversal + repost, aman terhadap stok negatif.
+  - Redaksi harga server-side pada detail/lines/print-data; template Excel tanpa harga; audit log tidak menyimpan nilai harga.
+  - Excel import/export: template & import preview/commit **mengupdate dokumen yang sama**, tidak posting otomatis.
+  - Attachment draft module `opname` terdaftar menggunakan infrastruktur draft existing.
+
+- Frontend (sudah dibuat + tested):
+  - `frontend/src/pages/Opname.jsx` (list + create + draft attachment)
+  - `frontend/src/components/OpnameWorkspace.jsx` (workspace detail: counting, review/submit/approve/reject/return/cancel, import, template, print 2 format, pagination/filter/search, history)
+  - `frontend/src/lib/opnameLines.js`, `frontend/src/lib/opnamePrint.js` (logo perusahaan)
+  - Test: `frontend/src/lib/opnameLines.test.mjs` (21 test)
+  - Parameterisasi reusable attachment draft: `AdjustmentDraftAttachments.jsx` mendukung `entity/category`.
+
+- Test baru (backend):
+  - `backend/tests/stock_opname_workflow_test.py` **74/74 passed**
+  - `backend/tests/stock_opname_freeze_coverage_test.py` **37/37 passed** (DO, MI, Loan, Return, Transfer, Adjustment multi-gudang, edit/delete reversal semua modul stok, import Excel, opening valuation, master delete tunggal/massal, replay dry-run, anti-pemalsuan pengecualian)
+  - `backend/tests/stock_opname_uat_fixture_test.py` **36/36 passed**
+  - `backend/tests/opening_correction_test.py` **83/83 passed** termasuk verifikasi replay apply ditolak saat Freeze tanpa partial.
+
+- Penyesuaian test lama agar sesuai aturan bisnis baru (bukan melemahkan kontrol):
+  - `stock_opname_integrity_test.py`: 1 gudang 1 opname aktif; Live stale → wajib hitung ulang; submit sebelum post; alasan selisih.
+  - `full_e2e_integrity_test.py`: alasan selisih saat count.
+  - `transaction_input_validation_test.py`: hitung semua baris + submit sebelum post.
+  - `valuation_hardening_test.py`: `cost_reason` + workflow.
+  - `loan_multi_warehouse_test.py`: modul draft yang tidak terdaftar tetap ditolak (pakai `invoice`).
+
+**Regresi yang sudah PASS (agent-tested):**
+- Backend:
+  - `adjustment_multi_warehouse_test.py` 83/83
+  - `loan_multi_warehouse_test.py` 63/63
+  - `transfer_multi_warehouse_test.py` 76/76 (dengan `STORAGE_DRIVER=local`, lalu env dipulihkan ke `s3`)
+  - `transfer_shared_guard_regression_test.py` 16/16
+  - `loan_return_attachment_legacy_test.py` 102/102
+  - `valuation_hardening_test.py` 40/40
+  - `opening_inventory_valuation_test.py` 44/44
+  - `receipt_control_test.py` (DO) 41/41
+  - `transaction_input_validation_test.py` (DO/MI) 66/66
+  - `inventory_value_asof_test.py` 31/31
+  - `stock_summary_parity_test.py` 41/41
+  - `master_item_stock_test.py` 55/55
+  - `stock_info_test.py` 16/16
+- Frontend:
+  - Seluruh `frontend/**/*.test.mjs` **PASS** (17 file)
+  - `CI=true yarn build` **PASS**
 
 #### Checkpoint 5 — Loan valuation (commit)
-User stories:
-1. As finance, loan issue/return never creates artificial gain/loss.
-2. As a warehouse user, borrowing warehouse receives stock valued at original loan cost.
-3. As an auditor, partial returns consume outstanding value deterministically.
-4. As system, loan return cannot exceed outstanding qty/value.
-5. As admin, loan cancellation/reversal uses original snapshots.
-
-Steps:
-- Inspect current behavior (it increases borrowing warehouse stock) and preserve it.
-- On loan issue:
-  - OUT uses avg_before; store snapshot cost+value on `loan_lines` (outstanding_qty/value fields).
-  - IN uses `value_in` = loan carrying value.
-- On loan return:
-  - consume from outstanding deterministically (proportional by qty); use stored unit cost snapshot.
-  - return postings use `value_in/value_out` based on original snapshot.
-- Ensure edit/delete reversals use central reversal engine.
+> **Status:** COMPLETED (baseline). Regresi lulus; Freeze guard juga meng-cover jalur loan/return.
 
 #### Checkpoint 6 — Backdated posting safety (commit)
-User stories:
-1. As finance, I cannot post a movement dated earlier than existing later movements in same pool.
-2. As a user, I receive a clear error with the latest transaction reference.
-3. As system, same-day ordering is deterministic.
-4. As QA, backdate test reliably blocks.
-5. As auditor, ledger sequence remains consistent.
-
-Steps:
-- In `post_movement`, compare `txn_at` vs latest valuation_ledger `at` for pool; block if earlier.
-- Ensure all posting endpoints pass intended `date` field into `txn_at`.
+> **Status:** COMPLETED (baseline) + diperluas di Stock Opname Live melalui mekanisme `needs_recount` untuk transaksi “diinput belakangan namun tanggal <= waktu hitung”.
 
 #### Checkpoint 7 — Opening Inventory Valuation UI (commit)
-User stories:
-1. As admin/accounting, I can see existing qty per item/warehouse and set opening avg cost.
-2. As admin, I can filter/search and track status (valued/unvalued).
-3. As admin, I must enter cut-off date and understand this does not add stock.
-4. As system, I cannot value zero-qty pools or duplicate openings.
-5. As limited user, I cannot access the menu.
-
-Steps:
-- Add backend endpoint for **opening candidates** (item, warehouse, qty existing, base uom, status valued/unvalued).
-- Frontend: add Settings submenu “Opening Inventory Valuation” under Warehouse/MI section.
-- Build grid + filters + cut-off date + per-row post (batch only if backend supports safely).
-- Permission-gate using existing `view_purchase_price`/admin-like.
+> **Status:** COMPLETED (baseline fitur existing). Tambahan hardening: saat ada gudang Freeze, jalur yang menulis pool/valuasi diblokir; dry-run replay tetap boleh.
 
 #### Checkpoint 8 — Reconciliation + diagnostics + full regression (final commit)
-User stories:
-1. As QA, I can run reconcile report and see stock qty equals valuation qty for all pools.
-2. As finance, I can detect invalid pools (qty<0, value<0, qty=0 value!=0).
-3. As auditor, I can detect duplicate source_key and orphan valuation entries.
-4. As dev, I can trace each valuation entry back to its document/line.
-5. As release manager, build passes and prior procurement flows still work.
+> **Status:** **COMPLETED (agent-tested) — seluruh syarat finalisasi user PASS, 0 temuan terbuka -> Tahap 7 dieksekusi:**
+> 1 commit (squash, sesuai pilihan user) di `feature/stock-opname-hardening` -> push -> tepat 1 PR ke `main`. **Tanpa merge/deploy.** Production tidak disentuh.
 
-Steps:
-- Extend `/reports/valuation-reconcile` to include value/avg checks + diagnostics list.
-- Run E2E tests 1–15 in a throwaway tenant; record results; cleanup only generated docs.
-- Run regression smoke on MRO→RO→PO→DO→MI and attachments patterns.
-- Run `CI=true yarn build`.
+**Riwayat Git (transparansi):** commit lokal `7151fe0` (28 file) sempat terbuat oleh agent SEBELUM otorisasi Tahap 7 (tidak pernah
+di-push; remote belum punya branch ini). Atas keputusan user, commit itu digabung (amend lokal, tanpa force push) bersama perubahan
+retry deadlock menjadi SATU commit. Tidak ada `reset --hard`, `clean -fd`, force push, atau perubahan remote.
+
+**Bug nyata ditemukan & diperbaiki (sesi final):** 2+ Approve & Post bersamaan -> InnoDB deadlock **1213** pada `SELECT … FOR UPDATE`
+klaim CAS `ep_post` (`stock_opname_workflow_layer.py`) -> salah satu request **500**. Perbaikan (bukan engine MWA):
+- `lock_conflict_errno()` + `retry_lock_conflict()` (modul `stock_opname_workflow_layer.py`): retry **hanya** `pymysql OperationalError`
+  1213/1205; **maks. 3 percobaan** termasuk yang pertama (jeda 50/100 ms); habis -> **409**; error lain (1062, 2006, 1146, validasi
+  bisnis, ValueError) langsung dilempar. Unit retry = SATU transaksi `find_one_and_update` (BEGIN; SELECT..FOR UPDATE; UPDATE; COMMIT);
+  korban di-ROLLBACK oleh `_Tx.__aexit__` adapter sebelum retry.
+- `cas_doc()` dipakai di 4 klaim status: transisi workflow, pemulihan posting basi, klaim posting, klaim koreksi Posted.
+- Test permanen baru `backend/tests/stock_opname_cas_retry_test.py` **22/22** (deadlock ASLI InnoDB, 1213 setelah UPDATE -> rollback
+  utuh + lock lepas, lock-wait timeout ASLI 1205 pulih & habis -> 409 tepat 3 percobaan, 6 klaim paralel x5 ronde tepat 1 pemenang),
+  stabil 3x berturut-turut; M2–M4 di `stock_opname_workflow_test.py` (6 posting paralel: 1x200 + 5x409, 1 movement, 1 ledger valuasi,
+  stok turun tepat 1). Didaftarkan di `scripts/run_regression_itest.sh` (19 suite).
+
+**Quality Gates final (setelah perubahan terakhir, serial, `proc_itest`):**
+| Gate | Hasil |
+|---|---|
+| Regresi backend `run_regression_itest.sh` | **19/19 PASS** (18 wajib + `stock_opname_cas_retry_test.py` 22/22); workflow 78/78, freeze 39/39, fixture 36/36, opening correction 83/83 |
+| Full integrity `run_integrity_tests_mariadb.sh` | **13/13 PASS**, FAIL 0 |
+| Frontend `*.test.mjs` | **17/17 PASS** |
+| `CI=true yarn build` | **Compiled successfully** |
+| `git diff --check` | bersih (exit 0) |
+| MWA engine | `server.py`, `valuation_replay.py`, `mariadb_motor.py` **SHA-256 identik** dengan `origin/main` (diff 0 baris) |
+| testing_agent_v3 `iteration_19.json` | **U1–U9 9/9**, 47/47 sub-skenario + 11/11 verifikasi independen + 8/8 browser, **0 open findings** |
+| Harness independen main agent `opn_uat_9.py` | 47/47 (U6a: 1x200 + 1x409, tanpa 500) |
+
+Catatan testing_agent: iterasi 14–18 tidak valid/tidak lengkap karena bug skrip tester (endpoint lampiran, header Excel baris 1,
+`if resp:`, mode huruf besar, division_id hilang) — bukan bug aplikasi; iterasi 19 = laporan bersih yang dipakai.
+
+**Tabel Direct-Write Freeze (bukti = run terbaru):** baseline `origin/main` TIDAK memiliki Freeze Guard (file layer baru).
+Guard: route-level `patch_routes()`/`doc_level_whs()` (pra-cek seluruh gudang dokumen sebelum menulis), collection-level
+`MariaCollection.*` wrapper `guard_whs()` pada `item_warehouse` (insert/update/replace/delete/find_one_and_update/bulk), `reverse_guarded`,
+`import_master_guarded`, `valuation_replays` status `applying`; pengecualian sah hanya `POSTING_CTX` (posting Opname pemilik Freeze) & kompensasi.
+| Jalur | File / fungsi | Test | Status |
+|---|---|---|---|
+| DO create/edit/delete | `doc_procurement.create_do`; `transaction_mutation_layer.transaction_edit/transaction_delete` | Z1, Z1b, Z1c; U3b:do | PASS |
+| MI create/delete | `doc_procurement.create_mi`; `transaction_delete` | Z2, Z2b; U3b MI | PASS |
+| Loan / Return create/edit/delete | `doc_warehouse.create_loan/return_loan`; `loan_return_mutation_layer.edit_return/delete_return` | Z3, Z3b, Z4, Z4b, Z4c; U3b loan | PASS |
+| Transfer create (dari/ke) / edit / delete | `doc_warehouse.create_transfer`; `transaction_edit/delete` | Z7a, Z7b, Z7, Z8; B2, B3; U3b | PASS |
+| Adjustment create (multi-gudang) / edit / delete | `doc_warehouse.create_adjustment`; `transaction_edit/delete` | Z5, Z6, Z6b; B1; S19; U3a | PASS |
+| Pemalsuan payload / path modul `opname` | `patch_routes.guarded` | Z5b, Z5c | PASS |
+| Set saldo langsung | `server.item_warehouse_set` | Z9; B4 | PASS |
+| Opening Valuation | `doc_procurement.post_opening_valuation` | Z14 | PASS |
+| Opening Correction (Tetapkan massal/individual) | `opening_correction_layer.opening_mass_apply` | opening_correction_test "Freeze: Tetapkan Massal/individual … tanpa partial" | PASS |
+| Valuation Replay apply / dry-run | `opening_correction_layer.replay_apply` / `replay_dry_run` | "Apply revaluasi saat gudang terdampak Freeze -> 409"; Z16; U3d | PASS |
+| Import Excel saldo / saldo awal / min-max | `excel_import_layer.import_excel -> _import_master` | Z11, Z13 (blok), Z12 (min/max diizinkan) | PASS |
+| Hapus master tunggal / massal | `master_delete_guard_layer.delete_master_safe`; `master_action_layer.bulk_delete` | Z15, Z15b | PASS |
+| Clear min/max (bukan mutasi stok) | `master_action_layer.clear_minmax` | Z10, Z15c (diizinkan, saldo tetap) | PASS |
+| Stock Opname post / koreksi Posted | `stock_opname_workflow_layer.ep_post` / `ep_tx_put` (POSTING_CTX) | Z20, F1–F11, G1–G4, M1–M4 | PASS |
+| Integritas global saat Freeze | — | Z17, Z18, Z19, Z21–Z25 | PASS |
+
+**Secret scan final (gitleaks 8.21.2, `--redact`):** scope PR 29 file vs `origin/main` = 0; patch PR + untracked = 0; arsip
+`/root/procurement-uat-evidence` = 0; known-value scan 282 file = 0 hit. Working tree 6 + history 3 (107 commit) = **temuan legacy
+identik baseline** (`backend/.env` ignored & tidak pernah di-commit; 3 skrip/CI legacy tidak berubah vs `origin/main`) -> tiket terpisah.
+
+**Kredensial sandbox:** 4 akun dirotasi (lama 401 / baru 200). 2 akun fixture UAT dirotasi ULANG di sesi final karena nilai sempat
+tampil di output tool agent (redaksi gagal; tidak ada di repo/arsip) -> lama 401 / baru 200, file 0600.
+
+**Bukti:** `/root/procurement-uat-evidence/final-20261009-f/` (gates, suites, deadlock, testing_agent, harness, rotation, secret_scan)
+dan `/root/procurement-uat-evidence/iteration-8-10/`.
 
 ## 3) Next Actions
-1. Implement Phase 1 POC: refactor `post_movement` + concurrency + idempotency + no-estimated-IN.
-2. Commit Checkpoint 1.
-3. Implement reversal engine + wire delete/edit reversals; commit Checkpoint 2.
-4. Proceed sequentially through checkpoints 3–8 with a commit each.
+1. Review PR oleh user (tanpa merge/deploy oleh agent).
+2. Tiket terpisah (di luar scope PR ini): remediasi 6 temuan gitleaks working tree + 3 temuan history (legacy);
+   konsistensi zona waktu UTC/WIB tanggal default transaksi; lint F401/F841 test legacy.
 
 ## 4) Success Criteria
-- For all scoped modules: postings are atomic per pool, idempotent per source_key, reject negative stock, and never create normal-path `valuation_estimated`.
-- Reversal/cancellation creates compensating valuation entries using original snapshots; double reversal prevented.
-- Transfer and loan preserve total carrying value (no P/L) and carry exact value across warehouses.
-- Backdated postings are blocked with clear error.
-- Opening valuation UI functions with cut-off + safeguards; no qty mutation.
-- Reconciliation reports `ok:true` after the required E2E tests; diagnostics are clean.
-- No regression in existing procurement flows; `CI=true yarn build` passes.
+- Stock Opname memenuhi:
+  - 1 dokumen = 1 gudang; 1 gudang = 1 opname aktif (Counting/Review/Waiting Approval) secara concurrency-safe.
+  - Freeze memblokir semua mutasi stok (termasuk direct-write dan reversal) untuk gudang Freeze; gudang lain tetap bisa transaksi.
+  - Live menjaga kronologi: mutasi “diinput belakangan namun tanggal <= hitung” menandai `needs_recount` dan membatasi submit/post.
+  - Posting atomic, idempotent/retry-safe, tidak ada partial posting/ledger duplikat/valuasi inkonsisten.
+  - Koreksi Posted via reversal aman; delete/reversal diblokir bila membuat stok negatif.
+  - Redaksi harga server-side untuk user tanpa `view_purchase_price` (API/print/Excel/export/import/report) dan audit log aman.
+- Semua suite/regresi + build lulus:
+  - Full integrity suite (single instance, DB terisolasi) PASS.
+  - Frontend tests PASS + `CI=true yarn build` PASS.
+  - Browser UAT + `testing_agent_v3` 0 temuan.
+- Delivery:
+  - 1 PR ke `main` dari `feature/stock-opname-hardening`.
+  - Tidak ada merge/deploy/reset DB production.
 
 ## PO — Informasi Harga & Supplier saat Tarik RO (Status: COMPLETED, lokal, branch feature/po-ro-price-insight)
 - Kolom "Harga" + tombol "Lihat Harga" di popup Tarik RO; popup "Informasi Harga & Supplier" (lazy, per baris RO).

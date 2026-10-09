@@ -219,7 +219,8 @@ def main():
         if line.get("item_id") == item_stock["id"]:
             counted = 3
             found = True
-        count_lines.append({"line_id": line["id"], "counted": counted})
+        # alasan wajib bila ada selisih (Stock Opname hardening)
+        count_lines.append({"line_id": line["id"], "counted": counted, "reason": "Selisih fisik E2E"})
     check(found, "Barang warehouse masuk snapshot opname")
     counted = s.put(f"{API}/opname/{opn['id']}/count", json={"status": "Review", "lines": count_lines}, timeout=20)
     check(counted.status_code == 200, "Hasil hitung opname berhasil disimpan")

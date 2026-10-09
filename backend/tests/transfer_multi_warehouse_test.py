@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 import pymysql
 import receipt_control_test as T
 import requests
-from dotenv import dotenv_values
 from vendor_invoice_test import PW, U
 
 call, check, API = T.call, T.check, T.API
@@ -45,7 +44,7 @@ def opening(wh, div, item, qty, cost):
 
 
 def db_conn():
-    url = urlparse(dotenv_values("/app/backend/.env").get("DATABASE_URL"))
+    url = urlparse(T.test_env().get("DATABASE_URL"))
     return pymysql.connect(host=url.hostname, port=url.port or 3306, user=url.username, password=url.password,
                            database=url.path.lstrip("/"), autocommit=True)
 
@@ -216,7 +215,7 @@ def main():
 
     # ================= Draft lampiran: lifecycle + keamanan (wajib) =================
     import datetime as _dt
-    store_root = dotenv_values("/app/backend/.env").get("STORAGE_LOCAL_PATH") or "/app/data/uploads"
+    store_root = T.test_env().get("STORAGE_LOCAL_PATH") or "/app/data/uploads"
 
     def obj_exists(path):
         return os.path.exists(os.path.join(store_root, path))
@@ -352,7 +351,7 @@ def main():
     async def _startup_cleanup():
         import mariadb_motor
         import transfer_lines as TL
-        env = dotenv_values("/app/backend/.env")
+        env = T.test_env()
         cl = mariadb_motor.MariaClient(env["DATABASE_URL"], auto_schema=False, pool_size=2)
         n1 = await TL.cleanup_expired_drafts(types.SimpleNamespace(db=cl[env.get("DB_NAME", "default")]), all_tenants=True)
         n2 = await TL.cleanup_expired_drafts(types.SimpleNamespace(db=cl[env.get("DB_NAME", "default")]), all_tenants=True)

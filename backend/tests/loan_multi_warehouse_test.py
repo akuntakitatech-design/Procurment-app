@@ -263,8 +263,9 @@ def main():
           and sql("SELECT COUNT(*) FROM attachments WHERE JSON_UNQUOTE(JSON_EXTRACT(doc,'$.entity_id'))=%s", (d5["id"],))[0][0] == 0)
     sc, att = call("GET", f"attachments?entity=loan&entity_id={loan['id']}")
     check("28. Lampiran final Pinjaman tidak tersentuh cleanup", sc == 200 and len(att) == 1, att)
-    sc, r = call("POST", "attachment-drafts", {"module": "opname"})
-    check("Modul draft lain (opname) tetap ditolak", sc == 400, (sc, r))
+    # opname kini resmi memakai draft lampiran (Stock Opname hardening); modul yang tidak terdaftar tetap ditolak.
+    sc, r = call("POST", "attachment-drafts", {"module": "invoice"})
+    check("Modul draft lain (tidak terdaftar) tetap ditolak", sc == 400, (sc, r))
 
     failed = [n for n, ok in T.RESULTS if not ok]
     print(f"\n{len(T.RESULTS) - len(failed)}/{len(T.RESULTS)} passed")

@@ -11,7 +11,7 @@ import { isRetryableUploadError } from "@/lib/adjustmentLines";
 // Penyesuaian Stok final setelah posting sukses. Validasi tipe/ukuran memakai aturan lampiran existing di backend.
 // Penolakan validasi (4xx) tidak bisa di-retry dengan file yang sama -> hanya tombol hapus; gangguan jaringan/server -> unggah ulang.
 
-export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, onStateChange, testid = "adj-draft-attachments" }) {
+export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, onStateChange, testid = "adj-draft-attachments", entity = "adjustment_draft", category = "Lampiran Penyesuaian Stok", bindLabel = "saat Posting" }) {
   const [files, setFiles] = useState([]); // {key, name, status: uploading|ready|failed, id?, error?, file?, canRetry?}
   const cb = useRef(onStateChange);
   cb.current = onStateChange;
@@ -20,7 +20,7 @@ export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, 
     if (!draftId) { setFiles([]); return; }
     let live = true;
     // Gabungkan (bukan timpa): file yang dipilih user selama request ini berjalan tidak boleh hilang.
-    api.get(`/attachments?entity=adjustment_draft&entity_id=${draftId}`)
+    api.get(`/attachments?entity=${entity}&entity_id=${draftId}`)
       .then((r) => live && setFiles((fs) => {
         const known = new Set(fs.map((f) => f.id).filter(Boolean));
         const loaded = (r.data || []).filter((f) => !known.has(f.id)).map((f) => ({ key: f.id, id: f.id, name: f.original_filename, status: "ready" }));
@@ -28,7 +28,7 @@ export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, 
       }))
       .catch(() => {});
     return () => { live = false; };
-  }, [draftId]);
+  }, [draftId, entity]);
 
   useEffect(() => {
     cb.current?.({ uploading: files.some((f) => f.status === "uploading"), failed: files.filter((f) => f.status === "failed").length, ready: files.filter((f) => f.status === "ready").length });
@@ -38,7 +38,7 @@ export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, 
   const send = async (key, file) => {
     patch(key, { status: "uploading", error: null });
     const fd = new FormData();
-    fd.append("file", file); fd.append("entity", "adjustment_draft"); fd.append("entity_id", draftId); fd.append("category", "Lampiran Penyesuaian Stok");
+    fd.append("file", file); fd.append("entity", entity); fd.append("entity_id", draftId); fd.append("category", category);
     try {
       const r = await api.post("/attachments", fd, { headers: { "Content-Type": "multipart/form-data" } });
       setFiles((fs) => fs.filter((f) => f.key === key || f.id !== r.data.id).map((f) => (f.key === key ? { ...f, status: "ready", id: r.data.id, file: null } : f)));
@@ -97,7 +97,7 @@ export function AdjustmentDraftAttachments({ draftId, draftError, onRetryDraft, 
           </div>
         ))}
       </div>
-      {failedCount > 0 && <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid={`${testid}-failed-summary`}><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{failedCount} file gagal diunggah dan tidak akan ikut terikat saat Posting.</div>}
+      {failedCount > 0 && <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid={`${testid}-failed-summary`}><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{failedCount} file gagal diunggah dan tidak akan ikut terikat {bindLabel}.</div>}
     </div>
   );
 }
