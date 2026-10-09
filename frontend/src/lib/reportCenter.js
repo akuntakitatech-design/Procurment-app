@@ -70,3 +70,19 @@ export function legacyReportPath(search = "") {
   const qs = p.toString();
   return `${reportPath(key)}${qs ? `?${qs}` : ""}`;
 }
+
+// Kolom tautan drill-down: nomor dokumen sumber (MRO Traceability: mro_no; register/detail: no).
+export const DRILL_KEYS = ["mro_no", "no"];
+export function drillColumnIndex(cols) {
+  for (const k of DRILL_KEYS) {
+    const i = (cols || []).findIndex((c) => c.key === k);
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+// Halaman transaksi gudang (tanpa route detail): `?open=<id>` membuka detail dokumen (drill dari Pusat Laporan).
+export function openParam(search) {
+  const v = new URLSearchParams(search || "").get("open");
+  return v && /^[A-Za-z0-9_-]{1,80}$/.test(v) ? v : null;
+}

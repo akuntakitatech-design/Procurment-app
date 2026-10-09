@@ -8,6 +8,7 @@ P2b: navigasi Laporan = 2 card (Pusat Laporan, Traceability). URL `/reports` di-
 laporan halaman Inventory tersedia di Pusat Laporan (Posisi Stok, Min/Max & Reorder, Kartu Stok Qty, dan "Riwayat
 Pergerakan Stok" sebagai padanan tab Kartu Stok (Ledger)); halaman operasional `/inventory` tetap (menu Persediaan + drill
 Dashboard), endpoint tidak berubah.
+P3: card Warehouse = laporan aktif Transfer, Pinjam & Pengembalian, Penyesuaian Stok, Stock Opname (placeholder dihapus).
 """
 from __future__ import annotations
 
@@ -31,8 +32,6 @@ LINKS = {
 
 # Belum tersedia -> (judul, fase)
 PLANNED = {
-    "warehouse": [("Transfer Antar Gudang", "P3"), ("Pinjam Barang & Return", "P3"), ("Penyesuaian Stok", "P3"),
-                  ("Stock Opname", "P3")],
     "spk": [("Realisasi Anggaran SPK (rekap seluruh SPK)", "P4"), ("Kepatuhan Harga PO terhadap Kontrak", "P4")],
     "hutang": [("Aging Hutang Supplier", "P5"), ("Register Pembayaran", "P5"), ("Kartu Hutang Supplier", "P5")],
 }

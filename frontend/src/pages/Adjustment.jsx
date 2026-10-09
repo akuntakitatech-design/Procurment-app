@@ -27,6 +27,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Plus, ArrowLeft, Paperclip, X, CopyCheck, Printer } from "lucide-react";
 import { fmtDate, todayISO } from "@/lib/format";
 import { toast } from "sonner";
+import { useOpenParam } from "@/hooks/useOpenParam";
 import { TxnList } from "@/components/TxnList";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
 
@@ -56,6 +57,7 @@ export default function Adjustment() {
   useEffect(() => () => { const id = draftRef.current; if (id) api.delete(`/attachment-drafts/${id}`).catch(() => {}); }, []);
 
   const openDetail = (id) => api.get(`/adjustments/${id}`).then((r) => setSelected(r.data)).catch((e) => toast.error(apiError(e.response?.data?.detail)));
+  useOpenParam(openDetail);
   const startNew = () => { setTried(false); setEditingId(null); setOrigLines([]); setH(EMPTY()); setLines([newAdjLine(EMPTY())]); setSelected(null); setMode("form"); newDraft(); };
   const startEdit = (doc = selected) => {
     if (!doc) return;

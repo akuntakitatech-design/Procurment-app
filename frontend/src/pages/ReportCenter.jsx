@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { NUMERIC_TYPES, buildQuery, exportState, formatCell, reportPath, validateFilters } from "@/lib/reportCenter";
+import { NUMERIC_TYPES, buildQuery, drillColumnIndex, exportState, formatCell, reportPath, validateFilters } from "@/lib/reportCenter";
 
 const errMsg = async (e) => {
   const d = e?.response?.data;
@@ -133,6 +133,7 @@ function FilterBar({ res, draft, setDraft, onApply, onReset, masterOpts }) {
 
 function ReportTable({ res }) {
   const cols = res.columns;
+  const drillIdx = drillColumnIndex(cols);
   const hasTotal = cols.some((c) => c.total);
   return (
     <div className="overflow-x-auto rounded-md border bg-card shadow-sm">
@@ -148,7 +149,7 @@ function ReportTable({ res }) {
             <tr key={i} className={`border-t ${r._kind ? "bg-muted/40 font-semibold" : ""}`} data-testid={r._kind ? `report-row-${r._kind}` : `report-row-${i}`}>
               {cols.map((c, ci) => {
                 const v = formatCell(r[c.key], c.type);
-                const drill = ci === cols.findIndex((x) => x.key === "mro_no") && r._drill?.to;
+                const drill = ci === drillIdx && r._drill?.to;
                 return (
                   <td key={c.key} className={`p-3 align-top ${NUMERIC_TYPES.has(c.type) ? "whitespace-nowrap text-right tabular-nums" : ""}`}>
                     {drill ? <Link to={r._drill.to} className="font-mono text-xs font-semibold text-primary hover:underline" data-testid={`report-drill-${i}`}>{v}</Link> : v}

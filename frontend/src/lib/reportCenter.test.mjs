@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildQuery, exportState, formatCell, isIsoDay, legacyReportPath, reportPath, validateFilters } from "./reportCenter.js";
+import { buildQuery, drillColumnIndex, exportState, formatCell, isIsoDay, legacyReportPath, openParam, reportPath, validateFilters } from "./reportCenter.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (p) => readFileSync(join(here, p), "utf8");
@@ -65,6 +65,18 @@ check("25 menu operasional /inventory tetap tersedia: card Inventory / Stock di 
   inv.includes('to: "/inventory"') && inv.includes("Inventory / Stock")
   && /to: "\/persediaan"[^\n]*"\/inventory"/.test(layoutSrc) && !/to: "\/laporan"[^\n]*"\/inventory"/.test(layoutSrc)
   && !/"\/persediaan": \[/.test(layoutSrc));
+
+check("26 drill-down: kolom tautan = mro_no (Traceability) lalu no (register/detail); tanpa kolom -> -1",
+  drillColumnIndex([{ key: "date" }, { key: "no" }]) === 1 && drillColumnIndex([{ key: "no" }, { key: "mro_no" }]) === 1
+  && drillColumnIndex([{ key: "return_no" }, { key: "date" }, { key: "no" }]) === 2 && drillColumnIndex([{ key: "x" }]) === -1
+  && page.includes("drillColumnIndex(cols)") && !page.includes('x.key === "mro_no"'));
+check("27 openParam: ?open=<id> aman (id valid saja), selain itu null",
+  openParam("?open=0ea008ac-7035-45e1") === "0ea008ac-7035-45e1" && openParam("?open=../x") === null && openParam("?x=1") === null && openParam("") === null);
+const hook = src("../hooks/useOpenParam.js");
+const pagesOpen = ["Transfer", "Loan", "Adjustment", "Opname"].map((n) => src(`../pages/${n}.jsx`));
+check("28 halaman Transfer/Pinjam/Penyesuaian/Opname membuka detail dari drill Pusat Laporan (?open=) sekali per id",
+  hook.includes("openParam(search)") && hook.includes("done.current !== id")
+  && pagesOpen.every((t) => t.includes('from "@/hooks/useOpenParam"') && /useOpenParam\(/.test(t)));
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exit(fail ? 1 : 0);

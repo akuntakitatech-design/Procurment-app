@@ -20,6 +20,7 @@ import { Plus, X, Paperclip, Snowflake } from "lucide-react";
 import { fmtDate, todayISO } from "@/lib/format";
 import { MODE_INFO } from "@/lib/opnameLines";
 import { toast } from "sonner";
+import { useOpenParam } from "@/hooks/useOpenParam";
 import { TxnList } from "@/components/TxnList";
 import { noCol, dateCol } from "@/lib/txnList";
 
@@ -37,6 +38,7 @@ export default function Opname() {
   useEffect(() => () => { const id = draftRef.current; if (id) api.delete(`/attachment-drafts/${id}`).catch(() => {}); }, []);
 
   const openCreate = () => { const next = !createOpen; if (!next) discardDraft(); setCreateOpen(next); setDetailId(null); if (next) { setH(EMPTY()); newDraft(); } };
+  useOpenParam((id) => { setCreateOpen(false); setDetailId(id); });
   const create = async () => {
     const de = divisionError(h.division_id); if (de) { setDivErr(de); toast.error(de); return; } setDivErr(null);
     if (attState.uploading) { toast.error("Tunggu lampiran selesai diunggah"); return; }

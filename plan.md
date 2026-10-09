@@ -461,7 +461,7 @@ Benchmark (HTTP ke proses backend terisolasi 1 worker; before = `git archive ori
 - Tidak berubah (di luar scope H1 -> PR Performance): MRO Traceability/Lead Time (~50 s @20×, 205.000 query N+1), Inventory ledger,
   Dashboard @20× masih ~7 s (muat seluruh riwayat), Adjustment 1.013 query.
 
-### P2b — Outstanding & Nilai Procurement + Konsolidasi Navigasi Laporan (Status: COMPLETED — Quality Gates PASS; branch `feature/reporting-p2b` dari `main` 57edd26; 1 PR ke `main`, menunggu review — TANPA merge/deploy)
+### P2b — Outstanding & Nilai Procurement + Konsolidasi Navigasi Laporan (Status: COMPLETED — PR #61 MERGED ke `main` 395f54f)
 Keputusan user: struktur dokumen & aturan existing sebagai acuan; Outstanding per alokasi baris; Rekap Pembelian per Supplier/Barang/
 Kategori/Divisi/Proyek/Periode (bulanan/tahunan) dengan filter kombinasi; basis nilai DO = DPP (PPN & total terpisah); Nilai PO = komitmen,
 Nilai DO = realisasi; 1 PO multi-DO tanpa double counting; navigasi Laporan = 2 card (Pusat Laporan, Traceability); `/reports` redirect.
@@ -523,5 +523,35 @@ stock ledger, transaksi, maupun mariadb_motor/receipt_control_layer/doc_procurem
   Dipulihkan dengan izin user (`supervisorctl start mariadb` + `restart backend`), data `/root/mariadb-data` utuh, tanpa reset/migrasi.
 - Status penerimaan user: BELUM dikonfirmasi user (seluruh hasil di atas agent-tested).
 
-### P3–P6 (Status: NOT STARTED)
-Performance Optimization (setelah PR P2b merged, PR terpisah) · P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang · P6 export di list transaksi.
+P2b PR #61 MERGED ke `main` 395f54f.
+
+### P3 — Reporting Warehouse (Status: IN PROGRESS — Quality Gates berjalan; branch `feature/reporting-p3-warehouse` dari `main` 395f54f; target 1 PR ke `main`, TANPA merge/deploy)
+Keputusan user: Performance Optimization menyeluruh DITUNDA sampai seluruh tahap Reporting & Export selesai (P3 tidak menyentuh
+bottleneck legacy). Terlambat = sisa > 0 dan Tanggal Akhir (cut-off) > jatuh tempo; umur = tgl pinjam s/d kembali penuh, atau s/d
+cut-off bila masih outstanding; pinjaman per BARIS (partial/multi return, multi-gudang, reversal, legacy); nilai sisa = harga pokok saat
+pinjam; izin harga = `view_purchase_price` (redaksi server-side UI/JSON/total/Excel/PDF); nilai selisih opname HANYA dokumen Posted
+(valuation ledger), non-Posted qty saja; status workflow opname existing apa adanya (Counting/Review/Waiting Approval/Posting/Gagal
+Posting/Posted/Cancelled — tidak ada status "Draft" di sistem).
+- Backend `reporting/reports_warehouse.py` (baru, READ-ONLY — hanya `find`): 9 laporan card Warehouse — Transfer Register & Detail
+  Barang; Pinjam Register & Outstanding per Baris; Pengembalian Register; Penyesuaian Register & Detail Barang/Gudang; Stock Opname
+  Register & Detail Selisih. Visibilitas = `ACCESS_FILTER_VISIBLE` existing; gudang/proyek/unit per baris via helper existing
+  (`transfer_lines`/`loan_lines`/`adjustment_lines`); angka opname via `stock_opname_workflow_layer.compute_line`; nilai = valuation
+  ledger net "Reversal X" (doc_type existing: Transfer Out, Loan Return Out, Stock Adjustment, Stock Opname Adjustment).
+- `report_center.py` +1 import; `hub.py` placeholder Warehouse dihapus; FE: `hooks/useOpenParam.js` (`?open=<id>` tervalidasi, sekali
+  per id) dipakai Transfer/Loan/Adjustment/Opname; kolom drill generik `drillColumnIndex` (mro_no lalu no) — efek samping disadari: drill
+  server-side Register P2a & Outstanding P2b (`/mro|ro|po|do/:id`, route ada) kini juga dapat diklik.
+- Audit scope: TIDAK ada perubahan MWA/HPP/valuation/stock ledger/posting transaksi/mariadb_motor/doc_warehouse/helper baris.
+
+Quality Gates P3 (agent-tested, 2026-10-09): report_warehouse_test **43/43** (termasuk L4 multi-gudang per baris + pengembalian
+DIEDIT) · regression serial `proc_itest` **25/25 PASS** · integrity **13/13 PASS** · FE 18 file 0 gagal (reportCenter 28/28) ·
+`CI=true yarn build` PASS · `git diff --check` bersih · Browser UAT preview (admin & staff tanpa harga): 9 laporan, drill Adjustment/Opname
+membuka detail, `?open` invalid diabaikan, redaksi harga 9/9, scope divisi, export staff 403 (izin existing), paritas JSON=Excel=PDF pada
+data preview (adjustment/opname: jumlah baris, urutan, TOTAL identik); opname non-Posted bernilai: 0/50.
+testing_agent_v3 iteration_27: backend 102/102, frontend 100%, **0 open findings** (file test buatan agent berisi kredensial sandbox ->
+dipindah ke `/root/perf/archive`, tidak di-commit) · verifikasi manual efek samping drill: Register MRO / Outstanding MRO / MRO Traceability
+membuka detail MRO yang benar · secret scan: gitleaks scope P3 (15 file) **0**; worktree 6 / history 3 = baseline legacy identik
+(`.env`, 2 script test, `ci.yml`) -> tambahan P3 **0**; known-value scan (513 file tracked+untracked) 0 kredensial sandbox, 0 pola token GitHub.
+Sisa: push + 1 PR — menunggu autentikasi GitHub yang aman (tidak ada koneksi GitHub existing di environment).
+
+### P4–P6 (Status: NOT STARTED)
+P4 SPK & Kontrak · P5 Invoice & Hutang · P6 export di list transaksi · lalu Performance Optimization menyeluruh (PR terpisah).

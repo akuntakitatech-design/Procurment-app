@@ -115,8 +115,11 @@ def main():
                                                             "rekap-nilai-do"], [r["key"] for r in g["procurement"]["reports"]])
     allkeys = [r["key"] for x in cat["groups"] for r in x["reports"]]
     check("C3 tidak ada laporan ganda di seluruh card", len(allkeys) == len(set(allkeys)), allkeys)
-    check("C4 belum tersedia ditandai fase (bukan laporan aktif); halaman modul terkait ber-path",
-          all(p.get("phase") for x in cat["groups"] for p in x["planned"]) and g["warehouse"]["reports"] == []
+    check("C4 belum tersedia ditandai fase (bukan laporan aktif); Warehouse aktif P3 tanpa placeholder; halaman modul terkait ber-path",
+          all(p.get("phase") for x in cat["groups"] for p in x["planned"]) and g["warehouse"]["planned"] == []
+          and [r["key"] for r in g["warehouse"]["reports"]] == ["transfer-register", "transfer-detail", "loan-register", "loan-detail",
+                                                              "loan-return-register", "adjustment-register", "adjustment-detail",
+                                                              "opname-register", "opname-detail"]
           and any(lk["to"] == "/traceability" for lk in g["procurement"]["links"]), g["warehouse"])
     sc, cn = NP("GET", "report-center/catalog")
     hl = {lk["to"] for x in cn.get("groups", []) for lk in x["links"]}
