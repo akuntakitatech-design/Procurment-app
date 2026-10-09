@@ -285,7 +285,7 @@ Pengujian deterministik P0 memakai DB terisolasi `proc_itest` (direset per run),
 
 PR P0 = #57 (merged ke `main` 1cf2a11).
 
-### P1 — Reporting Persediaan & Nilai Persediaan (Status: COMPLETED — Quality Gates PASS; branch `feature/reporting-p1-inventory` dari `main` 1cf2a11; PR P1 lalu STOP menunggu review)
+### P1 — Reporting Persediaan & Nilai Persediaan (Status: COMPLETED — Quality Gates PASS; branch `feature/reporting-p1-inventory` dari `main` 1cf2a11; PR #58 MERGED ke `main` 22e0c7d)
 Keputusan user (2026-10-09): (1) tanpa `view_purchase_price`: Posisi Stok, Kartu Stok Qty, Mutasi, Min/Max tampil tanpa kolom
 nilai; Ringkasan Nilai, Kartu Stok Nilai, Rekap HPP MI -> 403 (+ tidak tampil di katalog), sama dengan endpoint valuation;
 (2) Transfer/Loan/Return internal = kolom "Transfer/Loan Masuk" & "Transfer/Loan Keluar" (net 0 pada cakupan seluruh gudang),
@@ -352,5 +352,65 @@ Pencegahan: guard di `report_inventory_test.py` (exit 2 bila DB bukan *itest*/*_
 | Known-value scan (termasuk seluruh /tmp) | **0 file hit** (setelah redaksi `/tmp/backend_api_test.py`) |
 | testing_agent_v3 iterasi 23 | 54/54 + UI PASS, **0 open findings** |
 
-### P2–P6 (Status: NOT STARTED — menunggu review PR P1)
-P2 Procurement · P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang (aging, pembayaran, kartu hutang) · P6 export di list transaksi.
+PR P1 = #58 (merged ke `main` 22e0c7d).
+
+### P2a — Reporting Operasional Procurement + Redesain/Konsolidasi Pusat Laporan (Status: Quality Gates PASS — menunggu PR; branch `feature/reporting-p2a-procurement` dari `main` 22e0c7d)
+Keputusan user (2026-10-09): P2 dipecah 2 PR — **P2a** = Register MRO/RO/PO/DO/MI, Lead Time, Pemakaian per Unit/Proyek,
+penyempurnaan MRO Traceability, + redesain beranda Pusat Laporan 5 card & konsolidasi laporan lama; **P2b** (setelah P2a merged)
+= Outstanding MRO/RO/PO/DO per alokasi baris, Rekap Pembelian, Rekap Nilai Penerimaan DO.
+
+**Audit laporan existing & keputusan konsolidasi (tanpa duplikasi):**
+- `/reports` (Reports.jsx) tab MRO Traceability / Lead Time / Pemakaian Unit -> digantikan penuh oleh Pusat Laporan
+  (`mro-traceability`, `lead-time`, `pemakaian-barang`); halaman, tab, endpoint lama (`/api/reports/lead-time`,
+  `/api/reports/unit-usage`, `/api/reports/mro-traceability[/export.xlsx]`) TETAP + banner arahan ke laporan utama.
+  Catatan lama: Lead Time lama hanya dokumen pertama per MRO header & dibatasi 300 MRO; Pemakaian Unit lama tidak
+  mengurangi Reversal MI & tanpa periode — tidak diubah (kompatibilitas), versi Pusat Laporan memperbaikinya.
+- `/inventory` (posisi & ledger) = menu operasional Persediaan, fungsinya sudah ada di P1 -> tidak didaftarkan ganda.
+- Halaman modul berfungsi berbeda -> "Halaman modul terkait" pada card (permission aslinya): `/traceability` (Procurement),
+  `/spk`, `/vendor-contracts` (SPK & Kontrak Vendor), `/invoice?tab=invoice`, `/invoice?tab=do` (invoice.view),
+  `/dp-supplier` (supplier_dp.view) (Invoice & Hutang).
+- Belum tersedia -> ditandai "Segera · fase" (tidak dapat diklik): P2b Outstanding/Rekap Pembelian/Rekap DO; P3 Transfer,
+  Pinjam & Return, Penyesuaian, Opname; P4 Realisasi Anggaran SPK, Kepatuhan Harga PO; P5 Aging, Register Pembayaran, Kartu Hutang.
+
+**Implementasi (reuse, tanpa engine/transaksi baru):**
+- `reporting/reports_procurement_ops.py` (baru): register-mro/ro/po/do/mi (enrichment daftar `receipt_control_layer.enrich_list`
+  + visibilitas `server.ACCESS_FILTER_VISIBLE` + helper status `doc_procurement.mro_status/ro_status`, status PO =
+  `display_document_status` + filter kelompok dasar, status penerimaan label existing; tanpa batas 1000 dokumen); lead-time
+  (rantai `report_trace_detail._build_rows` = MRO Traceability; per MRO × barang; filter periode/divisi/proyek/supplier/status);
+  pemakaian-barang (valuation ledger MI net reversal, satuan dasar, scope P1). Nilai PO (bruto/diskon/DPP/pajak/total),
+  Nilai DO (DPP × qty diterima, rumus MRO Traceability), HPP MI terpisah; semua price=True.
+- `reporting/reports_procurement.py`: MRO Traceability + filter Barang & Kategori (builder/endpoint lama tetap).
+- `reporting/hub.py` (baru) + catalog: judul 5 card, link modul (ber-permission), daftar belum tersedia.
+- **Perbaikan bug (jalur baca)**: entri "Reversal MI" dari engine existing tidak membawa project_id/unit_id ->
+  `reports_inventory.inherit_reversal_attrs` mewarisi dari entri asli (`reversal_of`) -> pembatalan MI mengurangi Unit/Proyek/
+  SPK asal (berlaku juga untuk Rekap HPP MI P1). Ledger tidak diubah.
+- FE: beranda `/report-center` = 5 card (grid 1/2/3 kolom), tombol "Semua Kategori", filter Supplier; Reports.jsx banner;
+  ModuleHub deskripsi. Desain/komponen existing.
+- Test: `tests/report_procurement_test.py` (guard DB *itest*; terdaftar di runner), FE 20–23.
+
+**Audit scope Git (vs `origin/main` 22e0c7d):** 13 file — `reporting/{hub,reports_procurement_ops}.py` (baru),
+`reporting/{registry,report_center,reports_inventory,reports_procurement}.py`, `scripts/run_regression_itest.sh`,
+`tests/report_procurement_test.py` (baru), FE `ReportCenter.jsx`, `Reports.jsx`, `ModuleHub.jsx`, `reportCenter.test.mjs`, `plan.md`.
+Tidak ada perubahan pada `server.py`, MWA/valuation engine, `valuation_replay.py`, stock/valuation ledger, layer transaksi/mutasi.
+**`stock_summary.py`: 0 baris diff** terhadap `main` (perubahan P1 sudah ada di `main` via #58; P2a tidak mengubahnya) ->
+perhitungan stok, nilai persediaan, cut-off WIB, dan pembatasan akses tidak berubah. Satu-satunya perubahan shared logic P1 =
+`reports_inventory.inherit_reversal_attrs` (jalur baca Rekap HPP MI; field engine `reversal_of` diverifikasi di `server.py`),
+tercakup oleh `report_inventory_test` 63/63 + `report_procurement_test` 39/39 + `stock_summary_parity_test` 41/41 + `inventory_value_asof_test` 40/40.
+
+#### Quality Gates final P2a (2026-10-09, serial, DB test `proc_itest` terisolasi, tanpa production)
+| Gate | Hasil |
+|---|---|
+| Backend regression penuh (`run_regression_itest.sh`) | **22/22 PASS** (report_procurement 39/39, report_inventory 63/63, report_center 59/59) |
+| Full Integrity Suite (single-instance) | **13/13 PASS** |
+| Frontend tests (18 file `*.test.mjs`) | **18/18 PASS** (reportCenter 23/23) |
+| `CI=true yarn build` | PASS |
+| `git diff --check` | PASS |
+| testing_agent_v3 iterasi 24 | backend 9/9 suite + UI 12/12, **0 open findings** (sandbox tanpa PO/DO/MI -> skenario berdata dicakup test terisolasi) |
+| Browser UAT (screenshot) | 5 card, 12 item "Segera · fase" aria-disabled, Register PO + filter, banner `/reports` |
+| Gitleaks scope P2a + arsip test_reports | **0** |
+| Gitleaks working tree / history | 6 / 3 = identik baseline legacy (`.env`, 2 script test, `legacy/ci.yml`) — remediasi terpisah; tambahan P2a **0** |
+| Known-value scan | 0 secret di file P2a; 1 artefak `/tmp` testing agent (di luar repo) diredaksi |
+Catatan eksekusi: run integrity pertama tercampur dengan run lain (kredensial DB salah) -> sesi bentrok; diulang sendiri -> 13/13.
+
+### P2b–P6 (Status: NOT STARTED — P2b menunggu PR P2a merged)
+P2b Outstanding & Nilai Procurement (Outstanding MRO/RO/PO/DO per alokasi baris, Rekap Pembelian, Rekap Nilai Penerimaan DO; mulai dari `main` terbaru setelah PR P2a merged) · P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang · P6 export di list transaksi.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useMasters } from "@/hooks/useMasters";
 import { PageHeader } from "@/components/PageHeader";
@@ -102,6 +102,10 @@ export default function Reports() {
   return (
     <div>
       <PageHeader title="Reporting" subtitle="Laporan lifecycle MRO, lead time, dan pemakaian unit" />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-4 py-3 text-sm" data-testid="reports-legacy-notice">
+        <span>Laporan di halaman ini telah tersedia lengkap di <b>Pusat Laporan</b> (filter, total, export Excel/PDF).</span>
+        <span className="flex gap-3"><Link className="font-medium underline-offset-4 hover:underline" to="/report-center/mro-traceability" data-testid="reports-legacy-goto-trace">MRO Traceability</Link><Link className="font-medium underline-offset-4 hover:underline" to="/report-center/lead-time" data-testid="reports-legacy-goto-lead">Lead Time</Link><Link className="font-medium underline-offset-4 hover:underline" to="/report-center/pemakaian-barang" data-testid="reports-legacy-goto-usage">Pemakaian Unit/Proyek</Link></span>
+      </div>
       <Tabs defaultValue="trace">
         <TabsList>
           <TabsTrigger value="trace" data-testid="rep-tab-trace">MRO Traceability</TabsTrigger>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { AlertCircle, BarChart3, FileSpreadsheet, FileText, RotateCcw, Search } from "lucide-react";
+import { AlertCircle, ArrowUpRight, BarChart3, ChevronRight, FileSpreadsheet, FileText, LayoutGrid, RotateCcw, Search } from "lucide-react";
 import api from "@/lib/api";
 import { useMasters } from "@/hooks/useMasters";
 import { PageHeader } from "@/components/PageHeader";
@@ -19,6 +19,64 @@ const errMsg = async (e) => {
   if (d instanceof Blob) { try { return JSON.parse(await d.text()).detail; } catch { return "Export gagal."; } }
   return d?.detail || "Terjadi kesalahan saat memuat laporan.";
 };
+
+// Beranda Pusat Laporan: 5 card kategori (laporan aktif sesuai hak akses, halaman modul terkait, dan yang belum tersedia).
+function ReportHub({ catalog }) {
+  return (
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3" data-testid="report-hub">
+      {catalog.groups.map((g) => (
+        <Card key={g.key} className="flex flex-col" data-testid={`report-hub-card-${g.key}`}>
+          <CardContent className="flex flex-1 flex-col gap-4 pt-5">
+            <div className="flex items-baseline justify-between gap-2 border-b pb-3">
+              <h2 className="font-head text-base font-bold" data-testid={`report-hub-title-${g.key}`}>{g.title}</h2>
+              <span className="text-xs text-muted-foreground">{g.reports.length} laporan</span>
+            </div>
+            {g.reports.length > 0 && (
+              <ul className="space-y-0.5">
+                {g.reports.map((r) => (
+                  <li key={r.key}>
+                    <Link to={reportPath(r.key)} className="group flex items-start justify-between gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`report-hub-link-${r.key}`}>
+                      <span className="min-w-0"><span className="block text-sm font-medium">{r.title}</span><span className="block truncate text-xs text-muted-foreground">{r.description}</span></span>
+                      <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {g.links?.length > 0 && (
+              <div>
+                <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Halaman modul terkait</div>
+                <ul className="space-y-0.5">
+                  {g.links.map((l) => (
+                    <li key={l.to}>
+                      <Link to={l.to} className="group flex items-start justify-between gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`report-hub-module-${l.to.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")}`}>
+                        <span className="min-w-0"><span className="block text-sm">{l.title}</span><span className="block truncate text-xs text-muted-foreground">{l.description}</span></span>
+                        <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {g.planned?.length > 0 && (
+              <div>
+                <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Belum tersedia</div>
+                <ul className="space-y-0.5" data-testid={`report-hub-planned-${g.key}`}>
+                  {g.planned.map((x) => (
+                    <li key={x.title} className="flex items-center justify-between gap-2 px-2 py-1 text-sm text-muted-foreground" aria-disabled="true">
+                      <span>{x.title}</span><Badge variant="outline" className="shrink-0 text-[10px] font-normal">Segera · {x.phase}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!g.reports.length && !g.links?.length && !g.planned?.length && <p className="text-sm text-muted-foreground">Tidak ada laporan yang dapat Anda akses.</p>}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
 
 function GroupNav({ catalog, activeKey }) {
   return (
@@ -41,7 +99,8 @@ function GroupNav({ catalog, activeKey }) {
 
 // Filter master: opsi dari lookup ber-scope existing (useMasters); validasi & cakupan tetap server-side.
 const MASTER = { division: ["divisions", "Semua Divisi"], warehouse: ["warehouses", "Semua Gudang"], category: ["item_categories", "Semua Kategori"],
-  item: ["items", "Semua Barang"], project: ["projects", "Semua Proyek"], unit: ["units", "Semua Unit"] };
+  item: ["items", "Semua Barang"], project: ["projects", "Semua Proyek"], unit: ["units", "Semua Unit"],
+  supplier: ["suppliers", "Semua Supplier"] };
 
 function FilterBar({ res, draft, setDraft, onApply, onReset, masterOpts }) {
   const set = (k, v) => setDraft((s) => ({ ...s, [k]: v }));
@@ -118,7 +177,7 @@ function ReportTable({ res }) {
 export default function ReportCenter() {
   const { key } = useParams();
   const nav = useNavigate();
-  const { data: m } = useMasters(["divisions", "warehouses", "item_categories", "items", "projects", "units"]);
+  const { data: m } = useMasters(["divisions", "warehouses", "item_categories", "items", "projects", "units", "suppliers"]);
   const [catalog, setCatalog] = useState(null);
   const [catErr, setCatErr] = useState("");
   const [res, setRes] = useState(null);
@@ -135,7 +194,6 @@ export default function ReportCenter() {
   }, []);
 
   const firstKey = useMemo(() => catalog?.groups.flatMap((g) => g.reports)[0]?.key, [catalog]);
-  useEffect(() => { if (!key && firstKey) nav(reportPath(firstKey), { replace: true }); }, [key, firstKey, nav]);
   useEffect(() => { setDraft({}); setApplied({}); setPage(1); setRes(null); }, [key]);
 
   const load = useCallback(async () => {
@@ -174,11 +232,13 @@ export default function ReportCenter() {
 
   return (
     <div data-testid="report-center-page">
-      <PageHeader title="Pusat Laporan" subtitle="Laporan Procurement & Warehouse dengan filter, total, dan export Excel/PDF dari satu sumber perhitungan." testid="report-center-header">
+      <PageHeader title="Pusat Laporan" subtitle="Pintu utama laporan perusahaan: filter, total, dan export Excel/PDF dari satu sumber perhitungan." testid="report-center-header">
+        {key && <Button variant="outline" onClick={() => nav("/report-center")} data-testid="report-center-home-link"><LayoutGrid className="mr-1.5 h-4 w-4" />Semua Kategori</Button>}
         <Button variant="outline" onClick={() => nav("/reports")} data-testid="report-center-legacy-link"><BarChart3 className="mr-1.5 h-4 w-4" />Laporan Lama</Button>
       </PageHeader>
       {catErr && <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" data-testid="report-center-catalog-error"><AlertCircle className="h-4 w-4" />{catErr}</div>}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+      {!key && (catalog ? <ReportHub catalog={catalog} /> : !catErr && <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-56 w-full" />)}</div>)}
+      {key && <div className="grid grid-cols-1 gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
         <Card className="h-fit"><CardContent className="pt-5">
           {catalog ? <GroupNav catalog={catalog} activeKey={key} /> : <div className="space-y-2">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-8 w-full" />)}</div>}
         </CardContent></Card>
@@ -219,9 +279,9 @@ export default function ReportCenter() {
                 setPageSize={(s) => { setPageSize(s); setPage(1); }} testid="report-center" unit="baris" />
             </div>
           )}
-          {catalog && !firstKey && !key && <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground" data-testid="report-center-no-reports">Belum ada laporan yang dapat Anda akses.</div>}
         </div>
-      </div>
+      </div>}
+      {catalog && !firstKey && !key && <div className="mt-4 rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground" data-testid="report-center-no-reports">Belum ada laporan aktif yang dapat Anda akses.</div>}
     </div>
   );
 }

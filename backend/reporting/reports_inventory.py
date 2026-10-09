@@ -54,6 +54,19 @@ def cat_of(doc_type) -> str:
     return CAT_OF.get(t, "other")
 
 
+def inherit_reversal_attrs(rows):
+    """Entri "Reversal X" (engine existing) tidak membawa project_id/unit_id -> warisi dari entri asli (`reversal_of`)
+    agar pembatalan mengurangi kelompok Proyek/Unit/SPK yang sama (jalur baca laporan; ledger tidak diubah)."""
+    by_id = {r.get("id"): r for r in rows if r.get("id")}
+    for r in rows:
+        o = by_id.get(r.get("reversal_of") or r.get("reversal_of_ledger_id"))
+        if r.get("is_reversal") and o:
+            for k in ("project_id", "unit_id", "line_id"):
+                if not r.get(k) and o.get(k):
+                    r[k] = o[k]
+    return rows
+
+
 def eff_day(r) -> str:
     return local_day(r.get("txn_at") or r.get("at"))
 
@@ -310,7 +323,8 @@ HPP_GROUP = (("project", "Proyek"), ("unit", "Unit"), ("spk", "SPK"), ("item", "
 
 async def hpp_mi(server, user, p):
     sc = await scope(server, user, p)
-    vrows = [r for r in await _rows(server, "valuation_ledger", sc) if cat_of(r.get("doc_type")) == "mi" and _in_period(r, p)]
+    vrows = [r for r in inherit_reversal_attrs(await _rows(server, "valuation_ledger", sc))
+             if cat_of(r.get("doc_type")) == "mi" and _in_period(r, p)]
     if p.get("project_id"):
         vrows = [r for r in vrows if r.get("project_id") == p["project_id"]]
     if p.get("unit_id"):

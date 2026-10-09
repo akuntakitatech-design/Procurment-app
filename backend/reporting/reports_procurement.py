@@ -30,6 +30,11 @@ async def mro_traceability(server, user, p):
     if p.get("division_id"):  # sudah divalidasi dalam cakupan oleh report_center.parse_params
         ids = {m["id"] for m in await server.db.mro.find({"division_id": p["division_id"]}, {"_id": 0, "id": 1}).to_list(None)}
         rows = [r for r in rows if r.get("mro_id") in ids]
+    if p.get("item_id"):  # P2a: filter barang & kategori (pasca-scope; aturan visibilitas existing tetap)
+        rows = [r for r in rows if r.get("item_id") == p["item_id"]]
+    if p.get("category_id"):
+        iids = {i["id"] for i in await server.db.items.find({"category_id": p["category_id"]}, {"_id": 0, "id": 1}).to_list(None)}
+        rows = [r for r in rows if r.get("item_id") in iids]
     out = [_flat(r) for r in rows]
     if p.get("status"):
         out = [r for r in out if r["status"] == p["status"]]
@@ -62,7 +67,8 @@ register(ReportSpec(
         Column("outstanding", "Outstanding", "qty", total=True, width=12), Column("status", "Status", width=11),
     ),
     filters=(Filter("date_from", "Tanggal Awal", "date"), Filter("date_to", "Tanggal Akhir", "date"),
-             Filter("division_id", "Divisi", "division"), Filter("status", "Status", "select", STATUS)),
+             Filter("division_id", "Divisi", "division"), Filter("status", "Status", "select", STATUS),
+             Filter("item_id", "Barang", "item"), Filter("category_id", "Kategori", "category")),
     search_keys=("item_code", "item_name", "category", "mro_no", "ro_no", "po_no", "do_no", "mi_no"),
     drill=lambda r: {"label": r.get("mro_no"), "to": f"/mro/{r.get('mro_id')}"} if r.get("mro_id") else None,
     legacy=("/api/reports/mro-traceability", "/api/reports/mro-traceability/export.xlsx"),

@@ -14,6 +14,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 import report_control_scope_layer as RCS
+from reporting import hub as HUB
 from reporting import registry as R
 from reporting.exporters import to_pdf, to_xlsx
 
@@ -23,7 +24,7 @@ PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX = 50, 500
 RESERVED = {"page", "page_size", "q"}
 # Filter master -> (koleksi, label) untuk keterangan filter di UI/Excel/PDF
 MASTER_LABEL = {"warehouse": "warehouses", "category": "item_categories", "item": "items", "project": "projects",
-                "unit": "units"}
+                "unit": "units", "supplier": "suppliers"}
 
 
 def _iso(v, label):
@@ -131,7 +132,7 @@ async def run(server, user, key, qp) -> dict:
         if c.total:
             totals[c.key] = _round(sum(float(r.get(c.key) or 0) for r in out_rows if not r.get("_kind")), c.type)
     company = await server.db.settings.find_one({"id": "company"}, {"_id": 0, "name": 1}) or {}
-    group_title = next((g["title"] for g in R.GROUPS if g["key"] == spec.group), spec.group)
+    group_title = HUB.CARD_TITLES.get(spec.group) or next((g["title"] for g in R.GROUPS if g["key"] == spec.group), spec.group)
     return {
         "meta": {"report_key": spec.key, "title": spec.title, "description": spec.description, "group": spec.group,
                  "group_title": group_title, "date_basis": spec.date_basis, "company": company.get("name") or "-",
@@ -166,6 +167,7 @@ def check_limit(res, fmt):
 def install(server):
     import reporting.reports_inventory  # noqa: F401  (P1: Persediaan & Nilai Persediaan)
     import reporting.reports_procurement  # noqa: F401  (mendaftarkan laporan ke REGISTRY)
+    import reporting.reports_procurement_ops  # noqa: F401  (P2a: register, lead time, pemakaian)
     app = server.app
 
     async def catalog(user=Depends(server.current_user)):
@@ -174,7 +176,8 @@ def install(server):
         for g in R.GROUPS:
             reps = [{"key": s.key, "title": s.title, "description": s.description}
                     for s in R.REGISTRY.values() if s.group == g["key"] and server.has_perm(user, s.permission)]
-            groups.append({**g, "reports": reps})
+            groups.append({**g, "title": HUB.CARD_TITLES.get(g["key"], g["title"]), "reports": reps,
+                           **HUB.card_extras(server, user, g["key"])})
         return {"groups": groups, "export_limits": EXPORT_LIMITS,
                 "can_export": bool(server.has_perm(user, "export")),
                 "price_visible": bool(server.has_perm(user, "view_purchase_price"))}

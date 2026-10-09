@@ -39,6 +39,15 @@ check("17 filter master P1 dirender dari metadata server (gudang, kategori, bara
 check("18 filter wajib (*) + notice server ditampilkan; baris saldo awal/akhir ditandai", page.includes("f.required") && page.includes("res.meta.notice")
   && page.includes("report-center-notice") && page.includes("report-row-${r._kind}"));
 check("19 select dengan default server tidak menampilkan opsi 'Semua'", page.includes("f.default ? f.options"));
+// P2a Hub 5 card + konsolidasi
+const legacy = readFileSync(new URL("../pages/Reports.jsx", import.meta.url), "utf8");
+check("20 beranda Pusat Laporan = 5 card kategori (grid responsif 1/2/3 kolom) dari katalog server", page.includes("function ReportHub")
+  && page.includes("md:grid-cols-2 xl:grid-cols-3") && page.includes("report-hub-card-${g.key}") && !page.includes("nav(reportPath(firstKey)"));
+check("21 laporan belum tersedia tidak dapat diklik (aria-disabled + badge fase), halaman modul terkait sebagai tautan", page.includes('aria-disabled="true"')
+  && page.includes("Segera \u00b7 {x.phase}") && page.includes("Halaman modul terkait"));
+check("22 filter Supplier tersedia (lookup existing)", page.includes('supplier: ["suppliers"'));
+check("23 halaman laporan lama tetap ada + arahan ke laporan utama Pusat Laporan", legacy.includes("reports-legacy-notice")
+  && legacy.includes("/report-center/lead-time") && legacy.includes("/report-center/pemakaian-barang") && legacy.includes('defaultValue="trace"'));
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exit(fail ? 1 : 0);
