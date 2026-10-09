@@ -1,11 +1,23 @@
 """DO/PO receipt control + list traceability E2E (throwaway tenant, no shared data touched)."""
+import os
 import sys
 import threading
 import uuid
 
 import requests
+from dotenv import dotenv_values
 
-API = "http://localhost:8001/api"
+# Default: backend lokal :8001. Override (runner terisolasi proc_itest): TEST_API_URL + TEST_DATABASE_URL/TEST_STORAGE_*.
+API = os.environ.get("TEST_API_URL", "http://localhost:8001/api").rstrip("/")
+
+
+def test_env():
+    """Nilai backend/.env yang dipakai test, dengan override TEST_<KEY> untuk runner terisolasi."""
+    env = dict(dotenv_values("/app/backend/.env"))
+    for k in ("DATABASE_URL", "DB_NAME", "STORAGE_DRIVER", "STORAGE_LOCAL_PATH"):
+        if os.environ.get(f"TEST_{k}"):
+            env[k] = os.environ[f"TEST_{k}"]
+    return env
 S = requests.Session()
 RESULTS = []
 

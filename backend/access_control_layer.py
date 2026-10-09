@@ -581,9 +581,13 @@ def install(server):
             return ep
         wrap(p, "POST", mk_bulk)
 
+    IW_PRICE_KEYS = ("avg_cost", "total_value", "last_cost", "unit_cost", "value")
+
     def mk_iw(orig):
         async def ep(user=Depends(server.current_user), warehouse_id: str = None, item_id: str = None):
             rows = await orig(user=user, warehouse_id=warehouse_id, item_id=item_id)
+            if not server.has_perm(user, "view_purchase_price"):  # nilai MWA/persediaan hanya untuk izin harga (server-side)
+                rows = [{k: v for k, v in r.items() if k not in IW_PRICE_KEYS} for r in rows]
             alw = allowed(user)
             if alw is None:
                 return rows

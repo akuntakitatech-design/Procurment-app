@@ -68,7 +68,12 @@ def snapshot(tenant):
     try:
         cur = c.cursor()
         out = {}
+        cur.execute("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()")
+        existing = {r[0] for r in cur.fetchall()}
         for t in SNAP_TABLES:
+            if t not in existing:  # tabel dibuat lazy (auto-schema) saat tulis pertama -> belum ada = 0 baris
+                out[t] = (0, 0)
+                continue
             cur.execute(f"SELECT COUNT(*), COALESCE(SUM(CRC32(doc)), 0) FROM `{t}` WHERE JSON_UNQUOTE(JSON_EXTRACT(doc, '$.tenant_id')) = %s", (tenant,))
             out[t] = tuple(int(x) for x in cur.fetchone())
         return out
@@ -130,7 +135,10 @@ def main():
         sim_import(cn, tenant, V["id"], wc, 8, 20_000)  # gudang divisi B
         ins(cn, "item_warehouse", {"id": f"iw::{N['id']}::{wa}", "tenant_id": tenant, "item_id": N["id"], "warehouse_id": wa, "current_stock": 4.0,
                                    "avg_cost": 0.0, "total_value": 0.0, "min_stock": 0, "max_stock": 0})
-        today = datetime.now(timezone(timedelta(hours=7))).date().isoformat()
+        # Tanggal transaksi WAJIB satu konvensi dengan default server (now_iso() = UTC) & frontend (todayISO() =
+        # toISOString() UTC). Memakai tanggal WIB di sini membuat DO/Transfer bertanggal "besok" relatif Adjustment
+        # (tanpa field date -> default UTC) pada jendela 00:00-07:00 WIB -> backdate guard menolak (flaky).
+        today = datetime.now(timezone.utc).date().isoformat()
         po = H.mkpo(10, 20_000, today)
         H.mkdo(po, 10, today)
         adj(wa, Q["id"], -5)
@@ -288,6 +296,19 @@ def main():
     check("Tenant lain: data tenant ini tidak berubah", snapshot(tenant) == snap3)
     T.S = s1
 
+    # ---------------- Freeze Stock Opname: Tetapkan Massal / individual pada gudang Freeze -> tidak ada tulis sama sekali
+    snapF = snapshot(tenant)
+    sc, opm = call("POST", "opname", {"warehouse_id": wa, "division_id": M["div"]["id"], "mode": "freeze", "scope": "all"})
+    sc, mf = call("POST", "valuation/opening-mass/apply", {"keys": pkey})
+    check("Freeze: Tetapkan Massal pool gudang Freeze -> 0 diterapkan, dilewati dgn nomor Opname",
+          sc == 200 and mf.get("applied") == 0 and opm.get("no", "?") in json.dumps(mf.get("skipped")), (sc, mf))
+    sc, r = call("POST", "valuation/opening", {"item_id": P["id"], "warehouse_id": wa, "opening_avg_cost": 5000})
+    check("Freeze: Tetapkan individual pool gudang Freeze -> 409", sc == 409 and opm.get("no", "?") in json.dumps(r), (sc, r))
+    call("POST", f"opname/{opm.get('id')}/workflow", {"action": "cancel", "reason": "QA freeze tetapkan"})
+    check("Freeze: tidak ada perubahan pool/ledger/audit valuasi (tanpa partial)",
+          {k: v for k, v in snapshot(tenant).items() if k != "audit_logs"} == {k: v for k, v in snapF.items() if k != "audit_logs"},
+          {k: (snapF[k], v) for k, v in snapshot(tenant).items() if v != snapF[k]})
+
     # ---------------- Tetapkan Massal (subset terpilih) + idempotensi
     sc, ma = call("POST", "valuation/opening-mass/apply", {"keys": [*pkey, {"item_id": Q["id"], "warehouse_id": wa}, {"item_id": Tt["id"], "warehouse_id": wa}]})
     sk = {x["item_id"]: x.get("status") for x in ma.get("skipped", [])}
@@ -331,10 +352,23 @@ def main():
         c = conn()
         try:
             cur = c.cursor()
-            cur.execute(f"SELECT doc FROM `{table}` WHERE JSON_UNQUOTE(JSON_EXTRACT(doc, '$.{field}')) = %s", (val,))
+            try:
+                cur.execute(f"SELECT doc FROM `{table}` WHERE JSON_UNQUOTE(JSON_EXTRACT(doc, '$.{field}')) = %s", (val,))
+            except Exception as exc:  # tabel lazy belum pernah ditulis -> tidak ada dokumen
+                if getattr(exc, "args", None) and exc.args[0] == 1146:
+                    return []
+                raise
             return [json.loads(x[0]) for x in cur.fetchall()]
         finally:
             c.close()
+    # Freeze Stock Opname di gudang yang TERDAMPAK berantai (B) -> revaluasi ditolak SEBELUM satu pool pun ditulis.
+    qa0, qb0 = pool(Q["id"], wa), pool(Q["id"], wb)
+    sc, opf = call("POST", "opname", {"warehouse_id": wb, "division_id": M["div"]["id"], "mode": "freeze", "scope": "all"})
+    sc, r = call("POST", "valuation/replay/apply", {"keys": [{"item_id": Q["id"], "warehouse_id": wa}], "fingerprint": fp, "confirm": dr2["confirm_phrase"]})
+    check("Apply revaluasi saat gudang terdampak Freeze -> 409 + nomor Opname, tanpa partial (pool A & B tetap)",
+          sc == 409 and opf.get("no", "?") in json.dumps(r) and pool(Q["id"], wa) == qa0 and pool(Q["id"], wb) == qb0
+          and not [d for d in db_doc("valuation_replays", "fingerprint", fp) if d.get("status") in ("applying", "applied")], (sc, r))
+    call("POST", f"opname/{opf['id']}/workflow", {"action": "cancel", "reason": "QA freeze replay"})
     sl_before = sl_snapshot()
     vl_before = {d["id"]: d for d in db_doc("valuation_ledger", "item_id", Q["id"])}
     sc, ap = call("POST", "valuation/replay/apply", {"keys": [{"item_id": Q["id"], "warehouse_id": wa}], "fingerprint": fp, "confirm": dr2["confirm_phrase"]})

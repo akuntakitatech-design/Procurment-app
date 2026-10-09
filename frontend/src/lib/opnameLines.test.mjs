@@ -1,0 +1,51 @@
+// Node test (no deps): node frontend/src/lib/opnameLines.test.mjs
+import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const dir = mkdtempSync(join(tmpdir(), "opnLines-"));
+writeFileSync(join(dir, "opnameLines.mjs"), readFileSync(join(here, "opnameLines.js"), "utf8"));
+const O = await import(join(dir, "opnameLines.mjs"));
+const src = (p) => readFileSync(join(here, "..", p), "utf8");
+let pass = 0, fail = 0;
+const check = (name, ok) => { if (ok) { pass += 1; console.log(`PASS ${name}`); } else { fail += 1; console.log(`FAIL ${name}`); } };
+
+check("1 kosong = belum dihitung, 0 = dihitung", O.isBlank("") && O.isBlank(null) && !O.isBlank("0") && O.parseQty("0") === 0 && O.parseQty("") === null);
+check("2 koma desimal diterima", O.parseQty("2,5") === 2.5 && Number.isNaN(O.parseQty("abc")));
+let d = O.mergeDraft({}, "L1", { qty: "3" }); d = O.mergeDraft(d, "L1", { reason: "Rusak" }); d = O.mergeDraft(d, "L2", { qty: "" });
+const p = O.buildCountPayload(d, { L1: { counted: null }, L2: { counted: 5 } });
+check("3 draft bertahan & digabung per baris", d.L1.qty === "3" && d.L1.reason === "Rusak");
+check("4 payload: qty angka + alasan; kosong pada baris terhitung -> clear", p.lines.find((x) => x.line_id === "L1").qty === 3 && p.lines.find((x) => x.line_id === "L2").clear === true);
+check("5 kosong pada baris belum dihitung tidak dikirim sebagai 0", O.buildCountPayload({ L3: { qty: "" } }, { L3: { counted: null } }).lines.length === 0);
+check("6 qty negatif -> error klien", O.buildCountPayload({ L4: { qty: "-1" } }, { L4: { item_code: "X" } }).errors.length === 1);
+check("7 payload TIDAK pernah memuat status", !JSON.stringify(p).includes("status"));
+const it = { base_uom_id: "pcs", uoms: [{ uom_id: "box", factor: 12 }] };
+const opts = O.uomOptions(it, { pcs: { symbol: "pcs" }, box: { symbol: "box" } });
+check("8 satuan hitung: dasar + konversi", opts.length === 2 && opts[1].factor === 12 && opts[0].label.includes("dasar"));
+check("9 progress", O.progressPct({ total: 4, counted: 1 }) === 25 && O.progressPct({}) === 0);
+check("10 aksi hanya dari izin server", O.visibleActions({ status: "Waiting Approval", permissions: { approve: true, reject: true } }).join() === "reject,approve");
+const ws = src("components/OpnameWorkspace.jsx");
+check("11 workspace: kolom Harga Satuan (Moving Average) + Nilai Selisih hanya bila izin harga", ws.includes("Harga Satuan (Moving Average)") && ws.includes("Nilai Selisih") && ws.includes("canPrice &&"));
+check("12 workspace: tombol Download Template Excel & Import Hasil Hitung", ws.includes("Download Template Excel") && ws.includes("Import Hasil Hitung") && ws.includes("/import?mode=${mode}") && ws.includes('runImport("preview")') && ws.includes('runImport("commit")'));
+check("13 workspace: memakai endpoint paging /lines", ws.includes("/lines?"));
+const pg = src("pages/Opname.jsx");
+check("14 halaman: gudang tidak bisa diganti setelah snapshot (tanpa Combobox gudang di edit)", !pg.includes("opn-edit-warehouse"));
+const pr = src("lib/opnamePrint.js");
+check("15 cetak: 2 jenis + harga bersyarat", pr.includes("LEMBAR PENGHITUNGAN FISIK") && pr.includes("BERITA ACARA HASIL STOCK OPNAME") && pr.includes("showPrice ?"));
+check("16 print.js modul lain tidak diubah untuk opname", !src("lib/print.js").includes("opnameHtml"));
+writeFileSync(join(dir, "opnamePrint.mjs"), pr.replace(/^import .*$/m, 'const api = {}; const API = "";'));
+const P = await import(join(dir, "opnamePrint.mjs"));
+const docBase = { no: "OPN/1", date: "2026-01-02", warehouse_name: "Gudang A", mode: "freeze", status: "Waiting Approval", counter_name: "Budi",
+  lines: [{ item_code: "K1", item_name: "Baut <b>", unit: "PCS", system_qty: 10, counted: 8, variance: -2, status: "minus", reason: "Rusak", unit_price: 1000, value: -2000 }] };
+const noPrice = P.opnameHtml("ba", { ...docBase, permissions: { price: false }, summary: { total: 1, match: 0, plus: 0, minus: 1 } });
+const withPrice = P.opnameHtml("ba", { ...docBase, permissions: { price: true }, summary: { total: 1, match: 0, plus: 0, minus: 1, surplus_value: 0, shortage_value: -2000, net_value: -2000 } });
+const sheet = P.opnameHtml("sheet", { ...docBase, permissions: { price: true }, summary: { net_value: -2000 } });
+check("17 berita acara tanpa izin harga: tanpa kolom/nilai harga", !noPrice.includes("Harga Avg") && !noPrice.includes("Nilai Selisih Bersih") && noPrice.includes("tanpa izin harga"));
+check("18 berita acara dengan izin harga: harga avg + nilai bersih", withPrice.includes("Harga Avg") && withPrice.includes("Nilai Selisih Bersih"));
+check("19 lembar hitung: kolom Hasil Fisik kosong, tanpa harga walau berizin", sheet.includes("Hasil Fisik") && !sheet.includes("Harga Avg") && sheet.includes("LEMBAR PENGHITUNGAN FISIK"));
+check("20 cetak meng-escape HTML nama barang", noPrice.includes("Baut &lt;b&gt;") && !noPrice.includes("Baut <b>"));
+check("21 approve memakai dialog konfirmasi (bukan langsung posting)", ws.includes('setReasonDlg("approve")') && ws.includes("approve: {"));
+console.log(`\n${pass} passed, ${fail} failed`);
+if (fail) process.exit(1);

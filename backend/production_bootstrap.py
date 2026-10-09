@@ -43,6 +43,7 @@ import transaction_mutation_layer
 import transaction_mutation_safety_layer
 import item_warehouse_guard_layer
 import stock_opname_guard_layer
+import stock_opname_workflow_layer
 import po_buyer_contact_layer
 import loan_return_mutation_layer
 import loan_return_integrity_guard_layer
@@ -150,6 +151,9 @@ transaction_mutation_safety_layer.install(server)
 item_warehouse_guard_layer.install(server)
 # Stock Opname needs line ownership, complete-count, non-negative, and posted-correction guards.
 stock_opname_guard_layer.install(server)
+# Stock Opname hardening: workflow/approval server-side, Freeze/Live, posting atomik, valuasi & redaksi harga,
+# import/export ke dokumen yang sama, cetak. Dipasang sebelum access-control/tenant layer agar ikut dibungkus.
+stock_opname_workflow_layer.install(server)
 po_buyer_contact_layer.install(server)
 loan_return_mutation_layer.install(server)
 # Validate return ownership/quantity/borrower stock before legacy return handlers write anything.
@@ -296,6 +300,10 @@ master_list_paging_layer.install(server)
 # Master Barang: daftar barang + stok per gudang (server-side, batch query, setelah tenant/izin/divisi).
 import master_item_stock_layer  # noqa: E402
 master_item_stock_layer.install(server)
+
+# Redaksi harga server-side pada keluaran audit/feed dashboard (tanpa view_purchase_price). Paling luar route.
+import price_redaction_layer  # noqa: E402
+price_redaction_layer.install(server)
 
 
 # Paling luar: header Server-Timing (jumlah/durasi query DB) untuk audit performa.

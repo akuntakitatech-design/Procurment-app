@@ -1,4 +1,5 @@
 """Saldo Awal (Import Excel) Harga Beli -> Opening Inventory Valuation (throwaway tenant, dev DB)."""
+import os
 import sys
 import threading
 import uuid
@@ -41,7 +42,7 @@ def dbq(sql, args=()):
     """Hitung baris ledger langsung di DB dev (verifikasi duplikasi). Menolak DB production."""
     import pymysql
     from urllib.parse import urlparse, unquote
-    url = next(x.split("=", 1)[1].strip().strip('"') for x in open("/app/backend/.env") if x.startswith("DATABASE_URL="))
+    url = os.environ.get("TEST_DATABASE_URL") or next(x.split("=", 1)[1].strip().strip('"') for x in open("/app/backend/.env") if x.startswith("DATABASE_URL="))
     assert "prod" not in url.lower()
     u = urlparse(url.replace("mariadb://", "mysql://"))
     c = pymysql.connect(host=u.hostname, port=u.port or 3306, user=unquote(u.username or ""), password=unquote(u.password or ""), database=u.path.lstrip("/"))

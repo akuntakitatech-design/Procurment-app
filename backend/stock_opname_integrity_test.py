@@ -68,6 +68,10 @@ def adjustment(s, wh, div, item, delta, note):
     }, timeout=15)
 
 
+def cancel(s, did, reason):
+    return s.post(f"{API}/opname/{did}/workflow", json={"action": "cancel", "reason": reason}, timeout=15)
+
+
 def create_opname(s, wh, div, note):
     r = s.post(f"{API}/opname", json={
         "date": TODAY, "warehouse_id": wh, "division_id": div,
@@ -90,7 +94,7 @@ def line_map(doc):
 def count(s, did, pairs, status="Review"):
     return s.put(f"{API}/opname/{did}/count", json={
         "status": status,
-        "lines": [{"line_id": line_id, "counted": qty} for line_id, qty in pairs],
+        "lines": [{"line_id": line_id, "counted": qty, "reason": "Selisih fisik QA"} for line_id, qty in pairs],
     }, timeout=15)
 
 
@@ -123,7 +127,12 @@ def main():
     check(after_neg[item_a["id"]].get("counted") is None and after_neg[item_b["id"]].get("counted") is None,
           "Request negatif tidak merusak dokumen")
 
-    op2 = create_opname(s, wh["id"], div["id"], "OPNAME PEMBANDING")
+    # Aturan baru: satu gudang hanya satu Opname aktif -> Opname kedua di gudang sama ditolak (409).
+    dup = s.post(f"{API}/opname", json={"date": TODAY, "warehouse_id": wh["id"], "division_id": div["id"], "mode": "live", "scope": "division"}, timeout=15)
+    check(dup.status_code == 409, "Opname kedua pada gudang yang sama ditolak (1 gudang = 1 Opname aktif)")
+    wh2 = master(s, "warehouses", {"code": f"OPX{run}", "name": f"Gudang Pembanding {run}", "division_id": div["id"]})
+    check(adjustment(s, wh2["id"], div["id"], item_a["id"], 5, "OPEN A2").status_code == 200, "Saldo item A di gudang pembanding = 5")
+    op2 = create_opname(s, wh2["id"], div["id"], "OPNAME PEMBANDING")
     foreign = line_map(op2)[item_a["id"]]["id"]
     bad_owner = count(s, op1_id, [(foreign, 19)])
     check(bad_owner.status_code == 400, "Baris dari Stock Opname lain ditolak")
@@ -181,10 +190,13 @@ def main():
     ]).status_code == 200, "Opname stale selesai dihitung")
     movement = adjustment(s, wh["id"], div["id"], item_a["id"], -15, "MOVEMENT AFTER SNAPSHOT")
     check(movement.status_code == 200 and approx(stock(s, item_a["id"], wh["id"]), 5), "Pergerakan stok setelah snapshot menghasilkan stok A = 5")
-    check(s.post(f"{API}/opname/{stale['id']}/submit", timeout=15).status_code == 200, "Opname stale dapat masuk tahap submit")
+    # Mode Live (kronologis): mutasi bertanggal <= waktu hitung yang diinput SETELAH hitung -> baris wajib dihitung ulang.
+    blocked_submit = s.post(f"{API}/opname/{stale['id']}/submit", timeout=15)
+    check(blocked_submit.status_code == 400 and "dihitung ulang" in blocked_submit.text, "Opname stale diblokir: barang perlu dihitung ulang")
     blocked_post = s.post(f"{API}/opname/{stale['id']}/post", timeout=15)
-    check(blocked_post.status_code == 409, "Posting stale yang akan membuat stok minus ditolak")
+    check(blocked_post.status_code == 409, "Posting stale (belum Waiting Approval) ditolak")
     check(approx(stock(s, item_a["id"], wh["id"]), 5), "Posting stale gagal tidak mengubah stok")
+    check(cancel(s, stale["id"], "Snapshot basi").status_code == 200, "Opname stale dibatalkan (lock gudang dilepas)")
     move_id = movement.json()["id"]
     check(s.delete(f"{API}/transactions/adjustment/{move_id}", timeout=15).status_code == 200, "Movement test dapat direversal")
     check(approx(stock(s, item_a["id"], wh["id"]), 20), "Reversal movement mengembalikan stok A = 20")
@@ -196,6 +208,7 @@ def main():
         (plus_lines[item_a["id"]]["id"], 25),
         (plus_lines[item_b["id"]]["id"], 10),
     ]).status_code == 200, "Opname plus selesai dihitung")
+    check(s.post(f"{API}/opname/{plus['id']}/submit", timeout=15).status_code == 200, "Opname plus diajukan approval")
     check(s.post(f"{API}/opname/{plus['id']}/post", timeout=15).status_code == 200, "Opname variance +5 berhasil diposting")
     check(approx(stock(s, item_a["id"], wh["id"]), 25), "Variance +5 menghasilkan stok A = 25")
 
@@ -212,6 +225,32 @@ def main():
     check(s.delete(f"{API}/transactions/mi/{mi.json()['id']}", timeout=15).status_code == 200, "MI test dapat direversal")
     check(s.delete(f"{API}/transactions/opname/{plus['id']}", timeout=15).status_code == 200, "Opname plus dapat direversal setelah stok tersedia")
     check(approx(stock(s, item_a["id"], wh["id"]), 20), "Semua reversal mengembalikan stok A = 20")
+
+    # Guard stok negatif saat posting (pra-validasi sebelum movement pertama) tetap berlaku: mutasi bertanggal
+    # SETELAH tanggal hitung tidak memicu hitung ulang (kronologis valid), tetapi stok fisik turun di bawah selisih.
+    neg_op = create_opname(s, wh["id"], div["id"], "OPNAME GUARD NEGATIF")
+    neg_lines = line_map(neg_op)
+    check(count(s, neg_op["id"], [
+        (neg_lines[item_a["id"]]["id"], 0),
+        (neg_lines[item_b["id"]]["id"], 10),
+    ]).status_code == 200, "Opname guard negatif selesai dihitung (A = 0, selisih -20)")
+    check(s.post(f"{API}/opname/{neg_op['id']}/submit", timeout=15).status_code == 200, "Opname guard negatif diajukan approval")
+    later = s.post(f"{API}/adjustments", json={
+        "date": DUE, "warehouse_id": wh["id"], "division_id": div["id"], "adj_type": "Test",
+        "reason": "MOVEMENT SETELAH TANGGAL HITUNG", "notes": "MOVEMENT SETELAH TANGGAL HITUNG",
+        "lines": [{"item_id": item_a["id"], "adjustment": -15, "reason": "MOVEMENT SETELAH TANGGAL HITUNG"}],
+    }, timeout=15)
+    check(later.status_code == 200 and approx(stock(s, item_a["id"], wh["id"]), 5), "Mutasi bertanggal setelah hitung menurunkan stok A = 5")
+    ledger_before = s.get(f"{API}/inventory/ledger", params={"item_id": item_a["id"], "warehouse_id": wh["id"]}, timeout=15)
+    neg_post = s.post(f"{API}/opname/{neg_op['id']}/post", timeout=15)
+    check(neg_post.status_code == 409 and "negatif" in neg_post.text, "Posting yang akan membuat stok negatif ditolak (409)")
+    check(approx(stock(s, item_a["id"], wh["id"]), 5) and approx(stock(s, item_b["id"], wh["id"]), 10), "Posting ditolak tanpa partial write stok")
+    ledger_after = s.get(f"{API}/inventory/ledger", params={"item_id": item_a["id"], "warehouse_id": wh["id"]}, timeout=15)
+    check(ledger_before.status_code == 200 and ledger_after.status_code == 200
+          and len(ledger_before.json()) == len(ledger_after.json())
+          and not [r for r in ledger_after.json() if r.get("doc_id") == neg_op["id"]], "Posting ditolak tanpa partial write ledger")
+    check(detail(s, neg_op["id"]).get("status") == "Waiting Approval", "Dokumen tetap Waiting Approval setelah posting ditolak")
+    check(cancel(s, neg_op["id"], "QA guard negatif").status_code == 200, "Opname guard negatif dibatalkan")
 
     print("\nRESULT: PASS - Stock Opname, posting, koreksi, dan reversal stok konsisten.")
     return 0

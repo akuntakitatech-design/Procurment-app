@@ -50,7 +50,7 @@ export function Combobox({ options, value, onChange, placeholder = "Pilih...", t
           </div>
         )}
         <Command>
-          <CommandInput placeholder="Cari..." className="h-10" />
+          <CommandInput placeholder="Cari..." className="h-10" data-testid={testid ? `${testid}-search` : undefined} />
           <CommandList className="max-h-[320px]">
             <CommandEmpty>
               <span data-testid={lt ? `${lt}-empty` : undefined}>
@@ -61,7 +61,8 @@ export function Combobox({ options, value, onChange, placeholder = "Pilih...", t
             </CommandEmpty>
             <CommandGroup>
               {list.map((o) => (
-                <CommandItem key={o.value} value={o.label} onSelect={() => { onChange(o.value); setOpen(false); }} className="items-start py-2.5">
+                <CommandItem key={o.value} value={o.label} onSelect={() => { onChange(o.value); setOpen(false); }} className="items-start py-2.5"
+                  data-testid={testid ? `${testid}-option-${o.value}` : undefined}>
                   <Check className={cn("mr-2 mt-0.5 h-4 w-4 shrink-0", value === o.value ? "opacity-100" : "opacity-0")} />
                   <span className="whitespace-normal break-words leading-5">{o.label}</span>
                 </CommandItem>

@@ -99,8 +99,11 @@ def main():
     ol = next((l for l in opn.get("lines", []) if l.get("item_id") == M["item"]["id"]), None) or (opn.get("lines") or [{}])[0]
     sc, r = call("PUT", f"opname/{opn['id']}/count", {"lines": [{"line_id": ol.get("id"), "counted": -1}]})
     check("Opname counted negatif -> 400", sc == 400, (sc, r))
-    sc, r = call("PUT", f"opname/{opn['id']}/count", {"lines": [{"line_id": ol.get("id"), "counted": 0, "reason": "habis"}], "status": "Review"})
+    others = [{"line_id": l["id"], "counted": l.get("system_qty", l.get("snapshot", 0))} for l in opn.get("lines", []) if l.get("id") != ol.get("id")]
+    sc, r = call("PUT", f"opname/{opn['id']}/count", {"lines": [{"line_id": ol.get("id"), "counted": 0, "reason": "habis"}] + others, "status": "Review"})
     check("Opname counted = 0 -> 200", sc == 200, (sc, r))
+    sc, r = call("POST", f"opname/{opn['id']}/submit", {})  # workflow server-side: Waiting Approval sebelum posting
+    check("Opname submit approval (Counting -> Waiting Approval) -> 200", sc == 200 and r.get("status") == "Waiting Approval", (sc, r))
     sc, r = call("POST", f"opname/{opn['id']}/post", {})
     check("Opname post dengan counted = 0 -> 200", sc == 200, (sc, r))
     sc, d = call("GET", f"opname/{opn['id']}")

@@ -12,7 +12,6 @@ import sys
 import uuid
 from pathlib import Path
 
-from dotenv import dotenv_values
 
 import receipt_control_test as T
 import transfer_multi_warehouse_test as TM
@@ -21,7 +20,7 @@ from vendor_invoice_test import PW, U
 call, check, API = T.call, T.check, T.API
 u = uuid.uuid4().hex[:6]
 m, stock, opening, db_conn = TM.m, TM.stock, TM.opening, TM.db_conn
-_ENV = dotenv_values("/app/backend/.env")
+_ENV = T.test_env()
 STORAGE_LOCAL = (_ENV.get("STORAGE_DRIVER") or "local").lower() == "local"
 LOCAL_PATH = Path(_ENV.get("STORAGE_LOCAL_PATH") or "/app/data/uploads")
 
