@@ -301,6 +301,14 @@ master_list_paging_layer.install(server)
 import master_item_stock_layer  # noqa: E402
 master_item_stock_layer.install(server)
 
+# Laporan nilai persediaan (valuation-summary/ledger) dibatasi cakupan divisi/gudang server-side (bentuk respon tetap).
+import valuation_report_scope_layer  # noqa: E402
+valuation_report_scope_layer.install(server)
+
+# Pusat Laporan (registry + builder bersama + export Excel/PDF server-side; MRO Traceability ber-scope divisi).
+import reporting.report_center as report_center  # noqa: E402
+report_center.install(server)
+
 # Redaksi harga server-side pada keluaran audit/feed dashboard (tanpa view_purchase_price). Paling luar route.
 import price_redaction_layer  # noqa: E402
 price_redaction_layer.install(server)

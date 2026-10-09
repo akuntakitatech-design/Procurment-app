@@ -209,3 +209,80 @@ dan `/root/procurement-uat-evidence/iteration-8-10/`.
 - Harga Beli Terakhir: PO Approved/Partially Received/Fully Received (tidak cancelled), net setelah diskon item, tanpa PPN, per satuan dasar.
 - Pilih Supplier hanya mengubah supplier PO di form (belum simpan); Supplier Utama & kontrak tidak berubah.
 - Test: tests/po_price_insight_test.py 25/25; regresi PO/RO/receipt/invoice + multi-proses lulus; CI=true yarn build sukses.
+
+## Reporting & Export — Procurement & Warehouse PT REAL (branch `feature/reporting-export`, base `main` 74747eb)
+Blueprint disetujui user (5 kelompok: Persediaan & Nilai · Procurement · Warehouse · SPK & Kontrak · Invoice/Hutang).
+Keputusan: PDF server-side `reportlab` (cetak dokumen existing tetap); cut-off = tanggal bisnis WIB (Asia/Jakarta);
+batas export Excel 100.000 / PDF 5.000 baris (ditolak tegas 422, tidak dipotong); aging: Belum JT/JT hari ini, 1–30, 31–60,
+61–90, >90 (pembayaran parsial + DP teralokasi); engine/formula MWA, valuation, ledger, transaksi TIDAK diubah.
+
+### P0 — Reporting Foundation (Status: COMPLETED — Quality Gates PASS; PR P0 ke `main` lalu STOP menunggu review, tanpa merge/deploy)
+1. **Keamanan valuasi (pekerjaan pertama):** `valuation_report_scope_layer.py` mengganti `/api/reports/valuation-summary` &
+   `/valuation-ledger` (bentuk respon sama): scope divisi + penugasan gudang (`stock_summary.allowed/assigned_warehouses/
+   wh_in_scope`), `warehouse_id` di luar cakupan → 403, tanpa batas 5000, filter tanggal ledger = tanggal efektif WIB
+   (`txn_at`, fallback `at`; field baru `txn_date`). Sebelumnya: hanya izin harga + tenant (nilai lintas divisi terbuka).
+2. **Registry + builder bersama:** `reporting/registry.py` (ReportSpec/Column/Filter, 5 GROUPS), `reporting/report_center.py`
+   (`run()` satu alur: validasi filter → builder seluruh baris → pencarian → proyeksi kolom → total seluruh baris → halaman/export).
+   Route: `GET /api/report-center/catalog`, `/{key}` (page/page_size ≤ 500), `/{key}/export.xlsx`, `/{key}/export.pdf`.
+3. **Export server-side:** `reporting/exporters.py` — Excel openpyxl write-only (kop, filter, pencetak, header beku, autofilter,
+   TOTAL, sheet Parameter); PDF reportlab (A4/A3 landscape otomatis, header berulang, TOTAL, "Hal x/y", metadata rows).
+4. **Permission/redaksi:** kolom `price=True` dibuang server-side (JSON, Excel, PDF, totals) tanpa `view_purchase_price`;
+   export butuh izin `export`; setiap export dicatat di audit (`entity=report`, format, jumlah baris, filter).
+5. **UI Pusat Laporan:** `/report-center/:key` (`pages/ReportCenter.jsx`, `lib/reportCenter.js`), menu Laporan → "Pusat Laporan";
+   filter tanggal `input type=date` (tanpa konversi UTC), kolom/total dari server, drill-down ke dokumen MRO; `/reports` tetap.
+6. **Migrasi MRO Traceability (BUKAN perbaikan keamanan):** pembatasan divisi MRO Traceability SUDAH diterapkan sistem
+   existing (`report_control_scope_layer.scoped_build_rows` yang membungkus `report_trace_detail._build_rows`) → bukan celah
+   keamanan; mekanisme visibilitas lama TIDAK diubah. Spec `mro-traceability` memanggil rantai builder existing yang sama
+   (`_build_rows` + `report_financial_fix` + `scoped_build_rows`) sehingga endpoint lama (`/api/reports/mro-traceability`,
+   `/export.xlsx`, tetap ada) dan Pusat Laporan (JSON/Excel/PDF) menghasilkan baris identik per user — tanpa perluasan akses.
+   Izin export Pusat Laporan = izin export lama (`server.require(user, "export")`). Perubahan builder dasar (berlaku juga untuk
+   endpoint lama, sesuai keputusan user): periode = tanggal MRO bisnis WIB inklusif (sebelumnya perbandingan string UTC) dan
+   batas diam-diam `to_list(2000/1000)` dihapus (tidak ada pemotongan data).
+7. **Test isolasi:** `tests/report_center_test.py` **59/59 PASS** (runner `scripts/run_regression_itest.sh`, DB `proc_itest`):
+   V1–V14 keamanan valuasi lintas divisi/gudang; R1–R22 paritas JSON/Excel/PDF, pagination & total seluruh baris, kompatibilitas
+   endpoint lama, scope divisi, redaksi, validasi, pencarian, cut-off WIB, audit; R10b paritas user Divisi A & B (endpoint lama =
+   Pusat Laporan, baris identik); R10c scope divisi di Excel & PDF; R16/R16b/R16c izin export (403 tanpa izin di endpoint lama
+   DAN Pusat Laporan, 200 dengan izin); R9 PDF multi-halaman (valid pypdf, header berulang, "Hal x/N", seluruh baris, TOTAL
+   format Indonesia di halaman akhir); R13–R15 redaksi harga JSON/Excel/PDF + catatan redaksi; L1–L3 batas export; Z1 read-only.
+   Riwayat: 51/51 → 57/57 (paritas scope + PDF ketat) → 59/59 (R16b/R16c). FE `src/lib/reportCenter.test.mjs` 15/15.
+8. **Dependensi (manual, tanpa pip freeze):** `backend/requirements.txt` hanya +2 baris vs `main`: `reportlab==5.0.1` (render PDF
+   server-side) dan `pypdf==6.19.0` (validasi/baca-ulang PDF di test). Dependensi lain tidak berubah. Instalasi di venv bersih
+   lolos (versi 5.0.1 / 6.19.0 terverifikasi).
+9. **testing_agent_v3:** iterasi 20 = backend 52/53 — satu-satunya gagal API-6.6 adalah kontrak tester yang salah (mengira staff
+   sandbox tanpa izin export; faktanya fixture UAT existing `scripts/uat_fixture_stock_opname.py:41` memberi override
+   `export: allow`, dan endpoint lama juga 200 → paritas). Catatan FE minor (opsi page-size "10" tidak ada — opsi shared 25/50/100;
+   selector logout) juga kontrak tester. Tidak ada perubahan kode aplikasi. Iterasi 21 (kontrak dikoreksi, assertion bisnis tidak
+   dilemahkan): **backend 52/52 PASS, frontend semua skenario PASS, 0 open findings** (`test_reports/iteration_21.json`). Jumlah 52
+   vs 53: iterasi 21 memakai ulang data MRO iterasi 20 sehingga langkah setup "buat MRO" tidak dijalankan. Hasil 59/59 di atas
+   adalah suite berbeda (isolasi) dan tidak dihitung sebagai kelulusan testing agent.
+
+#### Sisa Data Uji Sandbox
+Dibuat testing_agent_v3 iterasi 20 (2026-10-09 ±13:16 WIB) di DB sandbox `proc_sandbox` (bukan production). Tidak dihapus
+(tidak ada route DELETE MRO → 405; tanpa direct-write DB / reset / endpoint baru), sesuai keputusan user.
+| No MRO | ID | Tanggal (UTC) | Tenant | Divisi | Status |
+|---|---|---|---|---|---|
+| MRO-UAT-RC-20261009131629-0 | c42db7d1-32f7-4da8-acb7-55abe9eec73e | 2026-10-09T06:16:29Z | tenant-qa-sandbox | Asset (DIV-AST) | Open |
+| MRO-UAT-RC-20261009131629-1 | db6b12d0-43f2-4f0c-8c7a-9ab1ab0cab38 | 2026-10-09T06:16:29Z | tenant-qa-sandbox | Asset (DIV-AST) | Open |
+| MRO-UAT-RC-20261009131629-2 | 98f9cb01-d877-492c-9c17-81820e6f877e | 2026-10-09T06:16:29Z | tenant-qa-sandbox | Asset (DIV-AST) | Open |
+Dampak: masing-masing 1 baris, tanpa RO/PO/DO/MI (qty_ro/po/mi = 0) → tidak memengaruhi stok, nilai persediaan, ledger, atau
+valuasi; hanya tampil sebagai 3 baris MRO Open di MRO Traceability/dashboard MRO tenant sandbox (iterasi 21 memakainya ulang).
+Pengujian deterministik P0 memakai DB terisolasi `proc_itest` (direset per run), sehingga tidak terpengaruh.
+
+#### Quality Gates final P0 (2026-10-09, serial, setelah seluruh perubahan terakhir; DB test `proc_itest`, tanpa production)
+| Gate | Perintah | Hasil |
+|---|---|---|
+| Regresi backend | `DATABASE_URL=$ITEST_DATABASE_URL bash scripts/run_regression_itest.sh` | exit 0 — **20/20 suite PASS, FAIL 0** (termasuk report_center 59/59, valuation_hardening 40/40, inventory_value_asof 40/40, stock_summary_parity 41/41, master_tenant_isolation 218/218) |
+| Full integrity | `scripts/run_integrity_tests_mariadb.sh` (single-instance) | exit 0 — **PASS 13, FAIL 0** |
+| Frontend | `node src/**/*.test.mjs` | **18/18 PASS** |
+| Build | `CI=true yarn build` | exit 0 |
+| Diff | `git diff --check` | exit 0 |
+| Scope MWA/valuation/ledger/transaksi | `git diff origin/main` pada file yang memuat logika MWA/avg cost (server.py, valuation_replay.py, stock_summary.py, transaction_mutation_layer.py, doc_*.py, opening_*/adjustment/opname layer, dll.) | **0 file berubah** (satu-satunya file "valuation" baru = `valuation_report_scope_layer.py`, layer scope laporan read-only) |
+| requirements.txt | `git diff origin/main -- backend/requirements.txt` | hanya `+reportlab==5.0.1`, `+pypdf==6.19.0` |
+| Secret scan (gitleaks 8.21.2, `--redact`) | scope PR · patch PR (committed+staged+unstaged+untracked) · arsip bukti · artefak testing agent iter20/21 + test_reports | **0 / 0 / 0 / 0 temuan** (exit 0) |
+| Secret scan legacy | working tree /app · riwayat Git (108 commit, termasuk commit lokal P0) | 6 / 3 temuan — **identik baseline** (fingerprint sama); remediasi TERPISAH, tidak diubah di PR ini |
+| Known-value scan | nilai kredensial dikenal vs scope + arsip + test_reports + artefak testing agent (nilai tidak dicetak) | **0 file hit** — sebelumnya 3 salinan skrip testing agent iter20 di arsip bukti (di luar Git) memuat kredensial sandbox → nilai diredaksi `***REDACTED***` |
+| testing_agent_v3 | iterasi 21 | backend 52/52, frontend PASS, **0 open findings** |
+
+### P1–P6 (Status: NOT STARTED — menunggu review PR P0)
+P1 Persediaan (posisi as-of, ringkasan nilai, kartu stok qty/nilai, mutasi persediaan, HPP pemakaian, min/max) · P2 Procurement ·
+P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang (aging, pembayaran, kartu hutang) · P6 export di list transaksi.
