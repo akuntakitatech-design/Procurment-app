@@ -42,10 +42,10 @@ const HUBS = {
     title: "Laporan",
     subtitle: "Pantau posisi stok, keterlacakan transaksi, dan analisis operasional.",
     cards: [
-      { to: "/report-center", title: "Pusat Laporan", desc: "Laporan terpusat 5 kelompok dengan filter, total, serta export Excel/PDF.", icon: FileBarChart },
+      { to: "/report-center", title: "Pusat Laporan", desc: "Pintu utama seluruh laporan: 5 kategori dengan filter, total, serta export Excel/PDF.", icon: FileBarChart },
       { to: "/inventory", title: "Inventory / Stock", desc: "Posisi stok per barang dan gudang beserta status minimum-maksimum.", icon: Boxes },
       { to: "/traceability", title: "Traceability", desc: "Telusuri alur MRO sampai RO, PO, DO, dan MI secara end-to-end.", icon: GitBranch },
-      { to: "/reports", title: "Reporting", desc: "Laporan procurement, inventory, lead time, dan pemakaian unit.", icon: BarChart3 },
+      { to: "/reports", title: "Laporan Lama", desc: "Tampilan lama MRO Traceability, Lead Time, dan Pemakaian Unit (kini tersedia di Pusat Laporan).", icon: BarChart3 },
     ],
   },
   system: {
