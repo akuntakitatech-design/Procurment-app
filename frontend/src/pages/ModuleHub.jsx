@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import {
   FileText, ClipboardList, PackageCheck, PackageMinus, ShoppingCart, ArrowLeftRight,
-  Handshake, SlidersHorizontal, ClipboardCheck, Boxes, GitBranch, BarChart3, Settings,
+  Handshake, SlidersHorizontal, ClipboardCheck, Boxes, GitBranch, Settings,
   Users, ArrowUpRight, Activity, FileSpreadsheet, Receipt, HandCoins, FileBarChart
 } from "lucide-react";
 
@@ -30,22 +30,22 @@ const HUBS = {
   },
   inventory: {
     title: "Persediaan",
-    subtitle: "Kontrol mutasi internal, pinjaman, koreksi, dan validasi fisik stok.",
+    subtitle: "Kontrol mutasi internal, pinjaman, koreksi, validasi fisik, dan posisi stok operasional.",
     cards: [
       { to: "/transfer", title: "Transfer Antar Gudang", desc: "Perpindahan stok permanen antar lokasi penyimpanan.", icon: ArrowLeftRight },
       { to: "/loan", title: "Pinjam Antar Gudang", desc: "Pinjaman barang dengan pencatatan outstanding dan pengembalian.", icon: Handshake },
       { to: "/adjustment", title: "Penyesuaian Stok", desc: "Koreksi stok rusak, hilang, expired, selisih, atau ditemukan.", icon: SlidersHorizontal },
       { to: "/opname", title: "Stock Opname", desc: "Snapshot, hitung fisik, approval, dan posting selisih stok.", icon: ClipboardCheck },
+      { to: "/inventory", title: "Inventory / Stock", desc: "Posisi stok operasional per barang dan gudang beserta kartu stok (ledger) dan status minimum-maksimum.", icon: Boxes },
     ],
   },
   reporting: {
     title: "Laporan",
-    subtitle: "Pantau posisi stok, keterlacakan transaksi, dan analisis operasional.",
+    subtitle: "Seluruh laporan terkonsolidasi di Pusat Laporan; penelusuran dokumen end-to-end melalui Traceability.",
+    cols: "grid-cols-1 md:grid-cols-2",
     cards: [
-      { to: "/report-center", title: "Pusat Laporan", desc: "Pintu utama seluruh laporan: 5 kategori dengan filter, total, serta export Excel/PDF.", icon: FileBarChart },
-      { to: "/inventory", title: "Inventory / Stock", desc: "Posisi stok per barang dan gudang beserta status minimum-maksimum.", icon: Boxes },
-      { to: "/traceability", title: "Traceability", desc: "Telusuri alur MRO sampai RO, PO, DO, dan MI secara end-to-end.", icon: GitBranch },
-      { to: "/reports", title: "Laporan Lama", desc: "Tampilan lama MRO Traceability, Lead Time, dan Pemakaian Unit (kini tersedia di Pusat Laporan).", icon: BarChart3 },
+      { to: "/report-center", title: "Pusat Laporan", desc: "Seluruh laporan dalam 5 kategori: Persediaan & Nilai Persediaan, Procurement, Warehouse, SPK & Kontrak Vendor, serta Invoice & Hutang — dengan filter, total, dan export Excel/PDF.", icon: FileBarChart },
+      { to: "/traceability", title: "Traceability", desc: "Telusuri alur satu MRO sampai RO, PO, DO, dan MI secara end-to-end beserta status setiap tahap.", icon: GitBranch },
     ],
   },
   system: {
@@ -67,11 +67,11 @@ export default function ModuleHub({ type }) {
   const { can } = useAuth();
   return <div className="space-y-6">
     <PageHeader title={hub.title} subtitle={hub.subtitle} />
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div className={`grid gap-4 ${hub.cols || "grid-cols-1 md:grid-cols-2 xl:grid-cols-3"}`} data-testid={`module-hub-${type}`}>
       {hub.cards.filter(({ to }) => { const m = moduleFromPath(to); return !m || can("view", m); }).map(({ to, code, title, desc, icon: Icon }) => (
-        <button key={to} onClick={() => nav(to)}
-          className="group premium-module-card text-left rounded-2xl border bg-card p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_18px_45px_-28px_rgba(15,23,42,0.45)]">
-          <div className="flex items-start justify-between gap-4">
+        <button key={to} onClick={() => nav(to)} data-testid={`hub-card-${to.replace(/^\//, "").replace(/\//g, "-")}`}
+          className="group premium-module-card flex h-full flex-col justify-start text-left rounded-2xl border bg-card p-5 transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_18px_45px_-28px_rgba(15,23,42,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+          <div className="flex w-full items-start justify-between gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/8 text-primary ring-1 ring-primary/10">
               <Icon className="h-5 w-5" />
             </div>
@@ -82,7 +82,7 @@ export default function ModuleHub({ type }) {
             <h3 className="mt-1 font-head text-base font-semibold text-foreground">{title}</h3>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">{desc}</p>
           </div>
-          <div className="mt-5 text-xs font-semibold text-primary">Buka modul →</div>
+          <div className="mt-auto pt-5 text-xs font-semibold text-primary">Buka modul →</div>
         </button>
       ))}
     </div>

@@ -1,5 +1,6 @@
 import "@/App.css";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { legacyReportPath } from "@/lib/reportCenter";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { MasterCreateProvider } from "@/components/MasterRefCombobox";
@@ -22,7 +23,6 @@ import Inventory from "@/pages/Inventory";
 import Users from "@/pages/Users";
 import Profile from "@/pages/Profile";
 import Settings from "@/pages/Settings";
-import Reports from "@/pages/Reports";
 import ReportCenter from "@/pages/ReportCenter";
 import TraceabilityPage from "@/pages/Traceability";
 import Approval2Batch from "@/pages/Approval2Batch";
@@ -56,6 +56,12 @@ function Loading() {
     </div>
   );
   return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Memuat...</div>;
+}
+
+// URL lama /reports (dan ?tab=trace|lead|usage) -> laporan padanan di Pusat Laporan; endpoint API lama tetap tersedia.
+function LegacyReportsRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={legacyReportPath(search)} replace />;
 }
 
 function Protected({ children }) {
@@ -124,7 +130,7 @@ function App() {
               <Route path="/opname" element={<Protected><Opname /></Protected>} />
               <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
               <Route path="/traceability" element={<Protected><TraceabilityPage /></Protected>} />
-              <Route path="/reports" element={<Protected><Reports /></Protected>} />
+              <Route path="/reports" element={<Protected><LegacyReportsRedirect /></Protected>} />
               <Route path="/report-center" element={<Protected><ReportCenter /></Protected>} />
               <Route path="/report-center/:key" element={<Protected><ReportCenter /></Protected>} />
               <Route path="/master" element={<Protected><MasterData /></Protected>} />

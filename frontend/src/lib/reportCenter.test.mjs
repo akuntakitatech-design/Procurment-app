@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildQuery, exportState, formatCell, isIsoDay, reportPath, validateFilters } from "./reportCenter.js";
+import { buildQuery, exportState, formatCell, isIsoDay, legacyReportPath, reportPath, validateFilters } from "./reportCenter.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (p) => readFileSync(join(here, p), "utf8");
@@ -29,7 +29,9 @@ check("13 filter tanggal pakai input type=date (bukan DatePicker ISO UTC)", page
 check("14 data-testid utama tersedia", ["report-center-page", "report-center-export-xlsx", "report-center-export-pdf", "report-center-table", "report-center-total-row"].every((t) => page.includes(t)));
 const hub = src("../pages/ModuleHub.jsx");
 const app = src("../App.js");
-check("15 menu Laporan memuat Pusat Laporan & route terdaftar; laporan lama tetap", hub.includes("/report-center") && app.includes('path="/report-center"') && app.includes('path="/reports"'));
+check("15 menu Laporan memuat Pusat Laporan & route terdaftar; URL lama /reports tetap terdaftar (redirect); tombol Laporan Lama dihapus",
+  hub.includes("/report-center") && app.includes('path="/report-center"') && app.includes('path="/reports"')
+  && !page.includes("report-center-legacy-link") && !page.includes('nav("/reports")'));
 // P1 Persediaan
 const defs = [{ key: "as_of", label: "Per Tanggal (cut-off)", type: "date" }];
 check("16 validasi tanggal generik dari metadata filter (as_of)", validateFilters({ as_of: "2026/10/01" }, defs) === "Per Tanggal (cut-off) tidak valid."
@@ -40,14 +42,29 @@ check("18 filter wajib (*) + notice server ditampilkan; baris saldo awal/akhir d
   && page.includes("report-center-notice") && page.includes("report-row-${r._kind}"));
 check("19 select dengan default server tidak menampilkan opsi 'Semua'", page.includes("f.default ? f.options"));
 // P2a Hub 5 card + konsolidasi
-const legacy = readFileSync(new URL("../pages/Reports.jsx", import.meta.url), "utf8");
+const hubSrc = readFileSync(new URL("../pages/ModuleHub.jsx", import.meta.url), "utf8");
+const appSrc = readFileSync(new URL("../App.js", import.meta.url), "utf8");
 check("20 beranda Pusat Laporan = 5 card kategori (grid responsif 1/2/3 kolom) dari katalog server", page.includes("function ReportHub")
   && page.includes("md:grid-cols-2 xl:grid-cols-3") && page.includes("report-hub-card-${g.key}") && !page.includes("nav(reportPath(firstKey)"));
 check("21 laporan belum tersedia tidak dapat diklik (aria-disabled + badge fase), halaman modul terkait sebagai tautan", page.includes('aria-disabled="true"')
   && page.includes("Segera \u00b7 {x.phase}") && page.includes("Halaman modul terkait"));
 check("22 filter Supplier tersedia (lookup existing)", page.includes('supplier: ["suppliers"'));
-check("23 halaman laporan lama tetap ada + arahan ke laporan utama Pusat Laporan", legacy.includes("reports-legacy-notice")
-  && legacy.includes("/report-center/lead-time") && legacy.includes("/report-center/pemakaian-barang") && legacy.includes('defaultValue="trace"'));
+// P2b konsolidasi navigasi Laporan: 2 card + redirect URL lama
+const rep = hubSrc.slice(hubSrc.indexOf("reporting: {"), hubSrc.indexOf("system: {"));
+check("23 hub Laporan hanya 2 card sejajar (Pusat Laporan, Traceability); Inventory/Stock & Laporan Lama dihapus dari navigasi",
+  (rep.match(/\{ to: "/g) || []).length === 2 && rep.includes('to: "/report-center"') && rep.includes('to: "/traceability"')
+  && !rep.includes('"/inventory"') && !rep.includes('"/reports"') && rep.includes('cols: "grid-cols-1 md:grid-cols-2"'));
+check("24 /reports dan tab lama di-redirect ke laporan padanan Pusat Laporan (parameter lain dipertahankan)",
+  legacyReportPath("") === "/report-center/mro-traceability" && legacyReportPath("?tab=lead") === "/report-center/lead-time"
+  && legacyReportPath("?tab=usage&unit_id=u1") === "/report-center/pemakaian-barang?unit_id=u1"
+  && legacyReportPath("?tab=xyz") === "/report-center/mro-traceability" && appSrc.includes("<LegacyReportsRedirect />")
+  && appSrc.includes('path="/inventory"') && !appSrc.includes('pages/Reports"'));
+const layoutSrc = readFileSync(new URL("../components/Layout.jsx", import.meta.url), "utf8");
+const inv = hubSrc.slice(hubSrc.indexOf("inventory: {"), hubSrc.indexOf("reporting: {"));
+check("25 menu operasional /inventory tetap tersedia: card Inventory / Stock di hub Persediaan (nav aktif, tanpa syarat modul baru)",
+  inv.includes('to: "/inventory"') && inv.includes("Inventory / Stock")
+  && /to: "\/persediaan"[^\n]*"\/inventory"/.test(layoutSrc) && !/to: "\/laporan"[^\n]*"\/inventory"/.test(layoutSrc)
+  && !/"\/persediaan": \[/.test(layoutSrc));
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exit(fail ? 1 : 0);

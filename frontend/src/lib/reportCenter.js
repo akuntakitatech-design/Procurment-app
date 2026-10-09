@@ -60,3 +60,13 @@ export function exportState(res, fmt, canExport) {
 export function reportPath(key) {
   return `/report-center/${encodeURIComponent(key)}`;
 }
+
+// Halaman lama /reports (tab MRO Traceability, Lead Time, Pemakaian Unit) -> laporan padanan di Pusat Laporan (P2b).
+export const LEGACY_REPORT_TABS = { trace: "mro-traceability", lead: "lead-time", usage: "pemakaian-barang" };
+export function legacyReportPath(search = "") {
+  const p = new URLSearchParams(search);
+  const key = LEGACY_REPORT_TABS[p.get("tab")] || "mro-traceability";
+  p.delete("tab");
+  const qs = p.toString();
+  return `${reportPath(key)}${qs ? `?${qs}` : ""}`;
+}

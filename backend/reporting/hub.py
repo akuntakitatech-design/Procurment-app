@@ -3,7 +3,11 @@
 Setiap card = laporan aktif di REGISTRY (ber-permission) + halaman laporan existing di modul lain yang fungsinya BERBEDA
 (bukan duplikat laporan Pusat Laporan; tautan tetap ke halaman aslinya, permission aslinya) + laporan yang belum
 tersedia (ditandai jelas "Segera tersedia", tidak dapat diklik). Laporan lama `/reports` (MRO Traceability, Lead Time,
-Pemakaian Unit) sudah digantikan penuh oleh versi Pusat Laporan -> tidak didaftarkan ganda; halaman & endpoint lama tetap.
+Pemakaian Unit) sudah digantikan penuh oleh versi Pusat Laporan -> tidak didaftarkan ganda; endpoint lama tetap.
+P2b: navigasi Laporan = 2 card (Pusat Laporan, Traceability). URL `/reports` di-redirect ke laporan padanan. Fungsi
+laporan halaman Inventory tersedia di Pusat Laporan (Posisi Stok, Min/Max & Reorder, Kartu Stok Qty, dan "Riwayat
+Pergerakan Stok" sebagai padanan tab Kartu Stok (Ledger)); halaman operasional `/inventory` tetap (menu Persediaan + drill
+Dashboard), endpoint tidak berubah.
 """
 from __future__ import annotations
 
@@ -27,8 +31,6 @@ LINKS = {
 
 # Belum tersedia -> (judul, fase)
 PLANNED = {
-    "procurement": [("Outstanding Permintaan/Pembelian (MRO, RO, PO, DO)", "P2b"), ("Rekap Pembelian", "P2b"),
-                    ("Rekap Nilai Penerimaan DO", "P2b")],
     "warehouse": [("Transfer Antar Gudang", "P3"), ("Pinjam Barang & Return", "P3"), ("Penyesuaian Stok", "P3"),
                   ("Stock Opname", "P3")],
     "spk": [("Realisasi Anggaran SPK (rekap seluruh SPK)", "P4"), ("Kepatuhan Harga PO terhadap Kontrak", "P4")],

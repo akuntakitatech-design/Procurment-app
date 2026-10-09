@@ -168,6 +168,7 @@ def install(server):
     import reporting.reports_inventory  # noqa: F401  (P1: Persediaan & Nilai Persediaan)
     import reporting.reports_procurement  # noqa: F401  (mendaftarkan laporan ke REGISTRY)
     import reporting.reports_procurement_ops  # noqa: F401  (P2a: register, lead time, pemakaian)
+    import reporting.reports_procurement_outstanding  # noqa: F401  (P2b: outstanding, rekap pembelian, rekap nilai DO)
     app = server.app
 
     async def catalog(user=Depends(server.current_user)):
