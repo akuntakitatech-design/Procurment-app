@@ -354,7 +354,7 @@ Pencegahan: guard di `report_inventory_test.py` (exit 2 bila DB bukan *itest*/*_
 
 PR P1 = #58 (merged ke `main` 22e0c7d).
 
-### P2a — Reporting Operasional Procurement + Redesain/Konsolidasi Pusat Laporan (Status: COMPLETED — Quality Gates PASS; branch `feature/reporting-p2a-procurement` dari `main` 22e0c7d; PR #59 OPEN, STOP menunggu review — tanpa merge/deploy)
+### P2a — Reporting Operasional Procurement + Redesain/Konsolidasi Pusat Laporan (Status: COMPLETED — Quality Gates PASS; branch `feature/reporting-p2a-procurement` dari `main` 22e0c7d; PR #59 MERGED ke `main` b5d4722)
 Keputusan user (2026-10-09): P2 dipecah 2 PR — **P2a** = Register MRO/RO/PO/DO/MI, Lead Time, Pemakaian per Unit/Proyek,
 penyempurnaan MRO Traceability, + redesain beranda Pusat Laporan 5 card & konsolidasi laporan lama; **P2b** (setelah P2a merged)
 = Outstanding MRO/RO/PO/DO per alokasi baris, Rekap Pembelian, Rekap Nilai Penerimaan DO.
@@ -412,5 +412,54 @@ tercakup oleh `report_inventory_test` 63/63 + `report_procurement_test` 39/39 + 
 | Known-value scan | 0 secret di file P2a; 1 artefak `/tmp` testing agent (di luar repo) diredaksi |
 Catatan eksekusi: run integrity pertama tercampur dengan run lain (kredensial DB salah) -> sesi bentrok; diulang sendiri -> 13/13.
 
-### P2b–P6 (Status: NOT STARTED — P2b menunggu PR P2a merged)
+## Urutan kerja (keputusan user 2026-10-09)
+1. **H1 Performance Hotfix** (PR #60 dari `main` b5d4722) — Status: COMPLETED, menunggu review/merge.
+2. **P2b** — dari `main` terbaru SETELAH H1 merged.
+3. **Performance Optimization menyeluruh** — PR terpisah SETELAH P2b merged (prioritas: pagination sebenarnya, N+1,
+   agregasi Dashboard, optimasi frontend). **Perubahan indeks/migrasi DB dan multi-worker wajib diaudit & disetujui
+   tersendiri sebelum diterapkan.**
+
+### Performance Audit Tahap 1 (Status: COMPLETED — read-only; laporan disampaikan ke user)
+Lingkungan: backend terisolasi `production_bootstrap.py` (1 worker = Dockerfile production), DB uji `proc_perf_itest` (20×:
+5.000 MRO/RO/PO, 4.000 DO, 2.660 MI, 56.740 ledger, 60.260 allocations, 2.000 item, 20 gudang) dan `proc_perf1_itest` (1×: 250 alur
+nyata via API). Production/sandbox tidak disentuh. Tooling di `/root/perf` (di luar repo).
+Root cause (ranking): (1) KRITIS `mariadb_motor._op_matches` `$in` O(baris × panjang daftar) = 98,7% CPU Dashboard;
+(2) KRITIS 1 worker + request CPU-bound -> head-of-line blocking (auth/me 4 ms -> 2,4 s saat 1 request berat);
+(3) paginasi semu: list meng-enrich SELURUH koleksi sebelum dipotong (`txn_list_paging_layer`, `receipt_control_layer.enrich_list`);
+(4) N+1 MRO Traceability/Lead Time (`report_trace_detail._build_rows` + `report_financial_fix`): 205.000 query @20×;
+(5) Dashboard memuat seluruh riwayat, `$gte/$lte` tidak di-pushdown, po_lines dimuat 3×; (6) `valuation_ledger` tidak ada di
+`schema.sql` (tanpa kolom/indeks), beberapa tabel tanpa `tenant_id`; (7) Adjustment list 1.013 query; (8) FE bundle tunggal 560 KB gzip
+tanpa lazy route, subscription/status 3×, tanpa cache data antarhalaman (duplikasi 2× di preview = StrictMode dev saja);
+(9) POST PO/DO ±300 ms (wrapper berurutan, lock DO in-process). Detail dokumen, auth, master, opname sudah cepat.
+Insiden: saat setup, worker backend PREVIEW sempat terhenti (PID salah) ±1–2 menit, dipulihkan `supervisorctl restart`;
+sejak itu setiap PID diverifikasi (cmd + port) sebelum tindakan.
+
+### H1 — Performance Hotfix `$in` set-based (Status: COMPLETED — Quality Gates PASS; branch `hotfix/perf-h1-in-set` dari `main` b5d4722; PR #60 OPEN, STOP menunggu review — tanpa merge/deploy)
+Scope: hanya `backend/mariadb_motor.py` — `_InList` (lookup `(is_bool, nilai)` = semantik `_eq` identik), `_compile_filter`
+sekali per query di `_select_rows` & `$match` aggregate (filter asli tidak dimutasi, tanpa cache global), `_in_fast`; fallback
+linear lama untuk elemen di luar str/int/float/bool/None (regex, list, dict, enum/subclass) dan NaN. Kontrak query, pushdown SQL,
+filter tenant/divisi, transaksi, MWA, ledger, valuation, aturan bisnis: tidak berubah.
+Test baru: `tests/mariadb_in_match_equivalence_test.py` (14/14; terdaftar di runner regresi).
+
+#### Quality Gates H1 (2026-10-09, serial, DB test terisolasi `proc_itest`; benchmark `proc_perf1_itest`/`proc_perf_itest`)
+| Gate | Hasil |
+|---|---|
+| Ekuivalensi `$in`/`$nin` (kosong, duplikat, null/missing, campuran, bool vs angka, NaN, tak-hashable, regex, enum, fuzz 135 filter × 400 dok, aggregate) | **14/14 PASS** |
+| Backend regression penuh | **23/23 PASS** |
+| Full Integrity Suite | **13/13 PASS** |
+| Frontend tests (18 file) + `CI=true yarn build` | PASS / PASS |
+| testing_agent_v3 iterasi 25 (UAT preview + API) | backend 17/17, FE alur kritis OK, **0 open findings** |
+| `git diff --check` | PASS |
+| Gitleaks scope H1 / test_reports | 0 / 0; worktree 6 / history 3 = baseline legacy identik; tambahan H1 **0** |
+| Known-value scan | 0 di repo; artefak sementara testing agent di luar repo (`/app/backend_test.py` dipindah ke `/root/perf/archive` + diredaksi, 7 `.pyc` di `/tmp` dihapus) |
+Benchmark (HTTP ke proses backend terisolasi 1 worker; before = `git archive origin/main`, after = branch H1; `/root/perf/bench3.py`,
+`run_bench.sh`, hasil `/root/perf/H1_BENCH.md`) — warm p50 ms, before → after:
+- 1×: Dashboard 1.618 → 454 · MRO 947 → 178 · PO 564 → 151 · RO 381 → 102 · DO 298 → 103 · Register PO 561 → 151 · Dashboard premium 230 → 118.
+- 20×: Dashboard >90.000 (timeout) → 6.954 · MRO 12.867 → 802 · PO 7.108 → 691 · RO 4.830 → 462 · DO 5.265 → 516 · MI 3.126 → 370 ·
+  Adjustment 2.053 → 670 · Dashboard premium 48.882 → 1.966 · Register PO >90.000 → 2.972 · Posisi Stok 2.612 → 1.966.
+- Head-of-line @20× (auth/me idle 4 ms): saat Daftar MRO berat p95 2.337 → 50 ms; saat Dashboard premium max 32.920 → 531 ms.
+- Tidak berubah (di luar scope H1 -> PR Performance): MRO Traceability/Lead Time (~50 s @20×, 205.000 query N+1), Inventory ledger,
+  Dashboard @20× masih ~7 s (muat seluruh riwayat), Adjustment 1.013 query.
+
+### P2b–P6 (Status: NOT STARTED — P2b menunggu PR H1 merged)
 P2b Outstanding & Nilai Procurement (Outstanding MRO/RO/PO/DO per alokasi baris, Rekap Pembelian, Rekap Nilai Penerimaan DO; mulai dari `main` terbaru setelah PR P2a merged) · P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang · P6 export di list transaksi.
