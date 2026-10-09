@@ -25,6 +25,7 @@ from fastapi import HTTPException  # noqa: E402
 
 import reporting.report_center as RC  # noqa: E402
 from reporting.exporters import to_pdf, to_xlsx  # noqa: E402
+from report_trace_detail import _join_refs as RTDJ  # noqa: E402
 from reporting.scope import local_day  # noqa: E402
 from valuation_report_scope_layer import effective_day  # noqa: E402
 
@@ -188,6 +189,21 @@ def main():
     check("R10 scope divisi: user A tanpa MRO Divisi B; user B hanya MRO Divisi B",
           sc == 200 and sc2 == 200 and mroB["no"] not in {r["mro_no"] for r in ra["rows"]}
           and {r["mro_no"] for r in rb["rows"]} == {mroB["no"]}, ({r["mro_no"] for r in rb.get("rows", [])},))
+    def rowset(rs):
+        return sorted(((r.get("mro_no") or ""), (r.get("item_code") or "")) for r in rs)
+    for nm, usr, rc in (("A", A, ra), ("B", B, rb)):
+        sc, lg = usr("GET", "reports/mro-traceability")
+        lg_rows = [{"mro_no": RTDJ(x.get("mro_refs"), "no"), "item_code": x.get("item_code")} for x in (lg or [])]
+        check(f"R10b tanpa perluasan akses: user {nm} endpoint lama = Pusat Laporan (baris identik)",
+              sc == 200 and rowset(lg_rows) == rowset(rc["rows"]), (len(lg or []), rc.get("total_rows")))
+    sc, xa, _ = get_bin(A, "report-center/mro-traceability/export.xlsx")
+    hxa, bxa, _, _ = xlsx_table(xa)
+    ino = hxa.index("No. MRO")
+    sc2, pa, _ = get_bin(A, "report-center/mro-traceability/export.pdf")
+    fa = "".join(" ".join(pg.extract_text() or "" for pg in PdfReader(io.BytesIO(pa)).pages).split())
+    check("R10c scope divisi di Excel & PDF user A: tanpa MRO Divisi B, baris = JSON user A",
+          sc == 200 and sc2 == 200 and len(bxa) == ra["total_rows"] and mroB["no"] not in {b[ino] for b in bxa}
+          and mroB["no"] not in fa and all(r["mro_no"] in fa for r in ra["rows"]), (len(bxa), ra.get("total_rows")))
     sc, _ = A("GET", f"report-center/mro-traceability?division_id={dB['id']}")
     check("R11 user A filter Divisi B -> 403", sc == 403, sc)
     sc, rf = call("GET", f"report-center/mro-traceability?division_id={dB['id']}&page_size=500")
@@ -207,6 +223,10 @@ def main():
     for f in ("xlsx", "pdf"):
         sc, _, _ = get_bin(NX, f"report-center/mro-traceability/export.{f}")
         check(f"R16 tanpa izin export: export.{f} -> 403", sc == 403, sc)
+    sc, _, _ = get_bin(NX, "reports/mro-traceability/export.xlsx")
+    check("R16b paritas izin export: endpoint lama export.xlsx juga 403 untuk user tanpa izin export", sc == 403, sc)
+    sc, _, _ = get_bin(A, "reports/mro-traceability/export.xlsx")
+    check("R16c paritas izin export: endpoint lama export.xlsx 200 untuk user dengan izin export", sc == 200, sc)
     for qs, exp, nm in (("date_from=2026-13-01", 400, "tanggal invalid"), ("date_from=2026-10-02&date_to=2026-10-01", 400, "awal > akhir"),
                         ("status=Bogus", 400, "status tidak dikenal"), ("page=999&page_size=1", 200, "halaman > max dijepit")):
         sc, r = call("GET", f"report-center/mro-traceability?{qs}")
@@ -247,6 +267,23 @@ def main():
              "columns": [{"key": "a", "label": "A", "type": "qty", "price": False, "total": True, "width": 10}],
              "rows": [], "totals": {"a": 0}, "total_rows": 0, "price_visible": True, "filters_applied": []}
     check("L2 exporter tahan data kosong (xlsx & pdf)", to_xlsx(empty).getvalue()[:2] == b"PK" and to_pdf(empty).getvalue()[:4] == b"%PDF", "")
+    big_cols = [{"key": "item_code", "label": "Kode Barang", "type": "text", "price": False, "total": False, "width": 14},
+                {"key": "qty", "label": "Qty", "type": "qty", "price": False, "total": True, "width": 10},
+                {"key": "val", "label": "Nilai PO", "type": "money", "price": True, "total": True, "width": 14}]
+    big_rows = [{"item_code": f"BRG-{i:04d}", "qty": 1.5, "val": 1234.5} for i in range(400)]
+    big = {**empty, "columns": big_cols, "rows": big_rows, "totals": {"qty": 600.0, "val": 493800.0}, "total_rows": 400}
+    rd = PdfReader(io.BytesIO(to_pdf(big).getvalue()), strict=True)
+    pages = ["".join((pg.extract_text() or "").split()) for pg in rd.pages]
+    np_ = len(pages)
+    check("L4 PDF multi-halaman valid (strict), header tabel berulang, nomor halaman Hal x/N, semua baris",
+          np_ >= 2 and all(f"Hal{i + 1}/{np_}" in t for i, t in enumerate(pages)) and all("KodeBarang" in t for t in pages)
+          and all(f"BRG-{i:04d}" in "".join(pages) for i in range(400)), np_)
+    check("L5 PDF total di halaman terakhir dengan format id-ID", "TOTAL" in pages[-1] and "493.800,00" in pages[-1] and "600" in pages[-1], pages[-1][-200:])
+    red = {**big, "columns": big_cols[:2], "rows": [{k: r[k] for k in ("item_code", "qty")} for r in big_rows],
+           "totals": {"qty": 600.0}, "price_visible": False}
+    rt = "".join(" ".join(pg.extract_text() or "" for pg in PdfReader(io.BytesIO(to_pdf(red).getvalue()), strict=True).pages).split())
+    check("L6 PDF tanpa izin harga: tanpa kolom/nilai harga + catatan redaksi", "NilaiPO" not in rt and "493.800" not in rt
+          and "disembunyikan" in rt, "")
     check("L3 local_day WIB (UTC 17:00 = besok WIB)", local_day("2026-09-30T17:00:00+00:00") == "2026-10-01"
           and local_day("2026-09-30T16:59:59Z") == "2026-09-30", "")
 
