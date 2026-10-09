@@ -82,7 +82,10 @@ def today_iso() -> str:
 
 
 def _txn_day(r) -> str:
-    return str(r.get("txn_at") or r.get("at") or "")[:10]
+    """Tanggal efektif bisnis WIB (txn_at, fallback at) — sama dengan valuation-ledger & Pusat Laporan (P0/P1).
+    Tanggal murni 'YYYY-MM-DD' tetap apa adanya; timestamp UTC dikonversi ke tanggal Asia/Jakarta."""
+    from reporting.scope import local_day
+    return local_day(r.get("txn_at") or r.get("at"))
 
 
 async def value_as_of_fn(server, item_ids: set, wh_ids: list, as_of: str) -> tuple:

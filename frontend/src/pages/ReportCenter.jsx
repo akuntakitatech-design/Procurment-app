@@ -39,17 +39,21 @@ function GroupNav({ catalog, activeKey }) {
   );
 }
 
-function FilterBar({ res, draft, setDraft, onApply, onReset, divisionOpts }) {
+// Filter master: opsi dari lookup ber-scope existing (useMasters); validasi & cakupan tetap server-side.
+const MASTER = { division: ["divisions", "Semua Divisi"], warehouse: ["warehouses", "Semua Gudang"], category: ["item_categories", "Semua Kategori"],
+  item: ["items", "Semua Barang"], project: ["projects", "Semua Proyek"], unit: ["units", "Semua Unit"] };
+
+function FilterBar({ res, draft, setDraft, onApply, onReset, masterOpts }) {
   const set = (k, v) => setDraft((s) => ({ ...s, [k]: v }));
   return (
     <form className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5" data-testid="report-center-filters"
       onSubmit={(e) => { e.preventDefault(); onApply(); }}>
       {res.filters.map((f) => (
         <div key={f.key} className="space-y-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" htmlFor={`rc-f-${f.key}`}>{f.label}</label>
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" htmlFor={`rc-f-${f.key}`}>{f.label}{f.required && <span className="text-destructive"> *</span>}</label>
           {f.type === "date" && <Input id={`rc-f-${f.key}`} type="date" value={draft[f.key] || ""} onChange={(e) => set(f.key, e.target.value)} data-testid={`report-filter-${f.key}`} />}
-          {f.type === "division" && <Combobox options={[{ value: "", label: "Semua Divisi" }, ...divisionOpts]} value={draft[f.key] || ""} onChange={(v) => set(f.key, v)} testid={`report-filter-${f.key}`} />}
-          {f.type === "select" && <Combobox options={[{ value: "", label: `Semua ${f.label}` }, ...f.options]} value={draft[f.key] || ""} onChange={(v) => set(f.key, v)} testid={`report-filter-${f.key}`} />}
+          {MASTER[f.type] && <Combobox options={f.required ? masterOpts(MASTER[f.type][0]) : [{ value: "", label: MASTER[f.type][1] }, ...masterOpts(MASTER[f.type][0])]} value={draft[f.key] || ""} onChange={(v) => set(f.key, v)} placeholder={f.required ? `Pilih ${f.label}` : undefined} testid={`report-filter-${f.key}`} />}
+          {f.type === "select" && <Combobox options={f.default ? f.options : [{ value: "", label: `Semua ${f.label}` }, ...f.options]} value={draft[f.key] || f.default || ""} onChange={(v) => set(f.key, v)} testid={`report-filter-${f.key}`} />}
           {f.type === "text" && <Input id={`rc-f-${f.key}`} value={draft[f.key] || ""} onChange={(e) => set(f.key, e.target.value)} data-testid={`report-filter-${f.key}`} />}
         </div>
       ))}
@@ -80,9 +84,9 @@ function ReportTable({ res }) {
           </tr>
         </thead>
         <tbody>
-          {res.rows.length === 0 && <tr><td colSpan={cols.length} className="p-8 text-muted-foreground"><div className="sticky left-8 w-fit" data-testid="report-center-empty">Tidak ada data sesuai filter. Ubah atau reset filter.</div></td></tr>}
+          {res.rows.length === 0 && <tr><td colSpan={cols.length} className="p-8 text-muted-foreground"><div className="sticky left-8 w-fit" data-testid="report-center-empty">{res.meta.notice || "Tidak ada data sesuai filter. Ubah atau reset filter."}</div></td></tr>}
           {res.rows.map((r, i) => (
-            <tr key={i} className="border-t" data-testid={`report-row-${i}`}>
+            <tr key={i} className={`border-t ${r._kind ? "bg-muted/40 font-semibold" : ""}`} data-testid={r._kind ? `report-row-${r._kind}` : `report-row-${i}`}>
               {cols.map((c, ci) => {
                 const v = formatCell(r[c.key], c.type);
                 const drill = ci === cols.findIndex((x) => x.key === "mro_no") && r._drill?.to;
@@ -114,7 +118,7 @@ function ReportTable({ res }) {
 export default function ReportCenter() {
   const { key } = useParams();
   const nav = useNavigate();
-  const { data: m } = useMasters(["divisions"]);
+  const { data: m } = useMasters(["divisions", "warehouses", "item_categories", "items", "projects", "units"]);
   const [catalog, setCatalog] = useState(null);
   const [catErr, setCatErr] = useState("");
   const [res, setRes] = useState(null);
@@ -145,7 +149,7 @@ export default function ReportCenter() {
   useEffect(() => { load(); }, [load]);
 
   const apply = () => {
-    const msg = validateFilters(draft);
+    const msg = validateFilters(draft, res?.filters);
     if (msg) { toast.error(msg); return; }
     setPage(1); setApplied({ ...draft });
   };
@@ -166,7 +170,7 @@ export default function ReportCenter() {
     } catch (e) { toast.error(await errMsg(e)); } finally { setBusy(""); }
   };
 
-  const divisionOpts = (m?.divisions || []).map((d) => ({ value: d.id, label: d.name }));
+  const masterOpts = (name) => (m?.[name] || []).map((d) => ({ value: d.id, label: name === "divisions" ? d.name : `${d.code ? d.code + " — " : ""}${d.name}` }));
 
   return (
     <div data-testid="report-center-page">
@@ -193,10 +197,11 @@ export default function ReportCenter() {
                   <Button variant="outline" onClick={() => doExport("pdf")} disabled={!!busy || !catalog?.can_export} data-testid="report-center-export-pdf"><FileText className="mr-1.5 h-4 w-4" />{busy === "pdf" ? "Menyiapkan..." : "Export PDF"}</Button>
                 </div>
               </div>
-              <FilterBar res={res} draft={draft} setDraft={setDraft} onApply={apply} onReset={() => { setDraft({}); setPage(1); setApplied({}); }} divisionOpts={divisionOpts} />
+              <FilterBar res={res} draft={draft} setDraft={setDraft} onApply={apply} onReset={() => { setDraft({}); setPage(1); setApplied({}); }} masterOpts={masterOpts} />
               <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="report-center-applied">
                 {res.filters_applied.length === 0 ? <Badge variant="secondary">Semua data</Badge> : res.filters_applied.map((f) => <Badge key={f.key} variant="secondary">{f.label}: {f.value}</Badge>)}
                 {!res.price_visible && <Badge variant="outline" data-testid="report-center-price-hidden">Kolom harga disembunyikan sesuai hak akses</Badge>}
+                {res.meta.notice && <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400" data-testid="report-center-notice">{res.meta.notice}</Badge>}
               </div>
             </CardContent></Card>
           )}

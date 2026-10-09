@@ -283,6 +283,74 @@ Pengujian deterministik P0 memakai DB terisolasi `proc_itest` (direset per run),
 | Known-value scan | nilai kredensial dikenal vs scope + arsip + test_reports + artefak testing agent (nilai tidak dicetak) | **0 file hit** — sebelumnya 3 salinan skrip testing agent iter20 di arsip bukti (di luar Git) memuat kredensial sandbox → nilai diredaksi `***REDACTED***` |
 | testing_agent_v3 | iterasi 21 | backend 52/52, frontend PASS, **0 open findings** |
 
-### P1–P6 (Status: NOT STARTED — menunggu review PR P0)
-P1 Persediaan (posisi as-of, ringkasan nilai, kartu stok qty/nilai, mutasi persediaan, HPP pemakaian, min/max) · P2 Procurement ·
-P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang (aging, pembayaran, kartu hutang) · P6 export di list transaksi.
+PR P0 = #57 (merged ke `main` 1cf2a11).
+
+### P1 — Reporting Persediaan & Nilai Persediaan (Status: COMPLETED — Quality Gates PASS; branch `feature/reporting-p1-inventory` dari `main` 1cf2a11; PR P1 lalu STOP menunggu review)
+Keputusan user (2026-10-09): (1) tanpa `view_purchase_price`: Posisi Stok, Kartu Stok Qty, Mutasi, Min/Max tampil tanpa kolom
+nilai; Ringkasan Nilai, Kartu Stok Nilai, Rekap HPP MI -> 403 (+ tidak tampil di katalog), sama dengan endpoint valuation;
+(2) Transfer/Loan/Return internal = kolom "Transfer/Loan Masuk" & "Transfer/Loan Keluar" (net 0 pada cakupan seluruh gudang),
+DO/MI/Adjustment/Opname/Saldo Awal kolom tersendiri; (3) Min/Max = `item_warehouse.min_stock/max_stock`, status Kosong / Di
+bawah Min / Normal / Di atas Max (rule `cell_status` existing), saran reorder = Max − stok (Max kosong: Min − stok) untuk
+Kosong/Di bawah Min; (4) Kartu Stok wajib 1 barang (opsional 1 gudang): saldo awal, mutasi kronologis + saldo berjalan,
+saldo akhir; (5) push/PR dengan token GitHub baru di akhir.
+
+**Audit sumber data & mapping:**
+- Qty mutasi: `stock_ledger` (semua mutasi qty termasuk Opening Balance Import). Nilai: `valuation_ledger` (value_in/out,
+  value_after hasil `server.post_movement`). Posisi hari ini: `item_warehouse` (current_stock/total_value/avg_cost/min/max).
+- Posisi historis: qty = Σ stock_ledger s/d cut-off; nilai = value_after entri valuation_ledger terakhir per item×gudang
+  s/d cut-off (= `stock_summary.value_as_of_fn` = Inventory/Dashboard per tanggal). Tidak ada harga/formula baru.
+- Scope = `stock_summary.compute` (tenant, divisi barang, gudang aktif dalam cakupan + penugasan) -> total identik
+  Inventory/Dashboard. Filter Divisi = divisi barang (sama dengan Inventory); Ringkasan per "Divisi Gudang" = divisi gudang.
+- Kategori mutasi dari `doc_type` (Reversal X = kategori X arah terbalik): DO, MI, Transfer/Loan/Loan Return In|Out,
+  Stock Adjustment, Stock Opname Adjustment, Opening Balance/Import/Valuation, Lainnya.
+- HPP MI = Σ (value_out − value_in) entri MI/Reversal MI; per Proyek/Unit dari `project_id/unit_id` ledger; per SPK dibagi
+  porsi qty `procurement_item_spk_allocations` (rumus existing `/mi/{id}/valuation`); tanpa alokasi -> "(Tanpa SPK)".
+- Identitas: Saldo Awal + Σ mutasi + Selisih = Saldo Akhir; Selisih (kolom eksplisit, normalnya 0) = koreksi pool di luar
+  mutasi tercatat (pembulatan saldo nol / revaluasi saldo awal) — tidak disembunyikan.
+- **Penyelarasan cut-off WIB:** `stock_summary._txn_day` sebelumnya `str(txn_at)[:10]` (tanggal UTC untuk timestamp penuh,
+  mis. reversal/DO) -> kini `reporting.scope.local_day` (tanggal bisnis WIB; tanggal murni tetap) = P0 valuation-ledger.
+  Hanya jalur baca laporan/Inventory; backdate guard & engine MWA tidak diubah.
+
+**Implementasi (fondasi P0 dipakai ulang, tidak dibuat ulang):**
+- `reporting/registry.py`: Filter + `required`/`default`, tipe master warehouse/category/item/project/unit.
+- `reporting/report_center.py`: validasi semua filter tanggal (as_of), default select, filter wajib -> notice (JSON 0 baris,
+  export 400), label filter master, baris `_kind` (saldo awal/akhir) tidak ikut TOTAL, 403 "Tidak memiliki akses nilai
+  persediaan" untuk laporan ber-permission harga, `check_limit` kompatibel hasil tanpa `meta`.
+- `reporting/reports_inventory.py` (baru): 7 laporan — posisi-stok, ringkasan-nilai, kartu-stok-qty, kartu-stok-nilai,
+  mutasi-persediaan, hpp-mi, min-max-reorder.
+- FE `pages/ReportCenter.jsx` + `lib/reportCenter.js`: filter master dari lookup ber-scope existing, tanda wajib (*),
+  notice server, baris saldo awal/akhir ditebalkan, select dengan default; tanpa perubahan desain/menu existing.
+- Test: `tests/report_inventory_test.py` **63/63** (P posisi, N ringkasan, K kartu qty/nilai, M mutasi, H HPP MI, X min/max,
+  E export, W cut-off WIB, Z read-only; didaftarkan di `run_regression_itest.sh`; guard: menolak berjalan di luar DB *itest*),
+  FE `reportCenter.test.mjs` **19/19** (16–19 baru). Riwayat: run pertama 62/63 — P2 salah hitung ekspektasi di test
+  (PX PA1 4 / PA2 2 sesuai item_warehouse; ekspektasi dikoreksi ke nilai pasti + perbandingan ke seluruh pool diperketat);
+  P0 report_center_test sempat gagal (`check_limit` membaca `res["meta"]` -> KeyError pada hasil tanpa meta) -> diperbaiki di
+  implementasi, kembali 59/59. Perbaikan tampilan "-0" (nol negatif) pada kolom keluar.
+
+**testing_agent_v3 iterasi 23:** backend API 54/54 PASS, UI semua skenario PASS (7 laporan, filter master, notice barang
+wajib, baris saldo awal/akhir, export, redaksi staff, scope approver), **0 open findings** (`test_reports/iteration_23.json`).
+Catatan: agen menulis kredensial sandbox di `/tmp/backend_api_test.py` (di luar Git) -> nilai diredaksi `***REDACTED***`.
+
+#### Sisa Data Uji Sandbox (P1)
+testing_agent_v3 iterasi 23 menjalankan `report_inventory_test.py` tanpa `TEST_API_URL` -> default backend sandbox `localhost:8001`
+-> membuat 1 tenant QA terisolasi baru di `proc_sandbox` (bukan production): **`RC f143d9c2`**
+(`tenant-77876640-26eb-4ee8-9657-03a202d8b1a6`, 2026-10-09T07:59:19Z) berisi fixture test (divisi/gudang/barang PX·PY·PZ,
+adjustment, transfer, loan/return, MI Direct, MRO/RO/PO). Tenant terpisah -> tidak memengaruhi `tenant-qa-sandbox`, laporan,
+atau dashboard tenant lain. Pola sama dengan 23 tenant "RC …" dari run test lama. Tidak dihapus (tanpa direct-write/reset).
+Pencegahan: guard di `report_inventory_test.py` (exit 2 bila DB bukan *itest*/*_test*).
+
+#### Quality Gates final P1 (2026-10-09, serial, DB test `proc_itest`, tanpa production)
+| Gate | Hasil |
+|---|---|
+| Regresi backend (`run_regression_itest.sh`) | exit 0 — **21/21 suite PASS** (report_inventory 63/63, report_center 59/59, inventory_value_asof 40/40, valuation_hardening 40/40, stock_summary_parity 41/41, master_tenant_isolation 218/218, …) |
+| Full integrity (single-instance) | exit 0 — **PASS 13, FAIL 0** |
+| Frontend `*.test.mjs` | **18/18 file PASS** (reportCenter 19/19) |
+| `CI=true yarn build` / `git diff --check` | exit 0 / exit 0 |
+| Scope MWA/valuation/ledger/transaksi | engine `server.post_movement`, `valuation_replay.py`, `transaction_mutation_layer.py`, `doc_*.py`, layer adjustment/opname/opening: **0 perubahan**; satu-satunya file ber-logika nilai yang berubah = `stock_summary._txn_day` (derivasi tanggal cut-off WIB, jalur baca) |
+| requirements.txt | tidak berubah |
+| Secret scan gitleaks 8.21.2 | scope PR / patch / arsip / artefak testing agent iter20–23 = **0** temuan; legacy working tree 6 & history 3 (109 commit) **identik baseline** (remediasi terpisah) |
+| Known-value scan (termasuk seluruh /tmp) | **0 file hit** (setelah redaksi `/tmp/backend_api_test.py`) |
+| testing_agent_v3 iterasi 23 | 54/54 + UI PASS, **0 open findings** |
+
+### P2–P6 (Status: NOT STARTED — menunggu review PR P1)
+P2 Procurement · P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang (aging, pembayaran, kartu hutang) · P6 export di list transaksi.

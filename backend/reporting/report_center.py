@@ -21,6 +21,9 @@ WIB = ZoneInfo("Asia/Jakarta")
 EXPORT_LIMITS = {"xlsx": 100_000, "pdf": 5_000}
 PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX = 50, 500
 RESERVED = {"page", "page_size", "q"}
+# Filter master -> (koleksi, label) untuk keterangan filter di UI/Excel/PDF
+MASTER_LABEL = {"warehouse": "warehouses", "category": "item_categories", "item": "items", "project": "projects",
+                "unit": "units"}
 
 
 def _iso(v, label):
@@ -47,16 +50,23 @@ async def parse_params(server, user, spec, qp) -> dict:
     """Filter tervalidasi server-side. Tanggal = tanggal bisnis WIB (YYYY-MM-DD, inklusif)."""
     allowed = {f.key for f in spec.filters}
     p = {k: (str(v).strip() if v is not None else "") for k, v in qp.items() if k in allowed}
-    if "date_from" in allowed or "date_to" in allowed:
-        p["date_from"], p["date_to"] = _iso(qp.get("date_from"), "Tanggal Awal"), _iso(qp.get("date_to"), "Tanggal Akhir")
-        if p["date_from"] and p["date_to"] and p["date_from"] > p["date_to"]:
-            raise HTTPException(400, "Tanggal Awal tidak boleh melebihi Tanggal Akhir.")
+    for f in spec.filters:
+        if f.type == "date":
+            p[f.key] = _iso(qp.get(f.key), f.label)
+        elif f.type == "select" and not p.get(f.key) and f.default:
+            p[f.key] = f.default
+    if p.get("date_from") and p.get("date_to") and p["date_from"] > p["date_to"]:
+        raise HTTPException(400, "Tanggal Awal tidak boleh melebihi Tanggal Akhir.")
     if p.get("division_id") and not RCS._division_allowed(server, user, p["division_id"]):
         raise HTTPException(403, "Divisi yang dipilih berada di luar cakupan Anda.")
     for f in spec.filters:
         if f.type == "select" and p.get(f.key) and p[f.key] not in {v for v, _ in f.options}:
             raise HTTPException(400, f"Nilai filter {f.label} tidak valid.")
     return p
+
+
+def missing_required(spec, p) -> list:
+    return [f.label for f in spec.filters if f.required and not p.get(f.key)]
 
 
 async def _filters_applied(server, spec, p, q):
@@ -72,6 +82,9 @@ async def _filters_applied(server, spec, p, q):
         if k == "division_id":
             d = await server.db.divisions.find_one({"id": v}, {"_id": 0, "name": 1})
             val = (d or {}).get("name") or v
+        elif f and f.type in MASTER_LABEL:
+            d = await getattr(server.db, MASTER_LABEL[f.type]).find_one({"id": v}, {"_id": 0, "name": 1, "code": 1})
+            val = " — ".join(x for x in ((d or {}).get("code"), (d or {}).get("name")) if x) or v
         elif f and f.type == "select":
             val = dict(f.options).get(v, v)
         out.append({"key": k, "label": f.label if f else k, "value": val})
@@ -88,33 +101,42 @@ async def run(server, user, key, qp) -> dict:
     spec = R.REGISTRY.get(key)
     if not spec:
         raise HTTPException(404, "Laporan tidak ditemukan.")
-    server.require(user, spec.permission)
+    server.require(user, "view")
+    if spec.permission == "view_purchase_price":
+        if not server.has_perm(user, "view_purchase_price"):
+            raise HTTPException(403, "Tidak memiliki akses nilai persediaan")
+    else:
+        server.require(user, spec.permission)
     p = await parse_params(server, user, spec, qp)
     q = (qp.get("q") or "").strip()
     price_visible = bool(server.has_perm(user, "view_purchase_price"))
-    rows = await spec.builder(server, user, p)
+    missing = missing_required(spec, p)
+    notice = f"Pilih {', '.join(missing)} terlebih dahulu untuk menampilkan laporan." if missing else ""
+    rows = [] if missing else await spec.builder(server, user, p)
     if q and spec.search_keys:
         terms = q.lower().split()
-        rows = [r for r in rows if all(t in " ".join(str(r.get(k) or "") for k in spec.search_keys).lower() for t in terms)]
+        rows = [r for r in rows if r.get("_kind") or all(t in " ".join(str(r.get(k) or "") for k in spec.search_keys).lower() for t in terms)]
     cols = spec.visible_columns(price_visible)
     keys = [c.key for c in cols]
     out_rows = []
     for r in rows:
         o = {k: r.get(k) for k in keys}
+        if r.get("_kind"):
+            o["_kind"] = r["_kind"]  # baris saldo awal/akhir (tidak ikut TOTAL)
         if spec.drill:
             o["_drill"] = spec.drill(r)
         out_rows.append(o)
     totals = {}
     for c in cols:
         if c.total:
-            totals[c.key] = _round(sum(float(r.get(c.key) or 0) for r in out_rows), c.type)
+            totals[c.key] = _round(sum(float(r.get(c.key) or 0) for r in out_rows if not r.get("_kind")), c.type)
     company = await server.db.settings.find_one({"id": "company"}, {"_id": 0, "name": 1}) or {}
     group_title = next((g["title"] for g in R.GROUPS if g["key"] == spec.group), spec.group)
     return {
         "meta": {"report_key": spec.key, "title": spec.title, "description": spec.description, "group": spec.group,
                  "group_title": group_title, "date_basis": spec.date_basis, "company": company.get("name") or "-",
                  "sheet": spec.title, "generated_by": user.get("name") or user.get("email") or "-",
-                 "generated_at": datetime.now(WIB).strftime("%d-%m-%Y %H:%M")},
+                 "generated_at": datetime.now(WIB).strftime("%d-%m-%Y %H:%M"), "notice": notice},
         "columns": [c.public() for c in cols],
         "filters": [f.public() for f in spec.filters],
         "filters_applied": await _filters_applied(server, spec, p, q),
@@ -131,6 +153,9 @@ def page_of(res, qp):
 
 
 def check_limit(res, fmt):
+    notice = (res.get("meta") or {}).get("notice")
+    if notice:
+        raise HTTPException(400, notice)
     lim = EXPORT_LIMITS[fmt]
     if res["total_rows"] > lim:
         other = " atau gunakan Export Excel" if fmt == "pdf" else ""
@@ -139,6 +164,7 @@ def check_limit(res, fmt):
 
 
 def install(server):
+    import reporting.reports_inventory  # noqa: F401  (P1: Persediaan & Nilai Persediaan)
     import reporting.reports_procurement  # noqa: F401  (mendaftarkan laporan ke REGISTRY)
     app = server.app
 
