@@ -164,12 +164,57 @@ def _value_matches(value: Any, cond: Any) -> bool:
     return _eq(value, cond)
 
 
+_IN_FAST_TYPES = (str, int, float, bool, type(None))
+
+
+class _InList(list):
+    """Daftar argumen `$in`/`$nin` hasil `_compile_filter` (sekali per query) + lookup set O(1).
+
+    `lookup` berisi kunci `(is_bool, nilai)` agar semantik `_eq` identik (True ≠ 1, 1 == 1.0). `lookup` = None
+    (fallback ke perbandingan linear lama) bila ada elemen di luar str/int/float/bool/None (mis. `$regex` dict,
+    list, datetime) atau NaN.
+    """
+    __slots__ = ("lookup", "has_none")
+
+    def __init__(self, items):
+        super().__init__(items)
+        self.has_none = None in self
+        ok = all(type(a) in _IN_FAST_TYPES for a in self) and not any(type(a) is float and a != a for a in self)
+        self.lookup = frozenset((isinstance(a, bool), a) for a in self) if ok else None
+
+
+def _compile_filter(flt: Any) -> Any:
+    """Salinan filter dengan argumen `$in`/`$nin` dibungkus `_InList`. Filter asli tidak diubah."""
+    if isinstance(flt, dict):
+        return {k: (_InList(v) if k in ("$in", "$nin") and isinstance(v, (list, tuple)) else _compile_filter(v))
+                for k, v in flt.items()}
+    if isinstance(flt, list):
+        return [_compile_filter(x) for x in flt]
+    return flt
+
+
+def _in_fast(value: Any, arg: "_InList") -> bool:
+    """Ekuivalen dengan cabang `$in` linear untuk `arg.lookup` yang valid."""
+    if value is _MISSING:
+        return arg.has_none
+    lookup = arg.lookup
+    for v in (value if isinstance(value, list) else [value]):
+        try:
+            if (isinstance(v, bool), v) in lookup:
+                return True
+        except TypeError:  # nilai tak-hashable (dict/list) tidak pernah == skalar
+            continue
+    return False
+
+
 def _op_matches(value: Any, op: str, arg: Any) -> bool:
     if op == "$eq":
         return _value_matches(value, arg)
     if op == "$ne":
         return not _value_matches(value, arg)
     if op == "$in":
+        if isinstance(arg, _InList) and arg.lookup is not None:
+            return _in_fast(value, arg)
         arg = list(arg or [])
         if value is _MISSING:
             return None in arg
@@ -447,7 +492,8 @@ def _aggregate(docs: List[dict], pipeline: List[dict]) -> List[dict]:
     for stage in pipeline:
         (name, spec), = stage.items()
         if name == "$match":
-            rows = [d for d in rows if _match(d, spec)]
+            cspec = _compile_filter(spec)
+            rows = [d for d in rows if _match(d, cspec)]
         elif name == "$sort":
             rows = _apply_sort(list(rows), _normalize_sort(spec))
         elif name == "$skip":
@@ -707,9 +753,10 @@ class MariaCollection:
         if for_update: sql += " FOR UPDATE"
         rows = await self.database._fetchall(sql, params, conn=conn)
         out = []
+        cflt = _compile_filter(flt) if flt else flt  # sekali per query: `$in` O(1) per baris (bukan O(panjang daftar))
         for pk, raw in rows:
             doc = json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else raw
-            if _match(doc, flt):   # verifikasi ulang dengan semantik Mongo (aman bila pushdown parsial)
+            if _match(doc, cflt):   # verifikasi ulang dengan semantik Mongo (aman bila pushdown parsial)
                 out.append((pk, doc))
         return out
 
