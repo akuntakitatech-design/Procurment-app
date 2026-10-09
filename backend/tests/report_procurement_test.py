@@ -108,9 +108,11 @@ def main():
     check("C1 5 card kategori berurutan + judul", [x["key"] for x in cat["groups"]] == ["persediaan", "procurement", "warehouse", "spk", "hutang"]
           and [x["title"] for x in cat["groups"]] == ["Persediaan & Nilai Persediaan", "Procurement", "Warehouse", "SPK & Kontrak Vendor", "Invoice & Hutang"],
           [x["title"] for x in cat.get("groups", [])])
-    check("C2 card Procurement: MRO Traceability + 5 register + Lead Time + Pemakaian (tanpa duplikat)",
+    check("C2 card Procurement: MRO Traceability + 5 register + Lead Time + Pemakaian + P2b outstanding/rekap (tanpa duplikat)",
           [r["key"] for r in g["procurement"]["reports"]] == ["mro-traceability", "register-mro", "register-ro", "register-po", "register-do",
-                                                            "register-mi", "lead-time", "pemakaian-barang"], [r["key"] for r in g["procurement"]["reports"]])
+                                                            "register-mi", "lead-time", "pemakaian-barang", "outstanding-mro",
+                                                            "outstanding-ro", "outstanding-po", "outstanding-do", "rekap-pembelian",
+                                                            "rekap-nilai-do"], [r["key"] for r in g["procurement"]["reports"]])
     allkeys = [r["key"] for x in cat["groups"] for r in x["reports"]]
     check("C3 tidak ada laporan ganda di seluruh card", len(allkeys) == len(set(allkeys)), allkeys)
     check("C4 belum tersedia ditandai fase (bukan laporan aktif); halaman modul terkait ber-path",

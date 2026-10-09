@@ -413,8 +413,8 @@ tercakup oleh `report_inventory_test` 63/63 + `report_procurement_test` 39/39 + 
 Catatan eksekusi: run integrity pertama tercampur dengan run lain (kredensial DB salah) -> sesi bentrok; diulang sendiri -> 13/13.
 
 ## Urutan kerja (keputusan user 2026-10-09)
-1. **H1 Performance Hotfix** (PR #60 dari `main` b5d4722) — Status: COMPLETED, menunggu review/merge.
-2. **P2b** — dari `main` terbaru SETELAH H1 merged.
+1. **H1 Performance Hotfix** — PR #60 MERGED ke `main` 57edd26.
+2. **P2b** — branch `feature/reporting-p2b` dari `main` 57edd26 — Status: IN PROGRESS (termasuk konsolidasi navigasi Laporan 2 card).
 3. **Performance Optimization menyeluruh** — PR terpisah SETELAH P2b merged (prioritas: pagination sebenarnya, N+1,
    agregasi Dashboard, optimasi frontend). **Perubahan indeks/migrasi DB dan multi-worker wajib diaudit & disetujui
    tersendiri sebelum diterapkan.**
@@ -434,7 +434,7 @@ tanpa lazy route, subscription/status 3×, tanpa cache data antarhalaman (duplik
 Insiden: saat setup, worker backend PREVIEW sempat terhenti (PID salah) ±1–2 menit, dipulihkan `supervisorctl restart`;
 sejak itu setiap PID diverifikasi (cmd + port) sebelum tindakan.
 
-### H1 — Performance Hotfix `$in` set-based (Status: COMPLETED — Quality Gates PASS; branch `hotfix/perf-h1-in-set` dari `main` b5d4722; PR #60 OPEN, STOP menunggu review — tanpa merge/deploy)
+### H1 — Performance Hotfix `$in` set-based (Status: COMPLETED — Quality Gates PASS; branch `hotfix/perf-h1-in-set` dari `main` b5d4722; PR #60 MERGED ke `main` 57edd26)
 Scope: hanya `backend/mariadb_motor.py` — `_InList` (lookup `(is_bool, nilai)` = semantik `_eq` identik), `_compile_filter`
 sekali per query di `_select_rows` & `$match` aggregate (filter asli tidak dimutasi, tanpa cache global), `_in_fast`; fallback
 linear lama untuk elemen di luar str/int/float/bool/None (regex, list, dict, enum/subclass) dan NaN. Kontrak query, pushdown SQL,
@@ -461,5 +461,67 @@ Benchmark (HTTP ke proses backend terisolasi 1 worker; before = `git archive ori
 - Tidak berubah (di luar scope H1 -> PR Performance): MRO Traceability/Lead Time (~50 s @20×, 205.000 query N+1), Inventory ledger,
   Dashboard @20× masih ~7 s (muat seluruh riwayat), Adjustment 1.013 query.
 
-### P2b–P6 (Status: NOT STARTED — P2b menunggu PR H1 merged)
-P2b Outstanding & Nilai Procurement (Outstanding MRO/RO/PO/DO per alokasi baris, Rekap Pembelian, Rekap Nilai Penerimaan DO; mulai dari `main` terbaru setelah PR P2a merged) · P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang · P6 export di list transaksi.
+### P2b — Outstanding & Nilai Procurement + Konsolidasi Navigasi Laporan (Status: COMPLETED — Quality Gates PASS; branch `feature/reporting-p2b` dari `main` 57edd26; 1 PR ke `main`, menunggu review — TANPA merge/deploy)
+Keputusan user: struktur dokumen & aturan existing sebagai acuan; Outstanding per alokasi baris; Rekap Pembelian per Supplier/Barang/
+Kategori/Divisi/Proyek/Periode (bulanan/tahunan) dengan filter kombinasi; basis nilai DO = DPP (PPN & total terpisah); Nilai PO = komitmen,
+Nilai DO = realisasi; 1 PO multi-DO tanpa double counting; navigasi Laporan = 2 card (Pusat Laporan, Traceability); `/reports` redirect.
+- Backend `reporting/reports_procurement_outstanding.py` (baru, read-only): Outstanding MRO (qty − MI), RO (qty − PO), PO komitmen
+  Approved/Closed (qty − DO), DO→MI (diterima rantai `mro_monitor_batch` − MI); cut-off = Tanggal Akhir (tanggal bisnis WIB dokumen
+  lanjutan); umur; % selesai; status baris; ref dokumen lanjutan. Rekap Pembelian (snapshot baris PO: bruto/diskon/DPP/PPN/total + DPP
+  diterima/sisa). Rekap Nilai Penerimaan DO (qty × DPP/PPN per unit baris PO = rumus Register DO; komitmen per baris PO dihitung sekali).
+- `reports_inventory.py`: + Riwayat Pergerakan Stok (semua barang; sumber stock_ledger = Kartu Stok) = padanan tab "Kartu Stok (Ledger)".
+  Audit Inventory: Posisi Stok + status min/max -> sudah ada (Posisi Stok, Min/Max & Reorder P1). Halaman operasional `/inventory`
+  TETAP (route, endpoint, tab) — card "Inventory / Stock" dipindah ke hub **Persediaan** (nav Persediaan aktif di `/inventory`, nav
+  Persediaan tanpa syarat modul agar card tetap terlihat seperti sebelumnya) + drill Dashboard.
+- Audit Laporan Lama `/reports`: MRO Traceability, Lead Time, Pemakaian Unit -> sudah ada (P0/P2a, builder sama) -> halaman dihapus,
+  URL `/reports?tab=trace|lead|usage` redirect ke padanan (parameter lain dipertahankan); tombol "Laporan Lama" di header Pusat Laporan
+  dihapus; endpoint `/api/reports/*` tetap.
+- FE: `ModuleHub` Laporan = 2 card sejajar (`md:grid-cols-2`, tinggi & judul sejajar, focus-visible); `hub.py` placeholder P2b dihapus.
+- Optimasi performa lapisan laporan P2b (read-only, output identik): daftar id besar -> 1 query pushdown kolom terindeks + saring himpunan
+  (bukan ribuan parameter `IN`); pembacaan independen paralel (`asyncio.gather`); Rekap: enrichment telusur dilewati untuk pengguna
+  lintas-divisi (hook visibilitas existing mengembalikan semua baris) — pengguna terbatas tetap lewat `ACCESS_FILTER_VISIBLE`.
+  Paritas before/after 105 kasus (admin, terbatas+harga, terbatas tanpa harga, divisi lain; semua group_by, cut-off, status, show=all):
+  **0 perbedaan** (hash seluruh baris + totals + kolom).
+
+**Quality Gates P2b (agent-tested, 2026-10-09):** regression serial `proc_itest` **24/24 PASS** (report_outstanding_test **41/41**:
+parsial, multi-referensi 1 MRO->2 RO & 1 PO->2 DO, pembatalan MI/DO = reversal, tanpa double counting, PPN 11% + diskon = snapshot PO,
+JSON = Excel = PDF, scope divisi rekap/outstanding, redaksi harga JSON/Excel/PDF + kontrol positif) · integrity **13/13 PASS** · FE
+18 file 0 gagal (reportCenter 25/25) · `CI=true yarn build` PASS · `git diff --check` bersih · testing_agent_v3 iteration_26: **0 temuan
+aplikasi** (backend 47/48 — 1 = 403 export untuk staff tanpa izin `export`, perilaku izin existing yang benar; frontend 100%) · secret
+scan perubahan P2b 0 temuan; baseline legacy tetap 6 worktree / 3 history (terpisah) · audit scope: tidak ada perubahan MWA, valuation,
+stock ledger, transaksi, maupun mariadb_motor/receipt_control_layer/doc_procurement.
+
+**Benchmark 20× (proc_perf_itest, backend terisolasi port 8031, 1 worker, metode H1 bench3: 1 cold + 10 warm, ms)**
+
+| Endpoint | H1 p50/p95 | P2b awal p50/p95 | P2b final p50/p95 | CPU/req awal → final |
+|---|---|---|---|---|
+| Outstanding MRO | – | 1.392/2.747 | 1.400/2.251 | 1.139 → 1.214 |
+| Outstanding RO | – | 1.052/1.162 | 898/975 | 870 → 769 |
+| Outstanding PO | – | 1.537/1.589 | 1.262/1.293 | 1.231 → 1.067 |
+| Outstanding DO→MI | – | 2.932/3.096 | 2.374/2.478 | 2.289 → 2.117 |
+| Outstanding PO (show=all) | – | 3.803/4.022 | 3.480/3.748 | 3.135 → 2.913 |
+| Rekap Pembelian (supplier) | – | 3.746/3.841 | 854/929 | 2.947 → 755 |
+| Rekap Pembelian (bulan) | – | 3.612/4.580 | 813/880 | 2.919 → 741 |
+| Rekap Nilai DO (supplier) | – | 2.589/3.024 | 784/796 | 1.984 → 722 |
+| Riwayat Pergerakan Stok | – | 1.193/1.453 | 1.246/1.432 | 1.111 → 1.142 |
+| Register PO (existing) | 2.972/3.568 | 2.984/3.236 | 3.018/3.303 | 2.485 → 2.496 |
+| Posisi Stok (existing) | 1.966/2.162 | 2.149/2.493 | 2.051/2.152 | 1.955 → 1.946 |
+| Daftar MRO / PO / DO (existing) | 802/863 · 691/727 · 516/566 | 878 · 705 · 540 | 861/935 · 726/770 · 541/589 | ≈ sama |
+| Inventory ledger / item-stock (existing) | 801/917 · 53/132 | 853 · 47 | 824/964 · 47/93 | ≈ sama |
+| Dashboard premium (existing) | 1.966/5.000 | 2.087/4.811 | 2.028/4.693 | ≈ sama |
+
+- Endpoint existing: **tidak ada regresi** (selisih dalam noise ±5%). auth/me idle p50 5 ms; saat Dashboard premium berat p95 146 ms.
+- Target p95 ≤500 ms pada 20× **belum tercapai** untuk Outstanding (0,9–2,5 s) & Rekap (0,8–0,9 s). Pemisahan penyebab (profil per
+  langkah): (a) **P2b** — enrichment ganda untuk rekap, `IN` ribuan parameter, pembacaan serial -> SUDAH dihapus (rekap −70–77%,
+  outstanding −15–20%); (b) **legacy shim** `mariadb_motor` — setiap `find` membaca dokumen JSON penuh (tanpa projection/aggregation
+  pushdown), decode + verifikasi ulang per baris di Python, ORDER BY filesort; Outstanding wajib membaca seluruh baris dokumen + alokasi
+  (±15–60 ribu dokumen pada 20×) — komponen yang sama membuat Register PO existing 3,0 s; (c) **enrichment existing**
+  `RC.enrich_list` (telusur divisi/proyek, status penerimaan) yang dipakai daftar/Register untuk visibilitas & kolom Divisi/Proyek.
+  Penyelesaian (b)/(c) = projection/aggregation pushdown & indeks di shim + enrichment terbatas halaman — lintas modul, butuh
+  persetujuan migrasi → fase Performance Optimization setelah P2b merged (dicatat sebagai bottleneck legacy, bukan regresi P2b).
+- Insiden lingkungan 14:35 UTC: container platform restart; supervisor gagal start MariaDB karena paket belum terpasang -> preview 502.
+  Dipulihkan dengan izin user (`supervisorctl start mariadb` + `restart backend`), data `/root/mariadb-data` utuh, tanpa reset/migrasi.
+- Status penerimaan user: BELUM dikonfirmasi user (seluruh hasil di atas agent-tested).
+
+### P3–P6 (Status: NOT STARTED)
+Performance Optimization (setelah PR P2b merged, PR terpisah) · P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang · P6 export di list transaksi.

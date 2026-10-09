@@ -124,8 +124,8 @@ def main():
     # ------------------------------------------------------------------ P. posisi stok
     sc, cat = call("GET", "report-center/catalog")
     keys = [r["key"] for r in cat["groups"][0]["reports"]] if sc == 200 else []
-    check("P0 katalog Persediaan: 7 laporan P1", keys == ["posisi-stok", "ringkasan-nilai", "kartu-stok-qty", "kartu-stok-nilai",
-                                                         "mutasi-persediaan", "hpp-mi", "min-max-reorder"], keys)
+    check("P0 katalog Persediaan: 7 laporan P1 + Riwayat Pergerakan Stok (P2b)", keys == ["posisi-stok", "ringkasan-nilai", "kartu-stok-qty",
+          "riwayat-pergerakan-stok", "kartu-stok-nilai", "mutasi-persediaan", "hpp-mi", "min-max-reorder"], keys)
     sc, vs = call("GET", "reports/valuation-summary")
     sc, p = rc(call, "posisi-stok")
     check("P1 posisi hari ini: Σ nilai = Valuation Summary = Dashboard", sc == 200 and near(p["totals"]["value"], vs["total_value"])

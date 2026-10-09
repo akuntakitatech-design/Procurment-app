@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { AlertCircle, ArrowUpRight, BarChart3, ChevronRight, FileSpreadsheet, FileText, LayoutGrid, RotateCcw, Search } from "lucide-react";
+import { AlertCircle, ArrowUpRight, ChevronRight, FileSpreadsheet, FileText, LayoutGrid, RotateCcw, Search } from "lucide-react";
 import api from "@/lib/api";
 import { useMasters } from "@/hooks/useMasters";
 import { PageHeader } from "@/components/PageHeader";
@@ -234,7 +234,6 @@ export default function ReportCenter() {
     <div data-testid="report-center-page">
       <PageHeader title="Pusat Laporan" subtitle="Pintu utama laporan perusahaan: filter, total, dan export Excel/PDF dari satu sumber perhitungan." testid="report-center-header">
         {key && <Button variant="outline" onClick={() => nav("/report-center")} data-testid="report-center-home-link"><LayoutGrid className="mr-1.5 h-4 w-4" />Semua Kategori</Button>}
-        <Button variant="outline" onClick={() => nav("/reports")} data-testid="report-center-legacy-link"><BarChart3 className="mr-1.5 h-4 w-4" />Laporan Lama</Button>
       </PageHeader>
       {catErr && <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" data-testid="report-center-catalog-error"><AlertCircle className="h-4 w-4" />{catErr}</div>}
       {!key && (catalog ? <ReportHub catalog={catalog} /> : !catErr && <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-56 w-full" />)}</div>)}

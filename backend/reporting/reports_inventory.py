@@ -458,6 +458,38 @@ register(ReportSpec(
     filters=(F_ITEM_REQ, F_WH, F_FROM, F_TO), search_keys=("doc_type", "doc_no", "warehouse"),
 ))
 
+async def riwayat_pergerakan(server, user, p):
+    """Semua barang × gudang dalam cakupan (pengganti tab "Kartu Stok (Ledger)" Inventory): sumber = stock_ledger, sama
+    dengan Kartu Stok (Qty); tanpa saldo berjalan lintas barang."""
+    sc = await scope(server, user, p)
+    out = []
+    for r in await _rows(server, "stock_ledger", sc):
+        if not _in_period(r, p):
+            continue
+        it = sc["items"].get(r.get("item_id"), {})
+        out.append({"txn_date": r["_day"], "item_code": it.get("code"), "item_name": it.get("name"),
+                    "category": it.get("category_label"), "base_unit": it.get("unit_label"),
+                    "warehouse": sc["whs"].get(r.get("warehouse_id"), {}).get("name"), "doc_type": r.get("doc_type"),
+                    "group": dict(CATS)[cat_of(r.get("doc_type"))], "doc_no": r.get("doc_no"),
+                    "qty_in": _f(r.get("qty_in")), "qty_out": _f(r.get("qty_out"))})
+    out.reverse()  # terbaru di atas (seperti tab ledger Inventory)
+    return out
+
+
+register(ReportSpec(
+    key="riwayat-pergerakan-stok", group=G, title="Riwayat Pergerakan Stok (Semua Barang)",
+    description="Seluruh mutasi masuk/keluar per barang × gudang (tanpa harus memilih 1 barang); pengganti tab Kartu Stok (Ledger) Inventory.",
+    date_basis=SCOPE_NOTE + "Tanggal transaksi bisnis WIB, inklusif. Saldo berjalan per barang: gunakan Kartu Stok (Qty).",
+    builder=riwayat_pergerakan,
+    columns=(Column("txn_date", "Tanggal", "date", width=11), Column("item_code", "Kode Barang", width=13),
+             Column("item_name", "Nama Barang", width=22), Column("category", "Kategori", width=14),
+             Column("base_unit", "Satuan Dasar", width=9), Column("warehouse", "Gudang", width=16),
+             Column("doc_type", "Jenis Transaksi", width=18), Column("group", "Kelompok Mutasi", width=15),
+             Column("doc_no", "No. Dokumen", width=20), Column("qty_in", "Masuk", "qty", total=True, width=11),
+             Column("qty_out", "Keluar", "qty", total=True, width=11)),
+    filters=(F_DIV, F_WH, F_CAT, F_ITEM, F_FROM, F_TO), search_keys=("item_code", "item_name", "warehouse", "doc_type", "doc_no"),
+))
+
 register(ReportSpec(
     key="kartu-stok-nilai", group=G, title="Kartu Stok (Nilai MWA)",
     description="Mutasi nilai per transaksi dari valuation ledger (MWA): harga satuan, nilai masuk/keluar, saldo berjalan.",
