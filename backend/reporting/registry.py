@@ -20,6 +20,8 @@ GROUP_KEYS = {g["key"] for g in GROUPS}
 
 # Tipe kolom: text | date | qty | money | int
 NUMERIC = {"qty", "money", "int"}
+# Tipe filter master (opsi dari lookup ber-scope existing di frontend; nilai divalidasi server-side oleh builder)
+MASTER_FILTERS = {"division", "warehouse", "category", "item", "project", "unit"}
 
 
 @dataclass(frozen=True)
@@ -40,12 +42,14 @@ class Column:
 class Filter:
     key: str
     label: str
-    type: str = "text"      # date | division | warehouse | select | text
+    type: str = "text"      # date | division | warehouse | category | item | project | unit | select | text
     options: tuple = ()      # untuk select: ((value, label), ...)
+    required: bool = False   # wajib diisi sebelum laporan ditampilkan / di-export
+    default: str = ""        # nilai bawaan select (dipakai bila kosong)
 
     def public(self):
-        return {"key": self.key, "label": self.label, "type": self.type,
-                "options": [{"value": v, "label": lb} for v, lb in self.options]}
+        return {"key": self.key, "label": self.label, "type": self.type, "required": self.required,
+                "default": self.default, "options": [{"value": v, "label": lb} for v, lb in self.options]}
 
 
 Builder = Callable[..., Awaitable[list]]

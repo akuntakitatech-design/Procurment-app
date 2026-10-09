@@ -19,7 +19,10 @@ export function isIsoDay(v) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
 }
 
-export function validateFilters(f = {}) {
+export function validateFilters(f = {}, defs = []) {
+  for (const d of defs || []) {
+    if (d.type === "date" && f[d.key] && !isIsoDay(f[d.key])) return `${d.label} tidak valid.`;
+  }
   if (f.date_from && !isIsoDay(f.date_from)) return "Tanggal Awal tidak valid.";
   if (f.date_to && !isIsoDay(f.date_to)) return "Tanggal Akhir tidak valid.";
   if (f.date_from && f.date_to && f.date_from > f.date_to) return "Tanggal Awal tidak boleh melebihi Tanggal Akhir.";

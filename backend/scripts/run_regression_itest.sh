@@ -28,6 +28,7 @@ TESTS=(
   stock_opname_workflow_test.py
   stock_opname_cas_retry_test.py
   report_center_test.py
+  report_inventory_test.py
   stock_opname_freeze_coverage_test.py
   adjustment_multi_warehouse_test.py
   loan_multi_warehouse_test.py

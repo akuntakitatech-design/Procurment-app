@@ -30,6 +30,15 @@ check("14 data-testid utama tersedia", ["report-center-page", "report-center-exp
 const hub = src("../pages/ModuleHub.jsx");
 const app = src("../App.js");
 check("15 menu Laporan memuat Pusat Laporan & route terdaftar; laporan lama tetap", hub.includes("/report-center") && app.includes('path="/report-center"') && app.includes('path="/reports"'));
+// P1 Persediaan
+const defs = [{ key: "as_of", label: "Per Tanggal (cut-off)", type: "date" }];
+check("16 validasi tanggal generik dari metadata filter (as_of)", validateFilters({ as_of: "2026/10/01" }, defs) === "Per Tanggal (cut-off) tidak valid."
+  && validateFilters({ as_of: "2026-10-01" }, defs) === null && validateFilters({ as_of: "x" }) === null);
+check("17 filter master P1 dirender dari metadata server (gudang, kategori, barang, proyek, unit)",
+  ["warehouse: [\"warehouses\"", "category: [\"item_categories\"", "item: [\"items\"", "project: [\"projects\"", "unit: [\"units\""].every((t) => page.includes(t)));
+check("18 filter wajib (*) + notice server ditampilkan; baris saldo awal/akhir ditandai", page.includes("f.required") && page.includes("res.meta.notice")
+  && page.includes("report-center-notice") && page.includes("report-row-${r._kind}"));
+check("19 select dengan default server tidak menampilkan opsi 'Semua'", page.includes("f.default ? f.options"));
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exit(fail ? 1 : 0);
