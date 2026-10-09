@@ -354,7 +354,7 @@ Pencegahan: guard di `report_inventory_test.py` (exit 2 bila DB bukan *itest*/*_
 
 PR P1 = #58 (merged ke `main` 22e0c7d).
 
-### P2a — Reporting Operasional Procurement + Redesain/Konsolidasi Pusat Laporan (Status: Quality Gates PASS — menunggu PR; branch `feature/reporting-p2a-procurement` dari `main` 22e0c7d)
+### P2a — Reporting Operasional Procurement + Redesain/Konsolidasi Pusat Laporan (Status: COMPLETED — Quality Gates PASS; branch `feature/reporting-p2a-procurement` dari `main` 22e0c7d; PR #59 OPEN, STOP menunggu review — tanpa merge/deploy)
 Keputusan user (2026-10-09): P2 dipecah 2 PR — **P2a** = Register MRO/RO/PO/DO/MI, Lead Time, Pemakaian per Unit/Proyek,
 penyempurnaan MRO Traceability, + redesain beranda Pusat Laporan 5 card & konsolidasi laporan lama; **P2b** (setelah P2a merged)
 = Outstanding MRO/RO/PO/DO per alokasi baris, Rekap Pembelian, Rekap Nilai Penerimaan DO.
