@@ -26,6 +26,7 @@ import { printDoc } from "@/lib/print";
 import { applyDefaultsToAll, availableFor, editStockCredit, firstIssueMessage, linesFromDoc, linesPayload, manualOverrideCount, nameOnlyOptions, newTransferLine, transferLineIssues } from "@/lib/transferLines";
 import { fmtDate, todayISO } from "@/lib/format";
 import { toast } from "sonner";
+import { useOpenParam } from "@/hooks/useOpenParam";
 import { TxnList } from "@/components/TxnList";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
 
@@ -54,6 +55,7 @@ export default function Transfer() {
 
   const load = () => list.reload();
   const openDetail = (id) => api.get(`/transfers/${id}`).then((r) => setSelected(r.data));
+  useOpenParam(openDetail);
   const newDraft = () => { setDraftId(null); setDraftErr(null); api.post("/attachment-drafts", { module: "transfer" }).then((r) => setDraftId(r.data.id)).catch((e) => setDraftErr(apiError(e.response?.data?.detail) || "Lampiran belum dapat disiapkan")); };
   const discardDraft = () => { const id = draftRef.current; if (id) api.delete(`/attachment-drafts/${id}`).catch(() => {}); setDraftId(null); };
   // Tinggalkan halaman saat form baru terbuka -> draft lampiran dibatalkan (cleanup 24 jam tetap jadi pengaman).

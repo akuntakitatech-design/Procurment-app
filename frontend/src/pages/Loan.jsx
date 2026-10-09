@@ -29,6 +29,7 @@ import { printDoc } from "@/lib/print";
 import { applyDefaultsToAll, availableFor, editStockCredit, firstLoanIssueMessage, linesFromDoc, linesPayload, loanLineIssues, manualOverrideCount, nameOnlyOptions, newLoanLine } from "@/lib/loanLines";
 import { num, fmtDate, todayISO } from "@/lib/format";
 import { toast } from "sonner";
+import { useOpenParam } from "@/hooks/useOpenParam";
 import { TxnList } from "@/components/TxnList";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
 
@@ -88,6 +89,7 @@ export default function Loan() {
   const askApplyAll = () => (overrides > 0 ? setConfirmApply(true) : doApplyAll());
 
   const openDetail = async (id) => { try { const [a, b] = await Promise.all([api.get(`/loans/${id}`), api.get(`/loans/${id}/returns`)]); setDetail(a.data); setReturns(b.data || []); setRet(false); setReturnEdit(null); } catch (e) { toast.error(apiError(e.response?.data?.detail)); } };
+  useOpenParam(openDetail);
   const save = async () => {
     setTried(true);
     const de = divisionError(h.division_id); if (de) { setDivErr(de); toast.error(de); return; } setDivErr(null);
