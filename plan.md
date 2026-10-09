@@ -209,3 +209,35 @@ dan `/root/procurement-uat-evidence/iteration-8-10/`.
 - Harga Beli Terakhir: PO Approved/Partially Received/Fully Received (tidak cancelled), net setelah diskon item, tanpa PPN, per satuan dasar.
 - Pilih Supplier hanya mengubah supplier PO di form (belum simpan); Supplier Utama & kontrak tidak berubah.
 - Test: tests/po_price_insight_test.py 25/25; regresi PO/RO/receipt/invoice + multi-proses lulus; CI=true yarn build sukses.
+
+## Reporting & Export — Procurement & Warehouse PT REAL (branch `feature/reporting-export`, base `main` 74747eb)
+Blueprint disetujui user (5 kelompok: Persediaan & Nilai · Procurement · Warehouse · SPK & Kontrak · Invoice/Hutang).
+Keputusan: PDF server-side `reportlab` (cetak dokumen existing tetap); cut-off = tanggal bisnis WIB (Asia/Jakarta);
+batas export Excel 100.000 / PDF 5.000 baris (ditolak tegas 422, tidak dipotong); aging: Belum JT/JT hari ini, 1–30, 31–60,
+61–90, >90 (pembayaran parsial + DP teralokasi); engine/formula MWA, valuation, ledger, transaksi TIDAK diubah.
+
+### P0 — Reporting Foundation (Status: IN PROGRESS → selesai bila Quality Gates PASS; PR P0 lalu STOP untuk review)
+1. **Keamanan valuasi (pekerjaan pertama):** `valuation_report_scope_layer.py` mengganti `/api/reports/valuation-summary` &
+   `/valuation-ledger` (bentuk respon sama): scope divisi + penugasan gudang (`stock_summary.allowed/assigned_warehouses/
+   wh_in_scope`), `warehouse_id` di luar cakupan → 403, tanpa batas 5000, filter tanggal ledger = tanggal efektif WIB
+   (`txn_at`, fallback `at`; field baru `txn_date`). Sebelumnya: hanya izin harga + tenant (nilai lintas divisi terbuka).
+2. **Registry + builder bersama:** `reporting/registry.py` (ReportSpec/Column/Filter, 5 GROUPS), `reporting/report_center.py`
+   (`run()` satu alur: validasi filter → builder seluruh baris → pencarian → proyeksi kolom → total seluruh baris → halaman/export).
+   Route: `GET /api/report-center/catalog`, `/{key}` (page/page_size ≤ 500), `/{key}/export.xlsx`, `/{key}/export.pdf`.
+3. **Export server-side:** `reporting/exporters.py` — Excel openpyxl write-only (kop, filter, pencetak, header beku, autofilter,
+   TOTAL, sheet Parameter); PDF reportlab (A4/A3 landscape otomatis, header berulang, TOTAL, "Hal x/y", metadata rows).
+4. **Permission/redaksi:** kolom `price=True` dibuang server-side (JSON, Excel, PDF, totals) tanpa `view_purchase_price`;
+   export butuh izin `export`; setiap export dicatat di audit (`entity=report`, format, jumlah baris, filter).
+5. **UI Pusat Laporan:** `/report-center/:key` (`pages/ReportCenter.jsx`, `lib/reportCenter.js`), menu Laporan → "Pusat Laporan";
+   filter tanggal `input type=date` (tanpa konversi UTC), kolom/total dari server, drill-down ke dokumen MRO; `/reports` tetap.
+6. **Migrasi MRO Traceability:** spec `mro-traceability` memakai rantai builder existing (`report_trace_detail._build_rows` +
+   `report_financial_fix` + scope `report_control_scope_layer`) → identik dengan endpoint lama (tetap ada). Builder dasar: periode
+   = tanggal MRO WIB, tanpa batas 2000 MRO / 1000 alokasi.
+   Koreksi audit: MRO Traceability ternyata SUDAH ber-scope divisi via `scoped_build_rows` (bukan celah).
+7. **Test:** `tests/report_center_test.py` 51/51 (V1–V14 keamanan valuasi lintas divisi/gudang, R1–R22 paritas JSON/Excel/PDF,
+   pagination & total, kompatibilitas endpoint lama, scope, redaksi, izin export, validasi, pencarian, cut-off WIB, audit;
+   L1–L3 batas export & exporter; Z1 read-only), `src/lib/reportCenter.test.mjs` 15/15. Dependensi baru: `reportlab`, `pypdf`.
+
+### P1–P6 (Status: NOT STARTED — menunggu review PR P0)
+P1 Persediaan (posisi as-of, ringkasan nilai, kartu stok qty/nilai, mutasi persediaan, HPP pemakaian, min/max) · P2 Procurement ·
+P3 Warehouse · P4 SPK & Kontrak · P5 Invoice & Hutang (aging, pembayaran, kartu hutang) · P6 export di list transaksi.

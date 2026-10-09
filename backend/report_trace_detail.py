@@ -55,24 +55,24 @@ def _join_refs(refs, key):
 
 
 async def _build_rows(server, date_from=None, date_to=None, user=None):
-    q = {}
-    if date_from or date_to:
-        q["date"] = {}
-        if date_from:
-            q["date"]["$gte"] = date_from
-        if date_to:
-            q["date"]["$lte"] = f"{date_to}T23:59:59.999999+00:00"
+    """Baris MRO Traceability (dipakai endpoint lama JSON/Excel DAN Pusat Laporan -> satu sumber; scope divisi &
+    nilai finansial dipasang oleh report_control_scope_layer/report_financial_fix yang membungkus fungsi ini).
+    Periode = tanggal MRO bisnis WIB inklusif. Tanpa batas jumlah MRO/baris (tidak ada pemotongan diam-diam)."""
+    from reporting.scope import local_day
 
     show_financial = bool(user and server.has_perm(user, "view_purchase_price"))
-    mros = await server.db.mro.find(q, {"_id": 0}).sort("date", -1).to_list(2000)
-    items = {i["id"]: i for i in await server.db.items.find({}, {"_id": 0}).to_list(10000)}
+    mros = await server.db.mro.find({}, {"_id": 0}).sort("date", -1).to_list(None)
+    if date_from or date_to:
+        mros = [m for m in mros if (not date_from or local_day(m.get("date")) >= date_from)
+                and (not date_to or local_day(m.get("date")) <= date_to)]
+    items = {i["id"]: i for i in await server.db.items.find({}, {"_id": 0}).to_list(None)}
     categories = {
-        c["id"]: c for c in await server.db.item_categories.find({}, {"_id": 0}).to_list(3000)
+        c["id"]: c for c in await server.db.item_categories.find({}, {"_id": 0}).to_list(None)
     }
 
     out = []
     for mh in mros:
-        lines = await server.db.mro_lines.find({"mro_id": mh["id"]}, {"_id": 0}).to_list(2000)
+        lines = await server.db.mro_lines.find({"mro_id": mh["id"]}, {"_id": 0}).to_list(None)
         grouped = {}
 
         for line in lines:
@@ -116,7 +116,7 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
             ro_allocs = await server.db.allocations.find(
                 {"source_line_id": line["id"], "target_type": "ro"},
                 {"_id": 0},
-            ).to_list(1000)
+            ).to_list(None)
             row["qty_ro"] += sum(_f(a.get("qty")) for a in ro_allocs)
 
             for ra in ro_allocs:
@@ -126,7 +126,7 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                 po_allocs = await server.db.allocations.find(
                     {"source_line_id": ra.get("target_line_id"), "target_type": "po"},
                     {"_id": 0},
-                ).to_list(1000)
+                ).to_list(None)
                 for pa in po_allocs:
                     allocated_po_qty = _f(pa.get("qty"))
                     row["qty_po"] += allocated_po_qty
@@ -152,7 +152,7 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                     do_allocs = await server.db.allocations.find(
                         {"source_line_id": pa.get("target_line_id"), "target_type": "do"},
                         {"_id": 0},
-                    ).to_list(1000)
+                    ).to_list(None)
                     unit_dpp = (dpp_line / po_line_qty) if po_line_qty > 0 else 0.0
                     for da in do_allocs:
                         received_qty = _f(da.get("qty"))
@@ -165,7 +165,7 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
             mi_allocs = await server.db.allocations.find(
                 {"source_line_id": line["id"], "target_type": "mi"},
                 {"_id": 0},
-            ).to_list(1000)
+            ).to_list(None)
             row["qty_mi"] += sum(_f(a.get("qty")) for a in mi_allocs)
             for ma in mi_allocs:
                 mih = await server.db.mi.find_one({"id": ma.get("target_doc_id")}, {"_id": 0})

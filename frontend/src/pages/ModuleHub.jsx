@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import {
   FileText, ClipboardList, PackageCheck, PackageMinus, ShoppingCart, ArrowLeftRight,
   Handshake, SlidersHorizontal, ClipboardCheck, Boxes, GitBranch, BarChart3, Settings,
-  Users, ArrowUpRight, Activity, FileSpreadsheet, Receipt, HandCoins
+  Users, ArrowUpRight, Activity, FileSpreadsheet, Receipt, HandCoins, FileBarChart
 } from "lucide-react";
 
 const HUBS = {
@@ -42,6 +42,7 @@ const HUBS = {
     title: "Laporan",
     subtitle: "Pantau posisi stok, keterlacakan transaksi, dan analisis operasional.",
     cards: [
+      { to: "/report-center", title: "Pusat Laporan", desc: "Laporan terpusat 5 kelompok dengan filter, total, serta export Excel/PDF.", icon: FileBarChart },
       { to: "/inventory", title: "Inventory / Stock", desc: "Posisi stok per barang dan gudang beserta status minimum-maksimum.", icon: Boxes },
       { to: "/traceability", title: "Traceability", desc: "Telusuri alur MRO sampai RO, PO, DO, dan MI secara end-to-end.", icon: GitBranch },
       { to: "/reports", title: "Reporting", desc: "Laporan procurement, inventory, lead time, dan pemakaian unit.", icon: BarChart3 },

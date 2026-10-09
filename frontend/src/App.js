@@ -23,6 +23,7 @@ import Users from "@/pages/Users";
 import Profile from "@/pages/Profile";
 import Settings from "@/pages/Settings";
 import Reports from "@/pages/Reports";
+import ReportCenter from "@/pages/ReportCenter";
 import TraceabilityPage from "@/pages/Traceability";
 import Approval2Batch from "@/pages/Approval2Batch";
 import Approval from "@/pages/Approval";
@@ -124,6 +125,8 @@ function App() {
               <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
               <Route path="/traceability" element={<Protected><TraceabilityPage /></Protected>} />
               <Route path="/reports" element={<Protected><Reports /></Protected>} />
+              <Route path="/report-center" element={<Protected><ReportCenter /></Protected>} />
+              <Route path="/report-center/:key" element={<Protected><ReportCenter /></Protected>} />
               <Route path="/master" element={<Protected><MasterData /></Protected>} />
               <Route path="/spk" element={<Protected><SpkList /></Protected>} />
               <Route path="/spk/new" element={<Protected><SpkForm /></Protected>} />

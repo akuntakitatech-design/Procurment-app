@@ -20,7 +20,7 @@ const NAV = [
   { to: "/purchasing", label: "Pembelian", icon: ShoppingCart, match: ["/purchasing", "/po", "/invoice", "/dp-supplier"] },
   { to: "/approval", label: "Approval", icon: ClipboardCheck, match: ["/approval"] },
   { to: "/persediaan", label: "Persediaan", icon: Boxes, match: ["/persediaan", "/transfer", "/loan", "/adjustment", "/opname"] },
-  { to: "/laporan", label: "Laporan", icon: BarChart3, match: ["/laporan", "/inventory", "/traceability", "/reports"] },
+  { to: "/laporan", label: "Laporan", icon: BarChart3, match: ["/laporan", "/inventory", "/traceability", "/reports", "/report-center"] },
   { to: "/master", label: "Master Data", icon: Database, match: ["/master"] },
   { to: "/system", label: "Sistem", icon: Settings, match: ["/system", "/settings", "/users", "/activity-log", "/print-layouts", "/excel-import"] },
 ];
