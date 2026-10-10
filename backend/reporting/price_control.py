@@ -14,16 +14,23 @@ Harga PO efektif (apple-to-apple dengan net_contract_price, sebelum pajak):
   dpp baris dari engine PO existing doc_procurement.compute_po_totals (harga x qty − diskon item, lalu diskon final
   level-PO diprorata ke baris; pajak inklusif diekstrak, pajak eksklusif tidak ditambahkan) / qty UOM PO.
   -> PPN tidak pernah membuat PO terlihat lebih mahal dari kontrak. Formula transaksi PO tidak diubah.
+P4 (Opsi A, disetujui user): harga kontrak = harga yang berlaku pada TANGGAL PO -> versi harga historis direkonstruksi
+read-only dari `vendor_contract_price_history` (reporting.contract_history; resolver existing tetap satu-satunya aturan
+pemilihan). Rentang yang tidak dapat dibuktikan -> status `history_incomplete` ("Riwayat Harga Tidak Lengkap").
+Label "Di Atas Tolerance" -> "Melebihi Tolerance" (Dashboard = Laporan C).
 """
 from __future__ import annotations
 
 import asyncio
 from datetime import date, timedelta
 
+from . import contract_history as CH
 from . import procurement as P
 from . import scope as S
 
-STATUS_LABEL = {"ok": "Sesuai", "over": "Di Atas Tolerance", "no_contract": "Tanpa Kontrak"}
+STATUS_LABEL = {"ok": "Sesuai", "over": "Melebihi Tolerance", "no_contract": "Tanpa Kontrak",
+                "history_incomplete": "Riwayat Harga Tidak Lengkap"}
+PRICE_STATUSES = ("ok", "over", "no_contract", "history_incomplete")
 PRICE_KEYS = ("contract_price", "base_price", "po_price", "allowed_max", "tolerance_pct", "diff", "diff_pct",
               "diff_unit")
 CONTRACT_KINDS = ("active", "expiring", "expired")
@@ -57,13 +64,14 @@ async def _empty():
 
 async def load(server, po_ids):
     db = server.db
-    heads, items, lines, pos = await asyncio.gather(
+    heads, items, hist, lines, pos = await asyncio.gather(
         db.vendor_contracts.find({}, {"_id": 0}).to_list(50000),
         db.vendor_contract_items.find({}, {"_id": 0}).to_list(500000),
+        db.vendor_contract_price_history.find({}, {"_id": 0}).to_list(500000),
         db.po_lines.find({"po_id": {"$in": po_ids}}, {"_id": 0}).to_list(500000) if po_ids else _empty(),
         db.po.find({"id": {"$in": po_ids}}, {"_id": 0, "id": 1, "tax_inclusive": 1, "final_discount_type": 1,
                                             "final_discount_value": 1}).to_list(200000) if po_ids else _empty())
-    return {"contracts": heads, "items": items, "po_lines": lines, "po_heads": {p["id"]: p for p in pos}}
+    return {"contracts": heads, "items": items, "history": hist, "po_lines": lines, "po_heads": {p["id"]: p for p in pos}}
 
 
 def _groups(data):
@@ -119,6 +127,7 @@ def contract_kpis(contracts, items, f, cut, pick=None):
 def price_lines(po_rows, data, pick):
     """Semua baris PO Approved final periode + hasil resolver existing (tanpa redaksi; internal)."""
     groups = _groups(data)
+    hidx = CH.index(data.get("history"))
     lines_by_po = {}
     for ln in data["po_lines"]:
         lines_by_po.setdefault(ln.get("po_id"), []).append(ln)
@@ -139,13 +148,20 @@ def price_lines(po_rows, data, pick):
                 continue
             uom = ln.get("uom_id") or ln.get("unit_id")
             sup = po.get("supplier_id")
-            res = pick(sup, ln.get("item_id"), uom, groups.get((sup, ln.get("item_id"), uom), []), d, qty)
+            res = CH.resolve(pick, sup, ln.get("item_id"), uom, groups.get((sup, ln.get("item_id"), uom), []), d, qty, hidx)
             row = {"po_id": po["id"], "po_no": po.get("no"), "po_date": d, "supplier_id": sup,
                    "supplier_name": po.get("supplier_name"), "item_id": ln.get("item_id"), "item_name": ln.get("item_name"),
-                   "qty": qty, "uom_id": uom, "uom": ln.get("display_unit") or ln.get("unit"), "po_price": price}
+                   "qty": qty, "uom_id": uom, "uom": ln.get("display_unit") or ln.get("unit"), "po_price": price,
+                   "po_line_id": ln.get("id"), "po_status": po.get("status"),
+                   "price_status_snapshot": ln.get("price_status"), "price_change_reason": ln.get("price_change_reason"),
+                   "price_version": None, "item_row_id": None, "history_changes": []}
             if not res:
                 st = "no_contract"
                 row.update(contract_price=None, tolerance_pct=None, diff=None, contract_number=None, contract_id=None)
+            elif res.get("incomplete"):
+                st = "history_incomplete"  # tanggal PO pada rentang versi harga yang tidak tercatat -> tidak dinilai
+                row.update(contract_price=None, tolerance_pct=None, diff=None, contract_number=res.get("contract_number"),
+                           contract_id=res.get("contract_id"), item_row_id=res.get("item_row_id"))
             else:
                 net, tol = float(res["net_contract_price"]), float(res.get("tolerance_pct") or 0)
                 allowed = net * (1 + tol / 100.0)
@@ -153,7 +169,9 @@ def price_lines(po_rows, data, pick):
                 row.update(contract_price=net, base_price=res.get("base_price"), tolerance_pct=tol, allowed_max=allowed,
                            diff_unit=price - net, diff=(price - net) * qty,
                            diff_pct=round((price - net) * 100.0 / net, 2) if net else None,
-                           contract_number=res.get("contract_number"), contract_id=res.get("contract_id"))
+                           contract_number=res.get("contract_number"), contract_id=res.get("contract_id"),
+                           price_version=res.get("price_version"), price_version_from=res.get("effective_start"),
+                           item_row_id=res.get("item_row_id"), history_changes=res.get("history_changes") or [])
             row.update(status=st, status_label=STATUS_LABEL[st])
             out.append(row)
     return out
@@ -164,10 +182,17 @@ def po_sets(lines):
     for r in lines:
         by.setdefault(r["po_id"], set()).add(r["status"])
     return {"ok": {k for k, v in by.items() if v == {"ok"}}, "over": {k for k, v in by.items() if "over" in v},
-            "no_contract": {k for k, v in by.items() if "no_contract" in v}, "all": set(by)}
+            "no_contract": {k for k, v in by.items() if "no_contract" in v},
+            "history_incomplete": {k for k, v in by.items() if "history_incomplete" in v}, "all": set(by)}
+
+
+INTERNAL_KEYS = ("history_changes", "item_row_id", "po_line_id", "price_version", "price_version_from", "po_status",
+                 "price_status_snapshot", "price_change_reason")
 
 
 def redact(row, with_value):
+    """Payload Dashboard: field tambahan internal P4 tidak dikirim (kontrak response Dashboard tetap)."""
+    row = {k: v for k, v in row.items() if k not in INTERNAL_KEYS}
     return row if with_value else {k: v for k, v in row.items() if k not in PRICE_KEYS}
 
 
@@ -180,7 +205,7 @@ def price_drill(lines, status):
     sets = po_sets(lines)
     if status == "ok":
         rows = [r for r in lines if r["po_id"] in sets["ok"]]
-    elif status in ("over", "no_contract"):
+    elif status in ("over", "no_contract", "history_incomplete"):
         rows = [r for r in lines if r["status"] == status]
     else:
         rows = list(lines)
@@ -194,7 +219,9 @@ def price_control(po_rows, data, pick, with_value=True, limit=8):
     kpi = {"po_ok": len(sets["ok"]), "po_over": len(sets["over"]), "po_no_contract": len(sets["no_contract"]),
            "po_evaluated": len(sets["all"]), "lines": len(lines),
            "lines_over": sum(1 for r in lines if r["status"] == "over"),
-           "lines_no_contract": sum(1 for r in lines if r["status"] == "no_contract")}
+           "lines_no_contract": sum(1 for r in lines if r["status"] == "no_contract"),
+           "po_history_incomplete": len(sets["history_incomplete"]),
+           "lines_history_incomplete": sum(1 for r in lines if r["status"] == "history_incomplete")}
     if with_value:  # Nilai Selisih Harga = Σ selisih (harga efektif − net kontrak) x qty pada baris di atas tolerance
         kpi["diff_value"] = round(sum(r["diff"] or 0 for r in lines if r["status"] == "over"), 2)
     return {"kpi": kpi, "exceptions": [redact(r, with_value) for r in ex[:limit]], "with_value": with_value,

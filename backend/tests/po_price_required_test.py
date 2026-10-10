@@ -16,9 +16,12 @@ MSG = "Harga Satuan wajib diisi (lebih dari 0)"
 
 
 def zero_price_in_db(po_id):
-    env = dict(l.split("=", 1) for l in open("/app/backend/.env").read().splitlines() if "=" in l and not l.startswith("#"))
-    u = urlparse(env["DATABASE_URL"].strip().strip('"').replace("mariadb://", "mysql://"))
-    c = pymysql.connect(host=u.hostname, port=u.port or 3306, user=unquote(u.username), password=unquote(u.password),
+    # DB = DB backend yang diuji (TEST_DATABASE_URL runner terisolasi, konsisten T.test_env()); hanya DB test terisolasi.
+    u = urlparse(T.test_env()["DATABASE_URL"].strip().strip('"').replace("mariadb://", "mysql://"))
+    dbn = u.path.strip("/")
+    if "itest" not in dbn and not dbn.endswith("_test"):
+        sys.exit(f"STOP: helper DB menolak database '{dbn}' (bukan DB test terisolasi *itest* / *_test)")
+    c = pymysql.connect(host=u.hostname, port=u.port or 3306, user=unquote(u.username or ""), password=unquote(u.password or ""),
                         database=u.path.strip("/"), autocommit=True)
     with c.cursor() as cur:
         cur.execute("UPDATE po_lines SET doc = JSON_SET(doc, '$.price', 0) WHERE po_id = %s", (po_id,))

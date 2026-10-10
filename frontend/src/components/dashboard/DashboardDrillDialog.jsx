@@ -10,7 +10,7 @@ import { PriceBadge } from "./VendorContractPanel";
 const TITLES = {
   spk: { active: "SPK Aktif", over: "SPK Over Budget", critical: "SPK Kritis (> 90%)", attention: "SPK Perlu Perhatian", expiring: "SPK Akan Berakhir ≤ 30 Hari" },
   contract: { active: "Kontrak Aktif", expiring: "Kontrak Akan Berakhir ≤ 30 Hari", expired: "Kontrak Kedaluwarsa" },
-  price: { ok: "PO Sesuai Harga Kontrak", over: "PO Di Atas Tolerance", no_contract: "PO Tanpa Kontrak Aktif", all: "Seluruh Baris Price Control" },
+  price: { ok: "PO Sesuai Harga Kontrak", over: "PO Melebihi Tolerance", no_contract: "PO Tanpa Kontrak Aktif", history_incomplete: "PO Riwayat Harga Tidak Lengkap", all: "Seluruh Baris Price Control" },
 };
 
 function Th({ children, right }) {

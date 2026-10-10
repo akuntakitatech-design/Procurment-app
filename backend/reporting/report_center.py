@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 import report_control_scope_layer as RCS
 from reporting import hub as HUB
 from reporting import registry as R
-from reporting.exporters import to_pdf, to_xlsx
+from reporting.exporters import fmt_day, to_pdf, to_xlsx
 
 WIB = ZoneInfo("Asia/Jakarta")
 EXPORT_LIMITS = {"xlsx": 100_000, "pdf": 5_000}
@@ -74,7 +74,7 @@ async def _filters_applied(server, spec, p, q):
     out = []
     labels = {f.key: f for f in spec.filters}
     if p.get("date_from") or p.get("date_to"):
-        out.append({"key": "period", "label": "Periode", "value": f"{p.get('date_from') or 'awal'} s/d {p.get('date_to') or 'akhir'}"})
+        out.append({"key": "period", "label": "Periode", "value": f"{fmt_day(p.get('date_from')) or 'awal'} s/d {fmt_day(p.get('date_to')) or 'akhir'}"})
     for k, v in p.items():
         if not v or k in ("date_from", "date_to"):
             continue
@@ -83,6 +83,11 @@ async def _filters_applied(server, spec, p, q):
         if k == "division_id":
             d = await server.db.divisions.find_one({"id": v}, {"_id": 0, "name": 1})
             val = (d or {}).get("name") or v
+        elif k == "spk_id":
+            d = await server.db.spk.find_one({"id": v}, {"_id": 0, "spk_number": 1})
+            val = (d or {}).get("spk_number") or v
+        elif f and f.type == "date":
+            val = fmt_day(v)
         elif f and f.type in MASTER_LABEL:
             d = await getattr(server.db, MASTER_LABEL[f.type]).find_one({"id": v}, {"_id": 0, "name": 1, "code": 1})
             val = " — ".join(x for x in ((d or {}).get("code"), (d or {}).get("name")) if x) or v
@@ -117,7 +122,9 @@ async def run(server, user, key, qp) -> dict:
     if q and spec.search_keys:
         terms = q.lower().split()
         rows = [r for r in rows if r.get("_kind") or all(t in " ".join(str(r.get(k) or "") for k in spec.search_keys).lower() for t in terms)]
-    cols = spec.visible_columns(price_visible)
+    cols = spec.visible_columns(price_visible, lambda k: bool(server.has_perm(user, k)))
+    if price_visible and any(c.perms and c not in cols for c in spec.columns):
+        price_visible = False  # kolom harga disembunyikan karena izin tambahan (mis. vendor_contract:view) -> catatan UI/Excel/PDF
     keys = [c.key for c in cols]
     out_rows = []
     for r in rows:
@@ -170,6 +177,7 @@ def install(server):
     import reporting.reports_procurement_ops  # noqa: F401  (P2a: register, lead time, pemakaian)
     import reporting.reports_procurement_outstanding  # noqa: F401  (P2b: outstanding, rekap pembelian, rekap nilai DO)
     import reporting.reports_warehouse  # noqa: F401  (P3: transfer, pinjam & pengembalian, penyesuaian, stock opname)
+    import reporting.reports_spk  # noqa: F401  (P4: realisasi anggaran SPK, kontrak harga vendor, kepatuhan harga PO)
     app = server.app
 
     async def catalog(user=Depends(server.current_user)):

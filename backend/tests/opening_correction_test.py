@@ -37,6 +37,12 @@ def conn():
 def ins(cn, table, doc):
     sys.path.insert(0, "/app/backend")
     from mariadb_motor import _pick_pk
+    # DB test kosong (runner terisolasi): buat koleksi bila belum ada — DDL identik mariadb_motor._ensure_table
+    cn.cursor().execute(f"CREATE TABLE IF NOT EXISTS `{table}` (pk VARCHAR(64) NOT NULL PRIMARY KEY, doc LONGTEXT NOT NULL CHECK "
+                        "(JSON_VALID(doc)), id VARCHAR(191) AS (LEFT(JSON_VALUE(doc, '$.id'), 191)) STORED, created_at DATETIME(6) "
+                        "NOT NULL DEFAULT CURRENT_TIMESTAMP(6), updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE "
+                        "CURRENT_TIMESTAMP(6), KEY idx_id (id), KEY idx_created (created_at, pk)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 "
+                        "COLLATE=utf8mb4_unicode_ci")
     cn.cursor().execute(f"INSERT INTO `{table}` (pk, doc) VALUES (%s, %s)", (_pick_pk(doc), json.dumps(doc)))
 
 

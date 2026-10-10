@@ -95,13 +95,9 @@ def _scoped_spk(data, f, cut, user, server):
             and (not f.project_id or s.get("project_id") == f.project_id)]
 
 
-def rows_at(data, f, cut, user=None, server=None):
-    """Seluruh baris SPK posisi cut-off (murni, tanpa DB). Dipakai KPI + Top 5 + Perlu Perhatian + drill-down."""
-    spks = _scoped_spk(data, f, cut, user, server)
-    ids = {s["id"] for s in spks}
-    adds = {}
-    for a in data["adds"]:
-        adds.setdefault(a.get("spk_id"), []).append(a)
+def positions(data, ids, cut):
+    """Posisi (SPK, baris PO) s/d cut-off — SATU perhitungan untuk KPI Dashboard dan laporan detail P4.
+    com/cqty: nilai commitment & qty COMMIT terakhir; recv: qty diterima kumulatif; events: (spk, baris PO, baris DO, qty)."""
     com, cqty = {}, {}  # (spk, baris PO) -> nilai commitment / qty COMMIT terakhir s/d cut-off
     for r in sorted(data["ledger"], key=lambda r: str(r.get("created_at") or "")):
         if r.get("spk_id") not in ids or S.local_day(r.get("created_at")) > cut:
@@ -118,7 +114,7 @@ def rows_at(data, f, cut, user=None, server=None):
         d = tgt.setdefault(a.get("item_line_id"), {})
         d[a["spk_id"]] = d.get(a["spk_id"], 0) + float(a.get("allocated_qty") or 0)
     ok_do = {d["id"]: S.local_day(d.get("date")) for d in data["dos"] if do_is_valid(d)}
-    recv = {}  # (spk, baris PO) -> qty diterima kumulatif s/d cut-off
+    recv, events = {}, []  # (spk, baris PO) -> qty diterima kumulatif s/d cut-off
     for x in data["do_lines"]:
         dd = ok_do.get(x.get("do_id"))
         if not dd or dd > cut:
@@ -130,10 +126,27 @@ def rows_at(data, f, cut, user=None, server=None):
             parts = {sid: q * v / pq for sid, v in (po_alloc.get(pl) or {}).items()} if pq > 0 else {}
         for sid, qq in parts.items():
             recv[(sid, pl)] = recv.get((sid, pl), 0) + qq
+            events.append((sid, pl, x, dd, qq))
+    return {"com": com, "cqty": cqty, "po_alloc": po_alloc, "recv": recv, "events": events}
+
+
+def committed_qty(pos, sid, pl):
+    return pos["cqty"].get((sid, pl)) or (pos["po_alloc"].get(pl) or {}).get(sid) or 0
+
+
+def rows_at(data, f, cut, user=None, server=None):
+    """Seluruh baris SPK posisi cut-off (murni, tanpa DB). Dipakai KPI + Top 5 + Perlu Perhatian + drill-down."""
+    spks = _scoped_spk(data, f, cut, user, server)
+    ids = {s["id"] for s in spks}
+    adds = {}
+    for a in data["adds"]:
+        adds.setdefault(a.get("spk_id"), []).append(a)
+    pos = positions(data, ids, cut)
+    com, recv = pos["com"], pos["recv"]
     real, spk_com = {}, {}
     for (sid, pl), amt in com.items():
         spk_com[sid] = spk_com.get(sid, 0) + amt
-        aq = cqty.get((sid, pl)) or (po_alloc.get(pl) or {}).get(sid) or 0
+        aq = committed_qty(pos, sid, pl)
         if amt <= 0 or aq <= 0:
             continue
         real[sid] = real.get(sid, 0) + amt * min(recv.get((sid, pl), 0), aq) / aq

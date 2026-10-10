@@ -525,7 +525,7 @@ stock ledger, transaksi, maupun mariadb_motor/receipt_control_layer/doc_procurem
 
 P2b PR #61 MERGED ke `main` 395f54f.
 
-### P3 — Reporting Warehouse (Status: IN PROGRESS — Quality Gates berjalan; branch `feature/reporting-p3-warehouse` dari `main` 395f54f; target 1 PR ke `main`, TANPA merge/deploy)
+### P3 — Reporting Warehouse (Status: COMPLETED — PR #62 MERGED ke `main` a222436)
 Keputusan user: Performance Optimization menyeluruh DITUNDA sampai seluruh tahap Reporting & Export selesai (P3 tidak menyentuh
 bottleneck legacy). Terlambat = sisa > 0 dan Tanggal Akhir (cut-off) > jatuh tempo; umur = tgl pinjam s/d kembali penuh, atau s/d
 cut-off bila masih outstanding; pinjaman per BARIS (partial/multi return, multi-gudang, reversal, legacy); nilai sisa = harga pokok saat
@@ -551,7 +551,60 @@ testing_agent_v3 iteration_27: backend 102/102, frontend 100%, **0 open findings
 dipindah ke `/root/perf/archive`, tidak di-commit) · verifikasi manual efek samping drill: Register MRO / Outstanding MRO / MRO Traceability
 membuka detail MRO yang benar · secret scan: gitleaks scope P3 (15 file) **0**; worktree 6 / history 3 = baseline legacy identik
 (`.env`, 2 script test, `ci.yml`) -> tambahan P3 **0**; known-value scan (513 file tracked+untracked) 0 kredensial sandbox, 0 pola token GitHub.
-Sisa: push + 1 PR — menunggu autentikasi GitHub yang aman (tidak ada koneksi GitHub existing di environment).
+Sisa P3: tidak ada. Push & PR #62 (head 0716062) dibuat open; user me-review lalu MERGED ke `main` a222436.
 
-### P4–P6 (Status: NOT STARTED)
-P4 SPK & Kontrak · P5 Invoice & Hutang · P6 export di list transaksi · lalu Performance Optimization menyeluruh (PR terpisah).
+### P4 — Reporting SPK & Kontrak Harga Vendor (Status: IN PROGRESS; branch `feature/reporting-p4-spk-contract` dari `main` a222436; target 1 PR ke `main`, TANPA merge/deploy)
+Keputusan user (2026-10-09):
+1. Card "SPK & Kontrak Vendor": link "Monitoring SPK" tetap -> `/spk`; link "Daftar Kontrak Harga Vendor" DIGANTI laporan B; halaman
+   operasional `/vendor-contracts` tetap (input/edit). Ketiga laporan A/B/C di Pusat Laporan; dari B user berwenang membuka detail kontrak.
+   Laporan = lihat & analisis; halaman operasional = input/edit. Struktur 5 kategori tidak berubah, tanpa laporan duplikat.
+2. A Realisasi Anggaran SPK: Nilai Kontrak SPK (`spk_value`) TERPISAH dari Anggaran Procurement (`procurement_budget`); masing-masing
+   awal + addendum efektif = akhir sesuai sumber data (addendum efektif sudah diterapkan ke header -> jangan dihitung dua kali).
+   Commitment/Sisa/% pemakaian berdasarkan procurement_budget. Sisa = Budget - Commitment; Realisasi DO bagian dari Commitment.
+   Status filter Draft/Active/Closed/Cancelled, default Active+Closed. Historis cut-off WIB, konsisten Dashboard (`reporting/spk.py`).
+3. B Kontrak: Aktif (berlaku pada cut-off WIB) / Akan Berakhir (aktif, berakhir 0-30 hari dari cut-off; subset Aktif, tidak dihitung dua
+   kali) / Expired / Draft / Cancelled. Bila beda dengan Dashboard -> aturan Dashboard sumber kebenaran. Effective Price Resolver existing.
+4. C Kepatuhan: status approval PO existing ditampilkan TERPISAH dari status kepatuhan (Sesuai/Melebihi Tolerance/Tanpa Kontrak);
+   PO Approved != penyimpangan disetujui. Riwayat perubahan harga kontrak resmi (harga lama, baru, tgl efektif) dari histori existing.
+   Tanpa fitur approval baru.
+5. C cakupan PO = Dashboard: Approved final, Partially Received, Fully Received (tidak: Waiting Approval/Draft/Cancelled/Rejected);
+   pembanding = harga kontrak yang berlaku pada tanggal PO (WIB); DPP/net sebelum pajak via `compute_po_totals`.
+Permission: spk:view, vendor_contract:view, view_purchase_price — redaksi nominal/harga/selisih server-side (UI/JSON/total/Excel/PDF).
+   A: laporan wajib spk:view, nominal SPK dengan spk:view (paritas Dashboard); harga satuan PO di detail + view_purchase_price.
+   B: wajib vendor_contract:view; harga + view_purchase_price. C: wajib po.view; harga/selisih = vendor_contract:view AND price.
+6. TEMUAN & KEPUTUSAN (Opsi A, disetujui): price-change kontrak menimpa baris item (harga + effective_start) -> Resolver/Dashboard
+   menilai PO sebelum perubahan sebagai "Tanpa Kontrak". Solusi: SATU rekonstruksi versi harga READ-ONLY dari
+   `vendor_contract_price_history` (`reporting/contract_history.py`) dipakai Dashboard Price Control + Laporan C. Harga lama berlaku
+   s/d H-1 tanggal efektif; baru mulai tanggal efektif; multi perubahan & tanggal sama ditangani berurutan (`at`). Tanggal awal versi
+   pertama TIDAK tercatat (audit item tidak menyimpan effective_start) -> PO pada rentang itu = status "Riwayat Harga Tidak Lengkap"
+   (tanpa mengarang tanggal/harga, tanpa backfill). Resolver input PO, engine kontrak, data & histori TIDAK diubah.
+   Label "Di Atas Tolerance" -> "Melebihi Tolerance" di Dashboard & Laporan C (disetujui). Perubahan KPI Dashboard wajib dilaporkan
+   sebelum/sesudah. Info PO existing `price_status` / `price_change_reason` / snapshot kontrak ditampilkan (tanpa fitur approval baru).
+Read-only: TIDAK mengubah aturan SPK/PO/DO/kontrak/MWA/valuation/stock ledger.
+Progres (2026-10-10, agent-tested, belum dikonfirmasi user): audit scope bersih (tidak ada perubahan MWA/HPP/valuation/stock
+ledger/posting/aturan transaksi; hanya Dashboard Price Control read-only + rekonstruksi histori).
+Bug konfigurasi test EXISTING di `main` (bukan bug P4; user pilih Opsi A = commit terpisah dalam PR P4): `po_price_insight_test.py` &
+`po_price_required_test.py` gagal identik di clean `main` a222436 (worktree, proc_itest). Akar: helper DB membaca DATABASE_URL
+`backend/.env` (DB preview), bukan DB backend yang diuji -> UPDATE fixture 0 baris. Fix: helper memakai `T.test_env()` (TEST_DATABASE_URL)
++ guard STOP bila DB bukan *itest*/*_test (+ URL tanpa password). Assertion/expected tidak diubah. proc_sandbox terverifikasi tidak berubah.
+Runner: + report_spk_test.py, dashboard_spk_contract_test.py. `opening_correction_test.ins` membuat tabel bila belum ada (DDL identik
+mariadb_motor._ensure_table) — dibutuhkan fixture P4 di DB test kosong.
+Quality Gates: regresi backend 27/27 suite PASS; integrity 13/13 PASS; frontend 18/18 *.test.mjs PASS; po_price_insight 37/37 &
+po_price_required 19/19 PASS; CI=true yarn build PASS; git diff --check PASS; Browser UAT (stack terisolasi proc_itest + build lokal,
+fixture P4) A/B/C, filter, cut-off, drill, export, redaksi PASS; paritas Dashboard = Laporan C (8 baris identik, selisih 700);
+testing_agent_v3 iteration_28: 0 temuan; gitleaks worktree: no leaks. KPI Dashboard sebelum -> sesudah (fixture): Sesuai 2 -> 3 PO,
+Melebihi 0 -> 1, Tanpa Kontrak 6 -> 2, Riwayat Harga Tidak Lengkap - -> 2, Nilai Selisih 0 -> 700; preview sandbox: tanpa data kontrak/PO
+(KPI 0 -> 0).
+Finalisasi (permintaan user, read-only, satu perhitungan): (a) halaman /spk/{id}: kartu Commitment/Realisasi/Sisa Budget & % dan tab
+"Commitment & Realisasi" kini dari laporan Realisasi Anggaran SPK (filter tersembunyi `spk_id`, Filter.hidden) — sebelumnya placeholder
+0 (spk_layer._budget_summary "CP2" TIDAK diubah; engine/aturan tidak diubah); redaksi harga server-side. (b) Tanggal Indonesia
+DD-MM-YYYY di tabel UI, PDF, dan label Periode/filter tanggal; JSON & sel Excel tetap nilai ISO yang sama (kontrak paritas R6
+Excel = JSON per sel tidak diubah). (c) Filter Pusat Laporan dari URL (request pertama, respon basi diabaikan), URL ikut
+Terapkan/Reset, tombol "Reset filter" pada error filter URL tidak valid.
+Gate final (kode final): regresi 27/27 (report_spk_test 45/45, report_center_test 59/59), integrity 13/13, frontend 18/18 file
+(reportCenter 32/32), CI=true yarn build PASS, git diff --check PASS, Browser UAT ulang PASS (deep link stabil 3x, SPK detail =
+laporan = API budget-control = Dashboard, redaksi uat_noprice), testing_agent_v3 iteration_29: 0 temuan, gitleaks: no leaks.
+
+
+### P5–P6 (Status: NOT STARTED)
+P5 Invoice & Hutang · P6 export di list transaksi · lalu Performance Optimization menyeluruh (PR terpisah).

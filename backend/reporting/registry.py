@@ -32,6 +32,7 @@ class Column:
     price: bool = False      # kolom harga/nilai -> hanya untuk view_purchase_price
     total: bool = False      # dijumlahkan pada baris TOTAL (seluruh baris sesuai filter)
     width: int = 14          # lebar relatif (Excel: karakter; PDF: proporsional)
+    perms: tuple = ()        # izin TAMBAHAN yang wajib dimiliki (semua) agar kolom terlihat (P4: vendor_contract:view)
 
     def public(self):
         return {"key": self.key, "label": self.label, "type": self.type, "price": self.price, "total": self.total,
@@ -46,10 +47,11 @@ class Filter:
     options: tuple = ()      # untuk select: ((value, label), ...)
     required: bool = False   # wajib diisi sebelum laporan ditampilkan / di-export
     default: str = ""        # nilai bawaan select (dipakai bila kosong)
+    hidden: bool = False     # parameter tanpa kontrol di FilterBar (mis. spk_id dari halaman detail SPK); tetap divalidasi server
 
     def public(self):
         return {"key": self.key, "label": self.label, "type": self.type, "required": self.required,
-                "default": self.default, "options": [{"value": v, "label": lb} for v, lb in self.options]}
+                "default": self.default, "hidden": self.hidden, "options": [{"value": v, "label": lb} for v, lb in self.options]}
 
 
 Builder = Callable[..., Awaitable[list]]
@@ -70,8 +72,10 @@ class ReportSpec:
     drill: Optional[Callable] = None      # row -> {"label", "to"} (tautan dokumen sumber)
     legacy: tuple = field(default=())     # endpoint lama yang tetap dipertahankan (kompatibilitas)
 
-    def visible_columns(self, price_visible: bool):
-        return [c for c in self.columns if price_visible or not c.price]
+    def visible_columns(self, price_visible: bool, has_perm: Optional[Callable] = None):
+        """Kolom harga dibuang tanpa view_purchase_price; kolom ber-`perms` dibuang bila salah satu izin tidak dimiliki."""
+        return [c for c in self.columns if (price_visible or not c.price)
+                and (not c.perms or (has_perm is not None and all(has_perm(p) for p in c.perms)))]
 
 
 REGISTRY: dict = {}

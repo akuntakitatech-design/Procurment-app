@@ -262,9 +262,9 @@ def main():
     check("Exception: Di Atas Tolerance dulu, selisih terbesar (P3) teratas; lalu Tanpa Kontrak",
           [e["po_id"] for e in ex[:2]] == [p3["id"], p2["id"]] and {e["po_id"] for e in ex[2:]} == {p4["id"], p8["id"], p9["id"]}, [(e["po_no"], e["status"]) for e in ex])
     e3 = ex[0] if ex else {}
-    check("Exception P3: kontrak 10.000, PO 11.500, toleransi 5%, selisih 150.000, badge 'Di Atas Tolerance'",
+    check("Exception P3: kontrak 10.000, PO 11.500, toleransi 5%, selisih 150.000, badge 'Melebihi Tolerance'",
           e3.get("contract_price") == 10_000 and abs(e3.get("po_price", 0) - 11_500) < 0.01 and abs(e3.get("diff", 0) - 150_000) < 0.01 and e3.get("tolerance_pct") == 5
-          and e3.get("status_label") == "Di Atas Tolerance" and e3.get("item_name"), e3)
+          and e3.get("status_label") == "Melebihi Tolerance" and e3.get("item_name"), e3)
     check("PO yang sesuai tidak masuk exception", not {p1["id"], p5["id"], p6["id"], p10["id"], p11["id"], p12["id"]} & {e["po_id"] for e in ex})
     sc, dall = call("GET", "dashboard/drill/price-control?date_from=2026-06-01&date_to=2026-06-30&status=all")
     rows = {r["po_id"]: r for r in dall.get("rows", [])}

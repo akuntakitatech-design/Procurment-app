@@ -9,6 +9,9 @@ laporan halaman Inventory tersedia di Pusat Laporan (Posisi Stok, Min/Max & Reor
 Pergerakan Stok" sebagai padanan tab Kartu Stok (Ledger)); halaman operasional `/inventory` tetap (menu Persediaan + drill
 Dashboard), endpoint tidak berubah.
 P3: card Warehouse = laporan aktif Transfer, Pinjam & Pengembalian, Penyesuaian Stok, Stock Opname (placeholder dihapus).
+P4: card SPK & Kontrak Vendor = laporan aktif Realisasi Anggaran SPK (+ detail PO / DO), Daftar Kontrak Harga Vendor (menggantikan
+tautan halaman `/vendor-contracts`; halaman operasional tetap untuk input/edit, dibuka dari drill laporan), Kepatuhan Harga PO vs
+Kontrak; tautan "Monitoring SPK" -> `/spk` tetap (placeholder P4 dihapus).
 """
 from __future__ import annotations
 
@@ -23,8 +26,7 @@ CARD_TITLES = {
 # Halaman existing (fungsi berbeda) -> (judul, keterangan, path, permission)
 LINKS = {
     "procurement": [("Traceability per Dokumen MRO", "Telusur satu MRO beserta seluruh dokumen turunannya.", "/traceability", "view")],
-    "spk": [("Monitoring SPK (Commitment & Realisasi)", "Daftar SPK; realisasi & commitment per SPK pada detail SPK.", "/spk", "view"),
-            ("Daftar Kontrak Harga Vendor", "Kontrak harga vendor, masa berlaku, dan addendum.", "/vendor-contracts", "view")],
+    "spk": [("Monitoring SPK (Commitment & Realisasi)", "Daftar SPK; realisasi & commitment per SPK pada detail SPK.", "/spk", "view")],
     "hutang": [("Register Invoice Vendor", "Invoice vendor beserta status verifikasi & pembayaran.", "/invoice?tab=invoice", "invoice.view"),
                ("Status Penagihan DO", "DO yang sudah/belum ditagihkan supplier.", "/invoice?tab=do", "invoice.view"),
                ("Outstanding DP Supplier", "DP supplier menunggu verifikasi & sudah dibayar.", "/dp-supplier", "supplier_dp.view")],
@@ -32,7 +34,6 @@ LINKS = {
 
 # Belum tersedia -> (judul, fase)
 PLANNED = {
-    "spk": [("Realisasi Anggaran SPK (rekap seluruh SPK)", "P4"), ("Kepatuhan Harga PO terhadap Kontrak", "P4")],
     "hutang": [("Aging Hutang Supplier", "P5"), ("Register Pembayaran", "P5"), ("Kartu Hutang Supplier", "P5")],
 }
 
