@@ -48,7 +48,7 @@ export function PriceExceptionTable({ vc, actLabel, nav, onDrill, delay = 0 }) {
   const cols = exceptionColumns(wv);
   const right = new Set(["Harga Kontrak", "Harga PO", "Tolerance", "Selisih"]);
   const k = vc?.price_control?.kpi || {};
-  const total = (k.lines_over || 0) + (k.lines_no_contract || 0);
+  const total = (k.lines_over || 0) + (k.lines_no_contract || 0) + (k.lines_history_incomplete || 0);
   return <Panel title="Price Exception" icon={TrendingUp} testid="dash-price-exceptions" delay={delay}
     action={<span className="flex items-center gap-2"><span className="hidden rounded-md bg-slate-50 px-2 py-1 text-[11px] text-slate-500 sm:inline dark:bg-slate-900" data-testid="dash-price-exceptions-period">{actLabel}</span>
       {total > rows.length && <Button variant="ghost" size="sm" onClick={() => onDrill("all")} className="h-8 rounded-lg text-[#3D5A80]" data-testid="dash-price-exceptions-all">Semua<ArrowRight className="ml-1 h-3.5 w-3.5" /></Button>}</span>}>

@@ -156,8 +156,9 @@ export const SPK_LEVEL = {
 /** Badge status Price Control (Effective Price Resolver existing). */
 export const PRICE_STATUS = {
   ok: { label: "Sesuai", cls: "border-[#D5E8DF] bg-[#EEF6F2] text-[#3D7A62]" },
-  over: { label: "Di Atas Tolerance", cls: "border-[#EEDADA] bg-[#FBF0F0] text-[#A34B4B]" },
+  over: { label: "Melebihi Tolerance", cls: "border-[#EEDADA] bg-[#FBF0F0] text-[#A34B4B]" },
   no_contract: { label: "Tanpa Kontrak", cls: "border-[#F1E3C8] bg-[#FBF4E8] text-[#9A6A22]" },
+  history_incomplete: { label: "Riwayat Harga Tidak Lengkap", cls: "border-slate-200 bg-slate-50 text-slate-600" },
 };
 
 /** Lebar bar progress 0–100 (nilai > 100 dipotong; null -> 0). */
@@ -265,10 +266,11 @@ export function priceKpiCards(pc, withValue) {
   const ratio = (a, b) => (b > 0 ? (a * 100) / b : null);
   const out = [
     { key: "ok", label: "PO Sesuai Harga Kontrak", value: k.po_ok ?? 0, tone: "green", drill: "ok", pct: ratio(k.po_ok, k.po_evaluated), sub: `dari ${k.po_evaluated ?? 0} PO Approved` },
-    { key: "over", label: "PO Di Atas Tolerance", value: k.po_over ?? 0, tone: "red", drill: "over", pct: ratio(k.po_over, k.po_evaluated), sub: `${k.lines_over ?? 0} baris barang` },
+    { key: "over", label: "PO Melebihi Tolerance", value: k.po_over ?? 0, tone: "red", drill: "over", pct: ratio(k.po_over, k.po_evaluated), sub: `${k.lines_over ?? 0} baris barang` },
     { key: "no_contract", label: "PO Tanpa Kontrak Aktif", value: k.po_no_contract ?? 0, tone: "amber", drill: "no_contract", pct: ratio(k.po_no_contract, k.po_evaluated), sub: `${k.lines_no_contract ?? 0} baris barang` },
   ];
-  if (withValue && k.diff_value != null) out.push({ key: "diff", label: "Nilai Selisih Harga", value: k.diff_value, money: true, tone: "slate", drill: "over", sub: "baris di atas tolerance" });
+  if (k.po_history_incomplete) out.push({ key: "history_incomplete", label: "PO Riwayat Harga Tidak Lengkap", value: k.po_history_incomplete, tone: "slate", drill: "history_incomplete", pct: ratio(k.po_history_incomplete, k.po_evaluated), sub: `${k.lines_history_incomplete ?? 0} baris perlu diperiksa` });
+  if (withValue && k.diff_value != null) out.push({ key: "diff", label: "Nilai Selisih Harga", value: k.diff_value, money: true, tone: "slate", drill: "over", sub: "baris melebihi tolerance" });
   return out;
 }
 

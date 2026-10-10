@@ -128,7 +128,7 @@ async def drill_price(server, user, date_from, date_to, division_id, project_id,
     perm = S.permissions(server, user)
     if not perm["po"]:
         raise HTTPException(403, "Tidak memiliki izin melihat PO.")
-    if status not in ("ok", "over", "no_contract", "all"):
+    if status not in (*PC.PRICE_STATUSES, "all"):
         status = "all"
     f = S.resolve_filters(server, user, date_from, date_to, division_id, project_id, supplier_id, period)
     po_rows = await _po_period_rows(server, user, f, perm)

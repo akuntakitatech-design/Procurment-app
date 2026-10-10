@@ -33,6 +33,8 @@ TESTS=(
   report_procurement_test.py
   report_outstanding_test.py
   report_warehouse_test.py
+  report_spk_test.py
+  dashboard_spk_contract_test.py
   stock_opname_freeze_coverage_test.py
   adjustment_multi_warehouse_test.py
   loan_multi_warehouse_test.py
