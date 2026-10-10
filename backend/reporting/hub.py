@@ -12,6 +12,10 @@ P3: card Warehouse = laporan aktif Transfer, Pinjam & Pengembalian, Penyesuaian 
 P4: card SPK & Kontrak Vendor = laporan aktif Realisasi Anggaran SPK (+ detail PO / DO), Daftar Kontrak Harga Vendor (menggantikan
 tautan halaman `/vendor-contracts`; halaman operasional tetap untuk input/edit, dibuka dari drill laporan), Kepatuhan Harga PO vs
 Kontrak; tautan "Monitoring SPK" -> `/spk` tetap (placeholder P4 dihapus).
+P5: card Invoice & Hutang = laporan aktif Register Invoice Vendor (menggantikan tautan `/invoice?tab=invoice`; halaman
+operasional Invoice tetap untuk input/pembayaran & dibuka dari drill), Monitoring Pembayaran, Outstanding (+ ringkasan), Aging,
+Rekap Hutang per Supplier (+ per bulan); tautan "Status Penagihan DO" & "Outstanding DP Supplier" tetap; seluruh placeholder P5
+(termasuk "Kartu Hutang Supplier" — terwakili laporan P5) dihapus.
 """
 from __future__ import annotations
 
@@ -27,15 +31,12 @@ CARD_TITLES = {
 LINKS = {
     "procurement": [("Traceability per Dokumen MRO", "Telusur satu MRO beserta seluruh dokumen turunannya.", "/traceability", "view")],
     "spk": [("Monitoring SPK (Commitment & Realisasi)", "Daftar SPK; realisasi & commitment per SPK pada detail SPK.", "/spk", "view")],
-    "hutang": [("Register Invoice Vendor", "Invoice vendor beserta status verifikasi & pembayaran.", "/invoice?tab=invoice", "invoice.view"),
-               ("Status Penagihan DO", "DO yang sudah/belum ditagihkan supplier.", "/invoice?tab=do", "invoice.view"),
+    "hutang": [("Status Penagihan DO", "DO yang sudah/belum ditagihkan supplier.", "/invoice?tab=do", "invoice.view"),
                ("Outstanding DP Supplier", "DP supplier menunggu verifikasi & sudah dibayar.", "/dp-supplier", "supplier_dp.view")],
 }
 
 # Belum tersedia -> (judul, fase)
-PLANNED = {
-    "hutang": [("Aging Hutang Supplier", "P5"), ("Register Pembayaran", "P5"), ("Kartu Hutang Supplier", "P5")],
-}
+PLANNED: dict = {}
 
 
 def card_extras(server, user, group_key) -> dict:

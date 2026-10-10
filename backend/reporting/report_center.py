@@ -70,7 +70,7 @@ def missing_required(spec, p) -> list:
     return [f.label for f in spec.filters if f.required and not p.get(f.key)]
 
 
-async def _filters_applied(server, spec, p, q):
+async def _filters_applied(server, spec, p, q, user=None):
     out = []
     labels = {f.key: f for f in spec.filters}
     if p.get("date_from") or p.get("date_to"):
@@ -86,6 +86,10 @@ async def _filters_applied(server, spec, p, q):
         elif k == "spk_id":
             d = await server.db.spk.find_one({"id": v}, {"_id": 0, "spk_number": 1})
             val = (d or {}).get("spk_number") or v
+        elif k == "invoice_id":
+            d = await server.db.vendor_invoices.find_one({"id": v}, {"_id": 0, "no": 1, "invoice_no": 1, "do_ids": 1}) or {}
+            vis = user is not None and (server.is_global(user) or all([await server.ACCESS_DOC_VISIBLE("do", x, user) for x in d.get("do_ids") or []]))
+            val = (" — ".join(x for x in (d.get("no"), d.get("invoice_no")) if x) or v) if d and vis else v  # tanpa bocor di luar cakupan
         elif f and f.type == "date":
             val = fmt_day(v)
         elif f and f.type in MASTER_LABEL:
@@ -112,6 +116,8 @@ async def run(server, user, key, qp) -> dict:
         if not server.has_perm(user, "view_purchase_price"):
             raise HTTPException(403, "Tidak memiliki akses nilai persediaan")
     else:
+        if not server.has_perm(user, spec.permission):  # pesan ramah (judul laporan), bukan kunci izin mentah
+            raise HTTPException(403, f"Anda tidak memiliki izin untuk melihat laporan {spec.title}.")
         server.require(user, spec.permission)
     p = await parse_params(server, user, spec, qp)
     q = (qp.get("q") or "").strip()
@@ -125,6 +131,8 @@ async def run(server, user, key, qp) -> dict:
     cols = spec.visible_columns(price_visible, lambda k: bool(server.has_perm(user, k)))
     if price_visible and any(c.perms and c not in cols for c in spec.columns):
         price_visible = False  # kolom harga disembunyikan karena izin tambahan (mis. vendor_contract:view) -> catatan UI/Excel/PDF
+    if not any(c.price for c in spec.columns):
+        price_visible = True  # laporan tanpa kolom harga (P5: nominal invoice = hak invoice.view) -> tidak ada yang disembunyikan
     keys = [c.key for c in cols]
     out_rows = []
     for r in rows:
@@ -147,7 +155,7 @@ async def run(server, user, key, qp) -> dict:
                  "generated_at": datetime.now(WIB).strftime("%d-%m-%Y %H:%M"), "notice": notice},
         "columns": [c.public() for c in cols],
         "filters": [f.public() for f in spec.filters],
-        "filters_applied": await _filters_applied(server, spec, p, q),
+        "filters_applied": await _filters_applied(server, spec, p, q, user),
         "rows": out_rows, "totals": totals, "total_rows": len(out_rows), "price_visible": price_visible,
         "export_limits": EXPORT_LIMITS,
     }
@@ -178,6 +186,7 @@ def install(server):
     import reporting.reports_procurement_outstanding  # noqa: F401  (P2b: outstanding, rekap pembelian, rekap nilai DO)
     import reporting.reports_warehouse  # noqa: F401  (P3: transfer, pinjam & pengembalian, penyesuaian, stock opname)
     import reporting.reports_spk  # noqa: F401  (P4: realisasi anggaran SPK, kontrak harga vendor, kepatuhan harga PO)
+    import reporting.reports_ap  # noqa: F401  (P5: register invoice, pembayaran, outstanding, aging, rekap hutang supplier)
     app = server.app
 
     async def catalog(user=Depends(server.current_user)):
