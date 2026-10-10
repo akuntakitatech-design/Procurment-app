@@ -34,6 +34,9 @@ TESTS=(
   report_outstanding_test.py
   report_warehouse_test.py
   report_spk_test.py
+  report_ap_test.py
+  vendor_invoice_access_test.py
+  report_audit_access_test.py
   dashboard_spk_contract_test.py
   stock_opname_freeze_coverage_test.py
   adjustment_multi_warehouse_test.py

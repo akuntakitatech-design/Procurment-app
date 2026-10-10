@@ -553,7 +553,7 @@ membuka detail MRO yang benar · secret scan: gitleaks scope P3 (15 file) **0**;
 (`.env`, 2 script test, `ci.yml`) -> tambahan P3 **0**; known-value scan (513 file tracked+untracked) 0 kredensial sandbox, 0 pola token GitHub.
 Sisa P3: tidak ada. Push & PR #62 (head 0716062) dibuat open; user me-review lalu MERGED ke `main` a222436.
 
-### P4 — Reporting SPK & Kontrak Harga Vendor (Status: IN PROGRESS; branch `feature/reporting-p4-spk-contract` dari `main` a222436; target 1 PR ke `main`, TANPA merge/deploy)
+### P4 — Reporting SPK & Kontrak Harga Vendor (Status: COMPLETED — PR #63 OPEN, belum di-merge; branch `feature/reporting-p4-spk-contract` dari `main` a222436; target 1 PR ke `main`, TANPA merge/deploy)
 Keputusan user (2026-10-09):
 1. Card "SPK & Kontrak Vendor": link "Monitoring SPK" tetap -> `/spk`; link "Daftar Kontrak Harga Vendor" DIGANTI laporan B; halaman
    operasional `/vendor-contracts` tetap (input/edit). Ketiga laporan A/B/C di Pusat Laporan; dari B user berwenang membuka detail kontrak.
@@ -604,7 +604,37 @@ Terapkan/Reset, tombol "Reset filter" pada error filter URL tidak valid.
 Gate final (kode final): regresi 27/27 (report_spk_test 45/45, report_center_test 59/59), integrity 13/13, frontend 18/18 file
 (reportCenter 32/32), CI=true yarn build PASS, git diff --check PASS, Browser UAT ulang PASS (deep link stabil 3x, SPK detail =
 laporan = API budget-control = Dashboard, redaksi uat_noprice), testing_agent_v3 iteration_29: 0 temuan, gitleaks: no leaks.
+PR: https://github.com/akuntakitatech-design/Procurment-app/pull/63 (head 3211419, base main, 3 commit, 23 file, +1285/-75)
+— state open, merged_at null, TANPA merge & TANPA deploy; tidak ada migrasi database. PR #63 kemudian DI-MERGE oleh user (main 017fdc2).
 
 
-### P5–P6 (Status: NOT STARTED)
-P5 Invoice & Hutang · P6 export di list transaksi · lalu Performance Optimization menyeluruh (PR terpisah).
+### P5 — Reporting Invoice, Pembayaran & Hutang Vendor (Status: IN PROGRESS — kode & gate selesai, menunggu commit/push/PR; branch `feature/reporting-p5-invoice-hutang` dari `main` 017fdc2; target 1 PR ke `main`, TANPA merge/deploy)
+Audit baseline (read-only): Invoice `vendor_invoices` (DPP/PPN/total, received_date = "invoice diterima" bukan dibayar, due_date,
+payment_status, paid_total, dp_allocated_total); multi-DO `vendor_invoice_allocations` (DO boleh ditagih parsial lintas invoice);
+pembayaran `vendor_invoice_payments` (parsial, banyak per invoice, Aktif→Dibatalkan + alasan; hanya Referensi & Catatan — tanpa
+rekening/metode); DP `vendor_invoice_dp_allocations`; lampiran entity invoice / invoice_payment; izin invoice.* lewat hook route
+global (access_control_layer.classify); visibilitas invoice = SELURUH DO dalam cakupan user; as-of WIB reporting/finance.invoices_as_of.
+Keputusan user: (1) Monitoring Pembayaran: Referensi + Catatan saja; kolom "Rekening Utama Supplier" TIDAK ditampilkan
+(keputusan terbaru, menggantikan opsi kolom master berlabel); (2) invoice tanpa status batal (hapus permanen) & nilai invoice tidak
+berversi -> posisi historis memakai nilai invoice kini — KETERBATASAN yang diterima, dicatat di catatan laporan; (3) Sisa = Total −
+DP Dialokasikan − Pembayaran Aktual, DP kolom terpisah, bukan pembayaran; DP belum dialokasikan tidak mengurangi hutang;
+(4) filter divisi/proyek: invoice masuk bila salah satu DO cocok, nilai tidak dipecah; baris berlabel "Lebih dari satu divisi:
+<nama>" / "Lebih dari satu proyek: <nama>"; ringkasan: kelompok "Lebih dari satu divisi/proyek"; drill kelompok = isi kelompok
+persis; (5) placeholder hutang (termasuk Kartu Hutang Supplier) dihapus; tautan Register Invoice diganti laporan; Status Penagihan
+DO & DP Supplier tetap; tanpa filter gudang; (6) jatuh tempo = cut-off -> Belum Jatuh Tempo.
+Implementasi: backend/reporting/reports_ap.py (7 ReportSpec grup `hutang`, izin invoice.view): ap-invoice-register, ap-payments,
+ap-outstanding, ap-outstanding-summary, ap-aging, ap-supplier-recap, ap-supplier-recap-monthly; hub.py; report_center.py (import,
+badge harga tidak tampil untuk laporan tanpa kolom harga, pesan 403 ramah, label filter invoice_id hanya bila invoice terlihat).
+Keamanan (audit menyeluruh): endpoint Invoice Vendor sudah dijaga hook izin global + get_inv (cakupan DO) — dibuktikan regression
+commit 819c70a (vendor_invoice_access_test 14/14). TEMUAN BARU & DIPERBAIKI: /api/audit menampilkan baris audit export laporan
+(entity "report": filter terpakai termasuk label invoice/SPK, jumlah baris) kepada user lintas divisi yang tidak berizin laporan tsb
+-> report_center._install_audit_guard menyaring baris audit "report" per izin laporan (commit keamanan terpisah;
+tests/report_audit_access_test.py 7/7; kontrol negatif tanpa perbaikan: 5/7 GAGAL = celah nyata). Cross-division leak test
+report_ap_test I3b–I3h & I6 (JSON 7 laporan, pencarian, total, pagination, Excel, PDF, invoice_id langsung, drill 403, user tanpa
+invoice.view 403 JSON/Excel/PDF).
+Temuan pre-existing di luar P5 (tidak diubah): supplier_dp_test.py 80/81 bila dijalankan pada backend terisolasi — helper `dbw`
+menulis ke DATABASE_URL di backend/.env (DB sandbox), bukan DB test, sehingga UPDATE status PO tidak mengenai DB test. Perlu
+perbaikan helper test terpisah (pola sama dengan 8ac72e3).
+
+### P6 (Status: NOT STARTED)
+P6 export di list transaksi · lalu Performance Optimization menyeluruh (PR terpisah).
