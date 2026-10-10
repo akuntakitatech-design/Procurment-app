@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 import report_control_scope_layer as RCS
 from reporting import hub as HUB
 from reporting import registry as R
-from reporting.exporters import to_pdf, to_xlsx
+from reporting.exporters import fmt_day, to_pdf, to_xlsx
 
 WIB = ZoneInfo("Asia/Jakarta")
 EXPORT_LIMITS = {"xlsx": 100_000, "pdf": 5_000}
@@ -74,7 +74,7 @@ async def _filters_applied(server, spec, p, q):
     out = []
     labels = {f.key: f for f in spec.filters}
     if p.get("date_from") or p.get("date_to"):
-        out.append({"key": "period", "label": "Periode", "value": f"{p.get('date_from') or 'awal'} s/d {p.get('date_to') or 'akhir'}"})
+        out.append({"key": "period", "label": "Periode", "value": f"{fmt_day(p.get('date_from')) or 'awal'} s/d {fmt_day(p.get('date_to')) or 'akhir'}"})
     for k, v in p.items():
         if not v or k in ("date_from", "date_to"):
             continue
@@ -83,6 +83,11 @@ async def _filters_applied(server, spec, p, q):
         if k == "division_id":
             d = await server.db.divisions.find_one({"id": v}, {"_id": 0, "name": 1})
             val = (d or {}).get("name") or v
+        elif k == "spk_id":
+            d = await server.db.spk.find_one({"id": v}, {"_id": 0, "spk_number": 1})
+            val = (d or {}).get("spk_number") or v
+        elif f and f.type == "date":
+            val = fmt_day(v)
         elif f and f.type in MASTER_LABEL:
             d = await getattr(server.db, MASTER_LABEL[f.type]).find_one({"id": v}, {"_id": 0, "name": 1, "code": 1})
             val = " — ".join(x for x in ((d or {}).get("code"), (d or {}).get("name")) if x) or v

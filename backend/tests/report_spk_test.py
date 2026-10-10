@@ -183,6 +183,30 @@ def main():
           and da[1]["basis"].startswith("Proporsional") and (da[0].get("_drill") or {}).get("to") == f"/do/DO1-{u}", da)
     check("A3 Σ realisasi DO per SPK = rekap A1 (A 600 rb, M 320 rb)", near(sum(r["realization"] for r in da), 600_000)
           and near(sum(r["realization"] for r in rows(ddo) if r["spk_no"] == f"SPK-M-{u}"), 320_000))
+    # Halaman detail SPK (/spk/:id) memakai laporan yang SAMA via filter tersembunyi spk_id (bukan placeholder budget_summary)
+    _, dA = rc(call, "spk-budget", f"date_to=2025-10-31&status=all&spk_id={A}")
+    _, dAp = rc(call, "spk-budget-po", f"date_to=2025-10-31&status=all&spk_id={A}")
+    fA = next((f for f in dA.get("filters", []) if f["key"] == "spk_id"), {})
+    keys_ = ("commitment", "realization", "open_commitment", "remaining", "usage_pct", "budget_final")
+    check("A4 filter spk_id: 1 baris = baris SPK-A rekap (commitment/realisasi/open/sisa/%), detail PO hanya SPK-A, filter hidden, label No. SPK",
+          [r["no"] for r in rows(dA)] == [f"SPK-A-{u}"] and all(rows(dA)[0][k] == r2[f"SPK-A-{u}"][k] for k in keys_)
+          and {r["spk_no"] for r in rows(dAp)} == {f"SPK-A-{u}"} and len(rows(dAp)) == sum(1 for r in rows(dpo) if r["spk_no"] == f"SPK-A-{u}")
+          and fA.get("hidden") is True and any(f["key"] == "spk_id" and f["value"] == f"SPK-A-{u}" for f in dA.get("filters_applied", [])),
+          (rows(dA), fA, dA.get("filters_applied")))
+    # Tanggal Indonesia: PDF & label periode DD-MM-YYYY; JSON & sel Excel tetap nilai ISO yang sama (kontrak paritas Excel = JSON)
+    qd = f"date_to=2025-10-31&status=all&spk_id={A}"
+    xr = T.S.get(f"{API}/report-center/spk-budget/export.xlsx?{qd}")
+    ws_ = load_workbook(io.BytesIO(xr.content)).worksheets[0]
+    hrow = next(r for r in ws_.iter_rows() if r[0].value == "No. SPK")
+    ci = [c.value for c in hrow].index("Mulai")
+    dcell = ws_.cell(row=hrow[0].row + 1, column=ci + 1)
+    _, ptd = pdf(T.S, "spk-budget", qd)
+    check("Tanggal Indonesia: PDF '01-01-2025' & periode 's/d 31-10-2025'; JSON ISO = sel Excel (paritas)",
+          xr.ok and dcell.value == rows(dA)[0]["start_date"] == "2025-01-01"
+          and "01-01-2025" in ptd and "2025-01-01" not in ptd and "s/d 31-10-2025" in ptd and rows(dA)[0]["start_date"] == "2025-01-01"
+          and any(f["key"] == "period" and f["value"] == "awal s/d 31-10-2025" for f in dA.get("filters_applied", [])),
+          (dcell.value, dcell.number_format, ptd[:300]))
+
 
     # ------------------------------------------------------------------ B. Kontrak + C. riwayat harga
     supX, U_ = M["supX"], M["uom"]

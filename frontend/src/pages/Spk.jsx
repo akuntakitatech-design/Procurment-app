@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import api, { API, apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
@@ -19,6 +19,8 @@ import {
   Wallet, TrendingUp, Layers3, Info, ClipboardList,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { NUMERIC_TYPES, formatCell } from "@/lib/reportCenter";
 
 const rupiah = (v) => "Rp " + (Number(v || 0)).toLocaleString("id-ID");
 const parseMoney = (s) => {
@@ -446,11 +448,73 @@ function AddendumPanel({ spk, onChanged }) {
   );
 }
 
+// Posisi Commitment / Realisasi / Sisa Budget hari ini (WIB) — READ-ONLY dari perhitungan yang SAMA dengan Dashboard SPK &
+// Laporan "Realisasi Anggaran SPK" (Pusat Laporan, filter spk_id). Redaksi harga & izin tetap server-side.
+const POS_LIMIT = 500;
+function useSpkPosition(id) {
+  const [pos, setPos] = useState({ loading: true, row: null, lines: null, err: "" });
+  useEffect(() => {
+    let live = true;
+    const q = `spk_id=${encodeURIComponent(id)}&status=all&page_size=${POS_LIMIT}`;
+    setPos({ loading: true, row: null, lines: null, err: "" });
+    Promise.all([api.get(`/report-center/spk-budget?${q}`), api.get(`/report-center/spk-budget-po?${q}`)])
+      .then(([a, b]) => { if (live) setPos({ loading: false, row: a.data.rows?.[0] || null, lines: b.data, err: "" }); })
+      .catch((e) => { if (live) setPos({ loading: false, row: null, lines: null, err: apiError(e.response?.data?.detail) }); });
+    return () => { live = false; };
+  }, [id]);
+  return pos;
+}
+
+function SpkCommitmentPanel({ id, pos }) {
+  const full = `/report-center/spk-budget-po?spk_id=${encodeURIComponent(id)}&status=all`;
+  if (pos.loading) return <div className="rounded-xl border bg-card p-10 text-center text-sm text-muted-foreground" data-testid="spk-commitment-loading">Memuat commitment & realisasi...</div>;
+  if (pos.err) return <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" data-testid="spk-commitment-error">{pos.err}</div>;
+  const res = pos.lines;
+  if (!res?.rows?.length) {
+    return (
+      <div className="rounded-xl border bg-card p-10 text-center" data-testid="spk-commitment-empty">
+        <ClipboardList className="h-10 w-10 mx-auto text-muted-foreground/50" />
+        <p className="mt-3 text-sm text-muted-foreground">Belum ada transaksi Procurement yang menggunakan SPK ini.</p>
+      </div>
+    );
+  }
+  const cols = res.columns.filter((c) => c.key !== "spk_no");
+  return (
+    <div className="space-y-2" data-testid="spk-commitment-panel">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>Per baris PO (porsi SPK ini) · posisi hari ini (WIB) · {res.total_rows} baris{!res.price_visible ? " · kolom harga disembunyikan sesuai hak akses" : ""}</span>
+        <Link to={full} className="font-medium text-primary hover:underline" data-testid="spk-commitment-report-link">Buka di Pusat Laporan (filter, Excel, PDF)</Link>
+      </div>
+      <div className="overflow-x-auto rounded-xl border bg-card">
+        <Table data-testid="spk-commitment-table">
+          <TableHeader><TableRow>{cols.map((c) => <TableHead key={c.key} className={`whitespace-nowrap text-xs uppercase ${NUMERIC_TYPES.has(c.type) ? "text-right" : ""}`}>{c.label}</TableHead>)}</TableRow></TableHeader>
+          <TableBody>
+            {res.rows.map((r, i) => (
+              <TableRow key={i} data-testid={`spk-commitment-row-${i}`}>
+                {cols.map((c) => {
+                  const v = formatCell(r[c.key], c.type);
+                  return <TableCell key={c.key} className={NUMERIC_TYPES.has(c.type) ? "whitespace-nowrap text-right tabular-nums" : ""}>
+                    {c.key === "no" && r._drill?.to ? <Link to={r._drill.to} className="font-mono text-xs font-semibold text-primary hover:underline" data-testid={`spk-commitment-po-${i}`}>{v}</Link> : v}
+                  </TableCell>;
+                })}
+              </TableRow>
+            ))}
+          </TableBody>
+          <TableFooter><TableRow>{cols.map((c, i) => <TableCell key={c.key} className={NUMERIC_TYPES.has(c.type) ? "whitespace-nowrap text-right tabular-nums font-semibold" : "font-semibold"}>
+            {c.total ? formatCell(res.totals[c.key], c.type) : i === 0 ? "TOTAL" : ""}</TableCell>)}</TableRow></TableFooter>
+        </Table>
+      </div>
+      {res.total_rows > res.rows.length && <p className="text-xs text-muted-foreground">Menampilkan {res.rows.length} dari {res.total_rows} baris — lihat seluruhnya di Pusat Laporan.</p>}
+    </div>
+  );
+}
+
 export function SpkDetail() {
   const nav = useNavigate();
   const { id } = useParams();
   const [spk, setSpk] = useState(null);
   const [tab, setTab] = useState("summary");
+  const pos = useSpkPosition(id);
   const load = useCallback(() => api.get(`/spk/${id}`).then((r) => setSpk(r.data)).catch((e) => toast.error(apiError(e.response?.data?.detail))), [id]);
   useEffect(() => { load(); }, [load]);
 
@@ -464,13 +528,18 @@ export function SpkDetail() {
     catch (e) { toast.error(apiError(e.response?.data?.detail)); }
   };
 
+  const pr = pos.row;  // null: memuat / tanpa izin / SPK belum mulai pada hari ini
+  const posVal = (k) => (pr ? pr[k] : null);
   const cards = [
-    ["Nilai SPK", bs.spk_value, "text-slate-700", bs.original_spk_value !== bs.spk_value ? bs.original_spk_value : null],
-    ["Budget Procurement", bs.procurement_budget, "text-sky-700", bs.original_procurement_budget !== bs.procurement_budget ? bs.original_procurement_budget : null],
-    ["Commitment", bs.commitment, "text-amber-700", null],
-    ["Realisasi", bs.realisasi, "text-violet-700", null],
-    ["Sisa Budget", bs.available_budget, "text-emerald-700", null],
+    ["Nilai SPK", bs.spk_value, "text-slate-700", bs.original_spk_value !== bs.spk_value ? bs.original_spk_value : null, "spk-card-value"],
+    ["Budget Procurement", bs.procurement_budget, "text-sky-700", bs.original_procurement_budget !== bs.procurement_budget ? bs.original_procurement_budget : null, "spk-card-budget"],
+    ["Commitment", posVal("commitment"), "text-amber-700", null, "spk-card-commitment"],
+    ["Realisasi", posVal("realization"), "text-violet-700", null, "spk-card-realization"],
+    ["Sisa Budget", posVal("remaining"), "text-emerald-700", null, "spk-card-remaining"],
   ];
+  const usage = pr?.usage_pct ?? 0;
+  const posNote = pos.loading ? "Memuat posisi..." : pos.err ? pos.err : !pr ? "SPK belum berlaku pada hari ini — belum ada posisi commitment." :
+    "Commitment, Realisasi & Sisa Budget: posisi hari ini (WIB), perhitungan sama dengan Dashboard & laporan Realisasi Anggaran SPK.";
 
   return (
     <div>
@@ -499,14 +568,15 @@ export function SpkDetail() {
 
       {/* summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
-        {cards.map(([label, val, color, orig]) => (
-          <div key={label} className="rounded-xl border bg-card p-4 shadow-sm">
+        {cards.map(([label, val, color, orig, tid]) => (
+          <div key={label} className="rounded-xl border bg-card p-4 shadow-sm" data-testid={tid}>
             <div className="text-xs text-muted-foreground">{label}</div>
-            <div className={`text-lg font-bold font-head mt-1.5 ${color}`}>{rupiah(val)}</div>
+            <div className={`text-lg font-bold font-head mt-1.5 ${color}`}>{val == null ? "–" : rupiah(val)}</div>
             {orig != null && <div className="text-[11px] text-muted-foreground mt-0.5">Original {rupiah(orig)}</div>}
           </div>
         ))}
       </div>
+      <p className="-mt-2 mb-4 text-[11px] text-muted-foreground" data-testid="spk-position-note">{posNote}</p>
       {bs.over_budget && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700 mb-4" data-testid="over-budget-indicator">Status: OVER_BUDGET — budget saat ini lebih kecil dari commitment berjalan.</div>}
 
       {/* budget policy */}
@@ -518,8 +588,8 @@ export function SpkDetail() {
           <div><div className="text-xs text-muted-foreground">Effective Category Policy</div><div className="font-medium mt-1">{policyLabel(ep.category)}</div></div>
         </div>
         <div className="mt-3">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1"><span>Commitment / Budget Procurement</span><span>{bs.commitment_pct || 0}%</span></div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-sky-500" style={{ width: `${Math.min(100, bs.commitment_pct || 0)}%` }} /></div>
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1"><span>Commitment / Budget Procurement</span><span data-testid="spk-usage-pct">{formatCell(usage, "qty")}%</span></div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-sky-500" style={{ width: `${Math.min(100, Math.max(0, usage))}%` }} /></div>
         </div>
       </div>
 
@@ -538,12 +608,7 @@ export function SpkDetail() {
           <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Jumlah Dokumen</div><div className="font-medium mt-1">{spk.document_count || 0}</div></div>
         </div>
       )}
-      {tab === "commitment" && (
-        <div className="rounded-xl border bg-card p-10 text-center" data-testid="spk-commitment-empty">
-          <ClipboardList className="h-10 w-10 mx-auto text-muted-foreground/50" />
-          <p className="mt-3 text-sm text-muted-foreground">Belum ada transaksi Procurement yang menggunakan SPK ini.</p>
-        </div>
-      )}
+      {tab === "commitment" && <SpkCommitmentPanel id={id} pos={pos} />}
       {tab === "addendum" && <AddendumPanel spk={spk} onChanged={load} />}
       {tab === "documents" && <SpkDocuments spkId={id} canManage={canManage} />}      {tab === "notes" && (
         <div className="rounded-xl border bg-card p-5">

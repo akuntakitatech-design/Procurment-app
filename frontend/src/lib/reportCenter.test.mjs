@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildQuery, drillColumnIndex, exportState, formatCell, isIsoDay, legacyReportPath, openParam, reportPath, validateFilters } from "./reportCenter.js";
+import { buildQuery, drillColumnIndex, exportState, filtersFromSearch, fmtDay, formatCell, isIsoDay, legacyReportPath, openParam, reportPath, validateFilters } from "./reportCenter.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (p) => readFileSync(join(here, p), "utf8");
@@ -77,6 +77,24 @@ const pagesOpen = ["Transfer", "Loan", "Adjustment", "Opname"].map((n) => src(`.
 check("28 halaman Transfer/Pinjam/Penyesuaian/Opname membuka detail dari drill Pusat Laporan (?open=) sekali per id",
   hook.includes("openParam(search)") && hook.includes("done.current !== id")
   && pagesOpen.every((t) => t.includes('from "@/hooks/useOpenParam"') && /useOpenParam\(/.test(t)));
+
+// P4 finalisasi: tanggal Indonesia, filter dari URL, filter tersembunyi, posisi SPK dari laporan
+check("29 kolom tanggal DD-MM-YYYY (tanpa konversi zona waktu); kosong '-'; non-tanggal apa adanya",
+  formatCell("2025-10-31", "date") === "31-10-2025" && formatCell("2026-01-05T23:30:00+00:00", "date") === "05-01-2026"
+  && formatCell(null, "date") === "-" && fmtDay("x") === "x" && formatCell("2025-10-31", "text") === "2025-10-31");
+check("30 filter dari URL: paging/open/tab diabaikan, nilai kosong dibuang",
+  JSON.stringify(filtersFromSearch("?date_to=2025-10-31&status=all&page=2&page_size=50&open=x&tab=y&q=%20&spk_id=s1"))
+  === JSON.stringify({ date_to: "2025-10-31", status: "all", spk_id: "s1" }), filtersFromSearch("?date_to=2025-10-31&page=2"));
+const rcPage = src("../pages/ReportCenter.jsx");
+check("31 Pusat Laporan: filter URL dipakai request pertama (tanpa respon basi menimpa), saat ganti laporan, URL ikut Terapkan/Reset, filter hidden tidak dirender",
+  rcPage.includes("useState(() => filtersFromSearch(searchRef.current))") && rcPage.includes("seq === reqSeq.current) setRes(r.data)")
+  && /setApplied\(\{ \.\.\.draft \}\); syncUrl\(draft\)/.test(rcPage)
+  && rcPage.includes("syncUrl({})") && rcPage.includes("res.filters.filter((f) => !f.hidden)") && rcPage.includes('data-testid="report-center-error-reset"'));
+const spkPage = src("../pages/Spk.jsx");
+check("32 Detail SPK: Commitment/Realisasi/Sisa dari laporan Realisasi Anggaran SPK (spk_id), bukan placeholder budget_summary",
+  spkPage.includes("/report-center/spk-budget?${q}") && spkPage.includes("/report-center/spk-budget-po?${q}")
+  && spkPage.includes('posVal("commitment")') && spkPage.includes('posVal("remaining")') && !spkPage.includes("bs.commitment,")
+  && !spkPage.includes("bs.available_budget") && spkPage.includes("<SpkCommitmentPanel"));
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exit(fail ? 1 : 0);

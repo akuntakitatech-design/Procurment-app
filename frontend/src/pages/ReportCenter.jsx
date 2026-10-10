@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AlertCircle, ArrowUpRight, ChevronRight, FileSpreadsheet, FileText, LayoutGrid, RotateCcw, Search } from "lucide-react";
 import api from "@/lib/api";
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { NUMERIC_TYPES, buildQuery, drillColumnIndex, exportState, formatCell, reportPath, validateFilters } from "@/lib/reportCenter";
+import { NUMERIC_TYPES, buildQuery, drillColumnIndex, exportState, filtersFromSearch, formatCell, reportPath, validateFilters } from "@/lib/reportCenter";
 
 const errMsg = async (e) => {
   const d = e?.response?.data;
@@ -107,7 +107,7 @@ function FilterBar({ res, draft, setDraft, onApply, onReset, masterOpts }) {
   return (
     <form className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5" data-testid="report-center-filters"
       onSubmit={(e) => { e.preventDefault(); onApply(); }}>
-      {res.filters.map((f) => (
+      {res.filters.filter((f) => !f.hidden).map((f) => (
         <div key={f.key} className="space-y-1.5">
           <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" htmlFor={`rc-f-${f.key}`}>{f.label}{f.required && <span className="text-destructive"> *</span>}</label>
           {f.type === "date" && <Input id={`rc-f-${f.key}`} type="date" value={draft[f.key] || ""} onChange={(e) => set(f.key, e.target.value)} data-testid={`report-filter-${f.key}`} />}
@@ -184,33 +184,45 @@ export default function ReportCenter() {
   const [res, setRes] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [draft, setDraft] = useState({});
-  const [applied, setApplied] = useState({});
+  const [search, setSearch] = useSearchParams();
+  const searchRef = useRef(search.toString());
+  searchRef.current = search.toString();
+  // Filter awal dari URL (?date_to=...&status=...) sudah dipakai pada request PERTAMA -> tautan laporan dapat dibagikan.
+  const [draft, setDraft] = useState(() => filtersFromSearch(searchRef.current));
+  const [applied, setApplied] = useState(() => filtersFromSearch(searchRef.current));
+  const reqSeq = useRef(0);  // hanya respon request terakhir yang dipakai (respon lama tidak menimpa filter terbaru)
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [busy, setBusy] = useState("");
+  const firstKeyRun = useRef(true);
 
   useEffect(() => {
     api.get("/report-center/catalog").then((r) => setCatalog(r.data)).catch(async (e) => setCatErr(await errMsg(e)));
   }, []);
 
   const firstKey = useMemo(() => catalog?.groups.flatMap((g) => g.reports)[0]?.key, [catalog]);
-  useEffect(() => { setDraft({}); setApplied({}); setPage(1); setRes(null); }, [key]);
+  // Ganti laporan: filter diambil ulang dari URL tujuan (link menu = tanpa filter). Render pertama sudah diinisialisasi di atas.
+  useEffect(() => {
+    if (firstKeyRun.current) { firstKeyRun.current = false; return; }
+    const f = filtersFromSearch(searchRef.current); setDraft(f); setApplied(f); setPage(1); setRes(null);
+  }, [key]);
+  const syncUrl = (f) => setSearch(new URLSearchParams(buildQuery(f)), { replace: true });
 
   const load = useCallback(async () => {
     if (!key) return;
+    const seq = ++reqSeq.current;
     setLoading(true); setError("");
     try {
       const r = await api.get(`/report-center/${encodeURIComponent(key)}?${buildQuery(applied, { page, page_size: pageSize })}`);
-      setRes(r.data);
-    } catch (e) { setError(await errMsg(e)); } finally { setLoading(false); }
+      if (seq === reqSeq.current) setRes(r.data);
+    } catch (e) { if (seq === reqSeq.current) setError(await errMsg(e)); } finally { if (seq === reqSeq.current) setLoading(false); }
   }, [key, applied, page, pageSize]);
   useEffect(() => { load(); }, [load]);
 
   const apply = () => {
     const msg = validateFilters(draft, res?.filters);
     if (msg) { toast.error(msg); return; }
-    setPage(1); setApplied({ ...draft });
+    setPage(1); setApplied({ ...draft }); syncUrl(draft);
   };
 
   const doExport = async (fmt) => {
@@ -257,7 +269,7 @@ export default function ReportCenter() {
                   <Button variant="outline" onClick={() => doExport("pdf")} disabled={!!busy || !catalog?.can_export} data-testid="report-center-export-pdf"><FileText className="mr-1.5 h-4 w-4" />{busy === "pdf" ? "Menyiapkan..." : "Export PDF"}</Button>
                 </div>
               </div>
-              <FilterBar res={res} draft={draft} setDraft={setDraft} onApply={apply} onReset={() => { setDraft({}); setPage(1); setApplied({}); }} masterOpts={masterOpts} />
+              <FilterBar res={res} draft={draft} setDraft={setDraft} onApply={apply} onReset={() => { setDraft({}); setPage(1); setApplied({}); syncUrl({}); }} masterOpts={masterOpts} />
               <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="report-center-applied">
                 {res.filters_applied.length === 0 ? <Badge variant="secondary">Semua data</Badge> : res.filters_applied.map((f) => <Badge key={f.key} variant="secondary">{f.label}: {f.value}</Badge>)}
                 {!res.price_visible && <Badge variant="outline" data-testid="report-center-price-hidden">Kolom harga disembunyikan sesuai hak akses</Badge>}
@@ -268,7 +280,10 @@ export default function ReportCenter() {
           {error && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" data-testid="report-center-error">
               <span className="flex items-center gap-2"><AlertCircle className="h-4 w-4" />{error}</span>
-              <Button size="sm" variant="outline" onClick={load} data-testid="report-center-retry">Coba lagi</Button>
+              <span className="flex gap-2">
+                {Object.keys(applied).length > 0 && <Button size="sm" variant="outline" onClick={() => { setDraft({}); setPage(1); setApplied({}); syncUrl({}); }} data-testid="report-center-error-reset"><RotateCcw className="mr-1.5 h-3.5 w-3.5" />Reset filter</Button>}
+                <Button size="sm" variant="outline" onClick={load} data-testid="report-center-retry">Coba lagi</Button>
+              </span>
             </div>
           )}
           {loading && !res && <div className="space-y-2" data-testid="report-center-loading">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-9 w-full" />)}</div>}

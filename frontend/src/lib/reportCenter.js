@@ -34,7 +34,7 @@ const QTY = nf({ maximumFractionDigits: 4 });
 const MONEY = nf({ minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const INT = nf({ maximumFractionDigits: 0 });
 
-// Format sel = format Excel/PDF (qty maks 4 desimal, uang 2 desimal, pemisah ribuan titik).
+// Format sel = format Excel/PDF (qty maks 4 desimal, uang 2 desimal, pemisah ribuan titik); tanggal DD-MM-YYYY = PDF (sel Excel = nilai ISO JSON).
 export function formatCell(value, type) {
   if (value === null || value === undefined || value === "") return "-";
   if (NUMERIC_TYPES.has(type)) {
@@ -42,7 +42,22 @@ export function formatCell(value, type) {
     if (!Number.isFinite(n)) return "-";
     return type === "money" ? MONEY.format(n) : type === "int" ? INT.format(n) : QTY.format(n);
   }
+  if (type === "date") return fmtDay(value);
   return String(value);
+}
+
+// Tanggal bisnis ISO (YYYY-MM-DD...) -> DD-MM-YYYY tanpa konversi zona waktu; nilai lain apa adanya.
+export function fmtDay(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v ?? ""));
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : String(v ?? "");
+}
+
+// Filter dari query URL (tautan yang dapat dibagikan): paging & parameter navigasi tidak ikut; validasi tetap server-side.
+const NON_FILTER_PARAMS = new Set(["page", "page_size", "open", "tab"]);
+export function filtersFromSearch(search = "") {
+  const out = {};
+  new URLSearchParams(search).forEach((v, k) => { if (!NON_FILTER_PARAMS.has(k) && String(v).trim()) out[k] = String(v).trim(); });
+  return out;
 }
 
 // Export diizinkan? (izin export + batas baris tegas dari server; tidak memotong data).

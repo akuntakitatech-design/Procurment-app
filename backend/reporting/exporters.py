@@ -5,6 +5,7 @@ isi UI = Excel = PDF. Kolom harga sudah dibuang sebelum sampai di sini bila peng
 """
 from __future__ import annotations
 
+from datetime import date
 from io import BytesIO
 
 from openpyxl import Workbook
@@ -15,6 +16,20 @@ from openpyxl.utils import get_column_letter
 NUM_FMT = {"qty": "#,##0.####", "money": "#,##0.00", "int": "#,##0"}
 HEAD_FILL = PatternFill("solid", fgColor="E7ECF2")
 THIN = Side(style="thin", color="B8C2CC")
+
+
+def as_day(v):
+    """Nilai kolom tanggal (YYYY-MM-DD...) -> date; None bila bukan tanggal ISO."""
+    try:
+        return date.fromisoformat(str(v)[:10]) if v not in (None, "") else None
+    except ValueError:
+        return None
+
+
+def fmt_day(v) -> str:
+    """Tanggal ISO -> DD-MM-YYYY (tampilan UI/PDF/label periode). Sel Excel tetap = nilai JSON (kontrak paritas R6)."""
+    d = as_day(v)
+    return d.strftime("%d-%m-%Y") if d else ("" if v is None else str(v))
 
 
 def _num(v):
@@ -101,6 +116,8 @@ def _fmt(v, typ):
     if typ in NUM_FMT and isinstance(v, (int, float)):
         s = f"{v:,.2f}" if typ == "money" else (f"{v:,.0f}" if typ == "int" else f"{v:,.4f}".rstrip("0").rstrip("."))
         return s.replace(",", "#").replace(".", ",").replace("#", ".")
+    if typ == "date":
+        return fmt_day(v)
     return str(v)
 
 

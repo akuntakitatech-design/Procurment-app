@@ -34,6 +34,7 @@ F_SUP, F_ITEM = Filter("supplier_id", "Supplier", "supplier"), Filter("item_id",
 F_SPK_STATUS = Filter("status", "Status SPK", "select", (
     ("active_closed", "Active + Closed"), ("all", "Semua Status"), ("draft", "Draft"), ("active", "Active"),
     ("closed", "Closed"), ("cancelled", "Cancelled")), default="active_closed")
+F_SPK_ID = Filter("spk_id", "SPK", "text", hidden=True)  # halaman detail SPK: posisi satu SPK dari perhitungan yang sama
 F_KONDISI = Filter("kondisi", "Posisi / Kondisi", "select", (
     ("active", "Aktif pada cut-off"), ("expiring", "Akan Berakhir ≤ 30 Hari"), ("over", "Over Budget"),
     ("critical", "Kritis (> 90%)"), ("attention", "Perlu Perhatian"), ("ended", "Masa Berlaku Berakhir")))
@@ -69,6 +70,8 @@ async def _spk_base(server, user, p):
         extra = await server.db.spk.find({"status": {"$in": ["draft", "cancelled"]}}, {"_id": 0}).to_list(None)
         data = {**data, "spk": data["spk"] + extra}
     rows = SPK.rows_at(data, f, cut, user, server)
+    if p.get("spk_id"):
+        rows = [r for r in rows if r["id"] == p["spk_id"]]
     if st not in ("all", "active_closed"):
         rows = [r for r in rows if r["status"] == st]
     k = p.get("kondisi")
@@ -345,7 +348,7 @@ SPECS = [
                  M("open_commitment", "Open Commitment"), M("remaining", "Sisa Budget"),
                  Column("usage_pct", "% Pemakaian", "qty", width=9), Column("level", "Level", width=11),
                  Column("flags", "Perlu Perhatian", width=22)),
-        builder=spk_budget, filters=(F_CUT, F_DIV, F_PROJ, F_SPK_STATUS, F_KONDISI),
+        builder=spk_budget, filters=(F_CUT, F_DIV, F_PROJ, F_SPK_STATUS, F_KONDISI, F_SPK_ID),
         search_keys=("no", "title", "project", "division", "status"), permission="spk:view", date_basis=SPK_NOTE,
         drill=_drill("spk", "id")),
     ReportSpec(
@@ -358,7 +361,7 @@ SPECS = [
                  Column("do_refs", "No. DO", width=18), Column("commit_state", "Status Commitment", width=16),
                  Column("unit_price", "Harga Satuan Commit", "money", price=True, width=14),
                  M("commitment", "Commitment"), M("realization", "Realisasi DO"), M("open_commitment", "Open Commitment")),
-        builder=spk_budget_po, filters=(F_CUT, F_DIV, F_PROJ, F_SPK_STATUS, F_KONDISI, F_ITEM),
+        builder=spk_budget_po, filters=(F_CUT, F_DIV, F_PROJ, F_SPK_STATUS, F_KONDISI, F_ITEM, F_SPK_ID),
         search_keys=("spk_no", "no", "supplier", "item_code", "item_name", "do_refs"), permission="spk:view",
         date_basis=SPK_NOTE + " Satu baris = porsi satu SPK pada satu baris PO (ledger commitment); PO multi-SPK tidak dihitung ganda.",
         drill=_drill("po", "po_id")),
@@ -370,7 +373,7 @@ SPECS = [
                  Column("item_code", "Kode Barang", width=12), Column("item_name", "Nama Barang", width=22),
                  Column("qty_do", "Qty DO (Porsi SPK)", "qty", width=11), Column("qty_counted", "Qty Dihitung Realisasi", "qty", width=11),
                  Column("basis", "Dasar Alokasi", width=20), M("realization", "Realisasi DO")),
-        builder=spk_budget_do, filters=(F_CUT, F_DIV, F_PROJ, F_SPK_STATUS, F_KONDISI, F_ITEM),
+        builder=spk_budget_do, filters=(F_CUT, F_DIV, F_PROJ, F_SPK_STATUS, F_KONDISI, F_ITEM, F_SPK_ID),
         search_keys=("spk_no", "no", "po_no", "supplier", "item_code", "item_name"), permission="spk:view",
         date_basis=SPK_NOTE + " Hanya DO valid (tidak batal) bertanggal ≤ Tanggal Posisi; DO batal / reversal tidak dihitung.",
         drill=_drill("do", "do_id")),

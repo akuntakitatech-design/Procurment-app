@@ -594,8 +594,16 @@ po_price_required 19/19 PASS; CI=true yarn build PASS; git diff --check PASS; Br
 fixture P4) A/B/C, filter, cut-off, drill, export, redaksi PASS; paritas Dashboard = Laporan C (8 baris identik, selisih 700);
 testing_agent_v3 iteration_28: 0 temuan; gitleaks worktree: no leaks. KPI Dashboard sebelum -> sesudah (fixture): Sesuai 2 -> 3 PO,
 Melebihi 0 -> 1, Tanpa Kontrak 6 -> 2, Riwayat Harga Tidak Lengkap - -> 2, Nilai Selisih 0 -> 700; preview sandbox: tanpa data kontrak/PO
-(KPI 0 -> 0). Temuan existing di luar scope P4 (tidak diubah): kartu header & tab "Commitment & Realisasi" halaman /spk/{id} masih
-stub (spk_layer._budget_summary commitment=0 "CP2"; Spk.jsx statis); Report Center: tanggal ISO & filter tidak dari URL.
+(KPI 0 -> 0).
+Finalisasi (permintaan user, read-only, satu perhitungan): (a) halaman /spk/{id}: kartu Commitment/Realisasi/Sisa Budget & % dan tab
+"Commitment & Realisasi" kini dari laporan Realisasi Anggaran SPK (filter tersembunyi `spk_id`, Filter.hidden) — sebelumnya placeholder
+0 (spk_layer._budget_summary "CP2" TIDAK diubah; engine/aturan tidak diubah); redaksi harga server-side. (b) Tanggal Indonesia
+DD-MM-YYYY di tabel UI, PDF, dan label Periode/filter tanggal; JSON & sel Excel tetap nilai ISO yang sama (kontrak paritas R6
+Excel = JSON per sel tidak diubah). (c) Filter Pusat Laporan dari URL (request pertama, respon basi diabaikan), URL ikut
+Terapkan/Reset, tombol "Reset filter" pada error filter URL tidak valid.
+Gate final (kode final): regresi 27/27 (report_spk_test 45/45, report_center_test 59/59), integrity 13/13, frontend 18/18 file
+(reportCenter 32/32), CI=true yarn build PASS, git diff --check PASS, Browser UAT ulang PASS (deep link stabil 3x, SPK detail =
+laporan = API budget-control = Dashboard, redaksi uat_noprice), testing_agent_v3 iteration_29: 0 temuan, gitleaks: no leaks.
 
 
 ### P5–P6 (Status: NOT STARTED)
