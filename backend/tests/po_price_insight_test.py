@@ -49,9 +49,13 @@ def legacy_line(po_id, item_id, uom_id=None, unit=None, qty=None, price=None):
     """Simulasi baris PO historis (pra-normalisasi UOM): hapus jejak faktor konversi. Dev DB saja."""
     import pymysql
     from urllib.parse import urlparse, unquote
-    url = next(x.split("=", 1)[1].strip().strip('"') for x in open("/app/backend/.env") if x.startswith("DATABASE_URL="))
+    # DB = DB backend yang diuji (TEST_DATABASE_URL runner terisolasi, konsisten T.test_env()); hanya DB test terisolasi.
+    url = T.test_env()["DATABASE_URL"].strip().strip('"')
     assert "prod" not in url
     u = urlparse(url.replace("mariadb://", "mysql://"))
+    dbn = u.path.lstrip("/")
+    if "itest" not in dbn and not dbn.endswith("_test"):
+        sys.exit(f"STOP: helper DB menolak database '{dbn}' (bukan DB test terisolasi *itest* / *_test)")
     c = pymysql.connect(host=u.hostname, port=u.port or 3306, user=unquote(u.username or ""), password=unquote(u.password or ""), database=u.path.lstrip("/"))
     with c.cursor() as cur:
         expr = "JSON_REMOVE(doc, '$.conversion_factor', '$.display_qty', '$.display_unit', '$.base_qty', '$.display_price')"
