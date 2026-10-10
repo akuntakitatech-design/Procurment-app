@@ -230,3 +230,31 @@ def install(server):
     app.add_api_route("/api/report-center/{key}/export.xlsx", export_xlsx, methods=["GET"], tags=["report-center"])
     app.add_api_route("/api/report-center/{key}/export.pdf", export_pdf, methods=["GET"], tags=["report-center"])
     app.add_api_route("/api/report-center/{key}", report, methods=["GET"], tags=["report-center"])
+    _install_audit_guard(server)
+
+
+def _report_allowed(server, user, key):
+    spec = R.REGISTRY.get(key)
+    return spec is None or bool(server.has_perm(user, spec.permission))
+
+
+def _install_audit_guard(server):
+    """Audit export laporan (entity "report": filter terpakai, jumlah baris) hanya terlihat oleh pemegang izin laporan tsb.
+
+    Tanpa ini pengguna lintas divisi ber-izin `view` dapat membaca filter laporan yang dibatasi (mis. label invoice /
+    SPK) dari /api/audit walau laporan itu sendiri 403. Hanya menyaring baris; tidak mengubah pencatatan audit."""
+    app = server.app
+    route = next((r for r in app.router.routes if getattr(r, "path", "") == "/api/audit" and "GET" in (r.methods or set())), None)
+    if not route:
+        return
+    orig = route.endpoint
+    app.router.routes.remove(route)
+
+    async def audit_list(entity: str = None, entity_id: str = None, limit: int = 300, user=Depends(server.current_user)):
+        rows = await orig(entity=entity, entity_id=entity_id, limit=limit, user=user)
+        items = rows.get("items") if isinstance(rows, dict) else rows
+        if not isinstance(items, list):
+            return rows
+        keep = [r for r in items if str(r.get("entity") or "") != "report" or _report_allowed(server, user, r.get("entity_id"))]
+        return {**rows, "items": keep} if isinstance(rows, dict) else keep
+    app.add_api_route("/api/audit", audit_list, methods=["GET"], tags=["report-center"])
