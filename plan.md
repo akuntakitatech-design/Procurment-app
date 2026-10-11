@@ -639,7 +639,7 @@ Temuan pre-existing di luar P5 (tidak diubah): supplier_dp_test.py 80/81 bila di
 menulis ke DATABASE_URL di backend/.env (DB sandbox), bukan DB test, sehingga UPDATE status PO tidak mengenai DB test. Perlu
 perbaikan helper test terpisah (pola sama dengan 8ac72e3).
 
-### P6 — Export Seluruh Daftar Transaksi (Status: IN PROGRESS — seluruh gate PASS; commit lokal, push & PR menunggu kredensial GitHub runtime aman; branch `feature/p6-export-transaksi` dari `main` 90c7b5d; target tepat 1 PR ke `main`, TANPA merge/deploy)
+### P6 — Export Seluruh Daftar Transaksi (Status: COMPLETED — seluruh gate PASS; PR #65 open ke `main` (https://github.com/akuntakitatech-design/Procurment-app/pull/65), belum di-merge, tanpa deploy; branch `feature/p6-export-transaksi` dari `main` 90c7b5d; target tepat 1 PR ke `main`, TANPA merge/deploy)
 Status P0–P5: seluruhnya merged ke `main` (P5 via PR #64, merge 90c7b5d).
 Keputusan user: export lewat engine Pusat Laporan existing (tanpa engine baru); spec daftar transaksi `catalog=False` (tidak tampil
 di katalog/hub); export mengikuti filter/tab/pencarian/periode/sort daftar & memuat SELURUH hasil filter; tombol hanya untuk izin
