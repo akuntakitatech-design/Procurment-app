@@ -145,6 +145,7 @@ _spec("txn-ro", "procurement", "Daftar RO", "ro.view", [
 _spec("txn-po", "procurement", "Daftar PO", "po.view", [
     _no("No. PO"), _date(), _t("supplier_name", "Supplier", 20), TR["mro"], TR["ro"], TR["project"], TR["division"], TR["spk"],
     _t("buyer_contact_name", "Buyer"), _m("grand_total", "Nilai", price=True), _t("document_status", "Status Dokumen", 14),
+    Column("approval2_at", "Tgl Approval 2 (WIB)", "date", width=12),
     _t("receipt_status", "Status Penerimaan", 14)], _list_builder("po"), labels=(("f_receipt_status", "Status Penerimaan"),))
 _spec("txn-do", "procurement", "Daftar DO / Penerimaan Barang", "do.view", [
     _no("No. DO"), _date(), _t("supplier_name", "Supplier", 20), _t("supplier_dn", "No. Surat Jalan"), TR["mro"], TR["ro"], TR["po"],

@@ -35,7 +35,7 @@ check("Status Penerimaan existing tetap terpetakan",
   label("over receipt") === "Penerimaan Berlebih" && cls("diterima sebagian") && cls("diterima penuh") && cls("belum diterima"));
 check("Badge memakai lower-case key (internal key backend)", /String\(status \|\| ""\)\.toLowerCase\(\)/.test(badge));
 
-check("List PO: kolom Status Dokumen = document_status", /\{key:"document_status",label:"Status Dokumen",status:true\}/.test(po));
+check("List PO: kolom Status Dokumen = document_status", /\{key:"document_status",label:"Status Dokumen",status:true[,}]/.test(po) && /render:r=>\{const a2=approval2Note\(r\);return a2\?<div[^]*?<StatusBadge status=\{r\.document_status\}\/>[^]*?:<StatusBadge status=\{r\.document_status\}\/>;\}/.test(po));
 check("List PO: kolom Status Penerimaan tetap receipt_status", /\{key:"receipt_status",label:"Status Penerimaan",status:true\}/.test(po));
 check("Detail PO: badge Status Dokumen dari document_status (sama dengan list)", /data-testid="po-document-status"><StatusBadge status=\{doc\.document_status\}/.test(po));
 check("Detail PO: badge PO.status mentah hanya fallback bila document_status kosong", /\{!doc\.document_status&&<StatusBadge status=\{doc\.status\}\/>\}/.test(po));
