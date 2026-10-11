@@ -5,6 +5,8 @@ isi UI = Excel = PDF. Kolom harga sudah dibuang sebelum sampai di sini bila peng
 """
 from __future__ import annotations
 
+import re
+
 from datetime import date
 from io import BytesIO
 
@@ -53,7 +55,7 @@ def meta_lines(res):
 def to_xlsx(res) -> BytesIO:
     cols = res["columns"]
     wb = Workbook(write_only=True)
-    ws = wb.create_sheet(res["meta"]["sheet"][:31] or "Laporan")
+    ws = wb.create_sheet(re.sub(r"[\[\]:*?/\\]", "-", res["meta"]["sheet"])[:31] or "Laporan")  # karakter terlarang nama sheet
     for i, c in enumerate(cols, start=1):
         ws.column_dimensions[get_column_letter(i)].width = max(8, int(c["width"]))
     head = meta_lines(res)

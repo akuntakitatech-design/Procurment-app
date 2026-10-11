@@ -1,5 +1,6 @@
 """Transfer, Loan, Return, Stock Adjustment, Stock Opname, Attachments."""
 import uuid
+import list_cap
 from fastapi import Depends, HTTPException, UploadFile, File, Form, Query, Request
 from fastapi.responses import Response
 from server import (api, db, gid, now_iso, clean, current_user, require, has_perm,
@@ -38,7 +39,7 @@ def _summary(names):
 @api.get("/transfers")
 async def list_transfers(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.transfers.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    docs = await db.transfers.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     wm = await _wh_map()
     ids = [d["id"] for d in docs]
     all_lines = await db.transfer_lines.find({"transfer_id": {"$in": ids}}, {"_id": 0, "transfer_id": 1, "from_warehouse_id": 1, "to_warehouse_id": 1}).to_list(500000) if ids else []
@@ -189,7 +190,7 @@ async def _enrich_loan_lines(d, lines):
 @api.get("/loans")
 async def list_loans(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.loans.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    docs = await db.loans.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     wm = await _wh_map()
     for d in docs:
         lines = await db.loan_lines.find({"loan_id": d["id"]}, {"_id": 0}).to_list(500)
@@ -382,7 +383,7 @@ async def _enrich_adjustment_lines(d, lines, see_value=True):
 @api.get("/adjustments")
 async def list_adjustments(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.adjustments.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    docs = await db.adjustments.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     wm = await _wh_map()
     for d in docs:
         lines = await db.adjustment_lines.find({"adjustment_id": d["id"]}, {"_id": 0, "warehouse_id": 1}).to_list(500)
@@ -459,7 +460,7 @@ async def create_adjustment(body: dict, user=Depends(current_user)):
 @api.get("/opname")
 async def list_opname(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.opname.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    docs = await db.opname.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     wm = await _wh_map()
     for d in docs:
         d["warehouse_name"] = wm.get(d.get("warehouse_id"), {}).get("name")

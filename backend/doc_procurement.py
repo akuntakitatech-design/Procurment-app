@@ -1,5 +1,6 @@
 """MRO, RO, PO, DO, MI + PO approval workflow."""
 import asyncio
+import list_cap
 from fastapi import Depends, HTTPException
 from stock_summary import missing_average
 from server import (api, db, gid, now_iso, clean, current_user, require, has_perm,
@@ -117,7 +118,7 @@ def mro_status(lines_mon, cancelled=False, submitted=True):
 @api.get("/mro")
 async def list_mro(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.mro.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    docs = await db.mro.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     by_doc = await lines_by_doc("mro_lines", "mro_id", [d["id"] for d in docs])
     monitor = await mro_monitor_batch([l for v in by_doc.values() for l in v])
@@ -374,7 +375,7 @@ def ro_status(states, cancelled=False, submitted=True):
 @api.get("/ro")
 async def list_ro(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.ro.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    docs = await db.ro.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     by_doc = await lines_by_doc("ro_lines", "ro_id", [d["id"] for d in docs])
     ordered = await allocs_from([l["id"] for v in by_doc.values() for l in v], "po")
@@ -489,7 +490,7 @@ async def po_line_state(line):
 @api.get("/po")
 async def list_po(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.po.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    docs = await db.po.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     show_price = has_perm(user, "view_purchase_price")
     by_doc = await lines_by_doc("po_lines", "po_id", [d["id"] for d in docs])
@@ -904,7 +905,7 @@ async def pull_po_for_do(user=Depends(current_user), supplier_id: str = None):
 @api.get("/do")
 async def list_do(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.do.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    docs = await db.do.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     by_doc = await lines_by_doc("do_lines", "do_id", [d["id"] for d in docs])
     for d in docs:
@@ -1117,7 +1118,7 @@ async def do_receiving_report(did: str, user=Depends(current_user)):
 @api.get("/mi")
 async def list_mi(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.mi.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    docs = await db.mi.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     by_doc = await lines_by_doc("mi_lines", "mi_id", [d["id"] for d in docs])
     for d in docs:

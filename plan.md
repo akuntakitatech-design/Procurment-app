@@ -608,7 +608,7 @@ PR: https://github.com/akuntakitatech-design/Procurment-app/pull/63 (head 321141
 — state open, merged_at null, TANPA merge & TANPA deploy; tidak ada migrasi database. PR #63 kemudian DI-MERGE oleh user (main 017fdc2).
 
 
-### P5 — Reporting Invoice, Pembayaran & Hutang Vendor (Status: IN PROGRESS — kode & gate selesai, menunggu commit/push/PR; branch `feature/reporting-p5-invoice-hutang` dari `main` 017fdc2; target 1 PR ke `main`, TANPA merge/deploy)
+### P5 — Reporting Invoice, Pembayaran & Hutang Vendor (Status: COMPLETED & MERGED — PR #64 di-merge oleh user ke `main` (merge 90c7b5d), tanpa deploy otomatis; https://github.com/akuntakitatech-design/Procurment-app/pull/64; head d2420c4; commit 819c70a test akses invoice, 514b741 P5, d2420c4 fix keamanan audit)
 Audit baseline (read-only): Invoice `vendor_invoices` (DPP/PPN/total, received_date = "invoice diterima" bukan dibayar, due_date,
 payment_status, paid_total, dp_allocated_total); multi-DO `vendor_invoice_allocations` (DO boleh ditagih parsial lintas invoice);
 pembayaran `vendor_invoice_payments` (parsial, banyak per invoice, Aktif→Dibatalkan + alasan; hanya Referensi & Catatan — tanpa
@@ -632,9 +632,41 @@ commit 819c70a (vendor_invoice_access_test 14/14). TEMUAN BARU & DIPERBAIKI: /ap
 tests/report_audit_access_test.py 7/7; kontrol negatif tanpa perbaikan: 5/7 GAGAL = celah nyata). Cross-division leak test
 report_ap_test I3b–I3h & I6 (JSON 7 laporan, pencarian, total, pagination, Excel, PDF, invoice_id langsung, drill 403, user tanpa
 invoice.view 403 JSON/Excel/PDF).
+Gate final (kode d2420c4, proc_itest serial): regresi 30/30 (report_ap 68/68, report_audit_access 7/7, vendor_invoice_access 14/14,
+report_center 59/59), integrity 13/13, vendor_invoice 80/80, finance_role 22/22, frontend 18/18, CI build PASS, UAT browser PASS,
+testing_agent_v3 iteration_31 0 temuan, git diff --check PASS, gitleaks commit range 0 (worktree: 3 temuan lama di file non-P5).
 Temuan pre-existing di luar P5 (tidak diubah): supplier_dp_test.py 80/81 bila dijalankan pada backend terisolasi — helper `dbw`
 menulis ke DATABASE_URL di backend/.env (DB sandbox), bukan DB test, sehingga UPDATE status PO tidak mengenai DB test. Perlu
 perbaikan helper test terpisah (pola sama dengan 8ac72e3).
 
-### P6 (Status: NOT STARTED)
-P6 export di list transaksi · lalu Performance Optimization menyeluruh (PR terpisah).
+### P6 — Export Seluruh Daftar Transaksi (Status: COMPLETED — seluruh gate PASS; PR #65 open ke `main` (https://github.com/akuntakitatech-design/Procurment-app/pull/65), belum di-merge, tanpa deploy; branch `feature/p6-export-transaksi` dari `main` 90c7b5d; target tepat 1 PR ke `main`, TANPA merge/deploy)
+Status P0–P5: seluruhnya merged ke `main` (P5 via PR #64, merge 90c7b5d).
+Keputusan user: export lewat engine Pusat Laporan existing (tanpa engine baru); spec daftar transaksi `catalog=False` (tidak tampil
+di katalog/hub); export mengikuti filter/tab/pencarian/periode/sort daftar & memuat SELURUH hasil filter; tombol hanya untuk izin
+`export`; batas Excel 100.000 / PDF 5.000 (422, pesan jelas, tanpa potong diam-diam); kolom = kolom daftar, harga diredaksi server-side;
+baseline performa di proc_itest tanpa tuning; push/PR hanya setelah gate; tanpa merge/deploy.
+Implementasi: `backend/reporting/reports_txn.py` (14 spec: txn-mro, -ro, -po, -do, -mi, -transfer, -loan, -adjustment, -opname, -spk,
+-vendor-contract, -invoice, -do-billing, -supplier-dp); `registry.ReportSpec` + catalog/passthrough/param_labels/own_sort;
+`report_center` parameter passthrough, sort (`sort`/`dir`, kolom harga tersembunyi ditolak 400), keterangan urutan;
+`txn_list_paging_layer.filter_sort` + `server.TXN_LIST_ROWS` (logika daftar yang sama: tenant -> izin -> cakupan -> enrichment);
+`list_cap` (default 1.000 tetap untuk daftar; dinaikkan per-request khusus export); exporters: nama sheet aman;
+`server.py` CORS expose `Content-Disposition` & `X-Report-Rows` (nama file & jumlah baris terbaca lintas origin).
+Frontend: `ListExportButtons` + `lib/listExport` (query aktif tanpa halaman), `useServerList.exportKey/query`, TxnList/DataTable,
+SPK, Kontrak Vendor, DP Supplier. Read-only: tidak ada perubahan MWA, valuation, ledger, posting, logika transaksi.
+Temuan & perbaikan: (1) laporan "tombol tidak muncul di Transfer/Pinjam/Penyesuaian" = skrip UAT membuka /transfers,/loans,/adjustments
+padahal route /transfer,/loan,/adjustment (kode sudah benar) -> ditambah regresi backend F1–F6 & frontend (route->endpoint->kunci export);
+(2) CORS tidak meng-expose header export -> nama file fallback & jumlah baris hilang lintas origin -> diperbaiki; (3) fixture test
+ditolak aturan "tidak boleh posting mundur" -> fixture memakai tanggal hari ini (aturan bisnis tidak diubah); (4) batas 5 user/tenant:
+tiap test mendaftarkan tenant sendiri; report_txn_test memakai tepat 5 user (admin + 4) -> aturan batas user tidak diubah.
+Gate final (proc_itest serial, user DB `itest` khusus proc_itest; backup /tmp/itest-backup/proc_itest_pre_p6_202610110520.sql):
+regresi 31/31 suite (1.653 assertion, report_txn_test 28/28) exit 0 141 s; integrity 13/13 exit 0 223 s; frontend 19 file 23/23 exit 0;
+CI=true yarn build exit 0; git diff --check exit 0; Browser UAT 14/14 daftar (Excel & PDF terunduh, pencarian terkirim, batas PDF
+MRO 5.131 / PO 5.103 -> pesan tanpa potong, Excel 5.131 baris, redaksi harga, scope Divisi B, tanpa izin export tombol tersembunyi);
+testing_agent_v3 iteration_32: 0 temuan terbuka (retest Transfer/Pinjam/Penyesuaian PASS).
+Secret scan gitleaks 8.21.2: file P6 + laporan UAT 0 temuan; worktree 6 & history 3 = temuan legacy (backend/.env di-gitignore &
+tidak dilacak; run_integrity_tests_mariadb.sh, run_ro_multiprocess_test.sh, legacy/github-workflows/ci.yml identik dengan origin/main)
+-> remediasi terpisah.
+Baseline performa: docs/perf-baseline-p6.md. Catatan untuk Performance Optimization: daftar memuat maks 1.000 dokumen terbaru
+(perilaku lama) sehingga pada volume > 1.000 total daftar < total export; export Excel 5,1 rb baris ≈ 1,3–1,4 s.
+
+### P7 — Performance Optimization menyeluruh (Status: NOT STARTED, PR terpisah)

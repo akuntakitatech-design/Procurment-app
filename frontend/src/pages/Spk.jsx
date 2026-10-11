@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { NUMERIC_TYPES, formatCell } from "@/lib/reportCenter";
+import { ListExportButtons } from "@/components/ListExportButtons";
 
 const rupiah = (v) => "Rp " + (Number(v || 0)).toLocaleString("id-ID");
 const parseMoney = (s) => {
@@ -101,6 +102,7 @@ export function SpkList() {
           <Input value={q} onChange={(e) => { setPage(1); setQ(e.target.value); }} placeholder="Cari No SPK, pekerjaan, customer, PIC..." className="pl-9" data-testid="spk-search" /></div>
         <div className="w-full sm:w-48"><Combobox options={[{ value: "", label: "Semua Status" }, ...STATUS_OPTS]} value={status} onChange={(v) => { setPage(1); setStatus(v); }} placeholder="Status" /></div>
         <div className="w-full sm:w-56"><Combobox options={[{ value: "", label: "Semua Divisi" }, ...divisions.map((d) => ({ value: d.id, label: d.name }))]} value={divisionId} onChange={(v) => { setPage(1); setDivisionId(v); }} placeholder="Divisi" /></div>
+        <ListExportButtons reportKey="txn-spk" query={{ q, status, division_id: divisionId, sort }} total={data.total} testidPrefix="spk" />
       </div>
 
       {sel.size>0&&<div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="spk-selection-bar"><span className="font-semibold" data-testid="spk-selected-count">{sel.size} dipilih</span>{sel.size===1&&can("spk:manage")&&<Button size="sm" variant="outline" data-testid="spk-bar-edit" onClick={()=>{const r=data.items.find((x)=>sel.has(x.id));if(r)nav(`/spk/${r.id}/edit`);}}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit</Button>}{can("delete")&&<Button size="sm" variant="outline" data-testid="spk-bar-delete" onClick={()=>setDelRows(data.items.filter((x)=>sel.has(x.id)).map((r)=>({id:r.id,label:[r.spk_number, r.project_name].filter(Boolean).join(" — ")})))}><Trash2 className="mr-1.5 h-3.5 w-3.5 text-destructive" />{sel.size===1?"Hapus":"Hapus Massal"}</Button>}<Button size="sm" variant="ghost" className="ml-auto" onClick={()=>setSel(new Set())} data-testid="spk-clear-selection">Batal pilih</Button></div>}<MasterDeleteDialog open={!!delRows} rows={delRows||[]} checkName="spk" entityLabel="SPK" onDeselect={(ids)=>setSel((c)=>new Set([...c].filter((x)=>!ids.includes(x))))} onClose={()=>setDelRows(null)} onDone={()=>{setDelRows(null);setSel(new Set());load();}} />

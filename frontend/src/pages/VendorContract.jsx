@@ -19,6 +19,7 @@ import {
   Ban, Package,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ListExportButtons } from "@/components/ListExportButtons";
 
 const rupiah = (v) => "Rp " + (Number(v || 0)).toLocaleString("id-ID");
 const parseMoney = (s) => {
@@ -143,6 +144,7 @@ export function VendorContractList() {
         <div className="w-full sm:w-56"><Combobox options={[{ value: "", label: "Semua Vendor" }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]} value={supplierId} onChange={(v) => { setPage(1); setSupplierId(v); }} placeholder="Vendor" /></div>
         <div className="w-full sm:w-44"><Combobox options={STATUS_OPTS} value={status} onChange={(v) => { setPage(1); setStatus(v); }} placeholder="Status" /></div>
         <div className="w-full sm:w-36"><Combobox options={[{ value: "", label: "Semua Mata Uang" }, ...CURRENCY_OPTS]} value={currency} onChange={(v) => { setPage(1); setCurrency(v); }} placeholder="Mata Uang" /></div>
+        <ListExportButtons reportKey="txn-vendor-contract" query={{ q, status, supplier_id: supplierId, currency, sort }} total={data.total} testidPrefix="vc" />
       </div>
 
       {sel.size>0&&<div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="vendor_contracts-selection-bar"><span className="font-semibold" data-testid="vendor_contracts-selected-count">{sel.size} dipilih</span>{sel.size===1&&can("vendor_contract:manage")&&<Button size="sm" variant="outline" data-testid="vendor_contracts-bar-edit" onClick={()=>{const r=data.items.find((x)=>sel.has(x.id));if(r)nav(`/vendor-contracts/${r.id}/edit`);}}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit</Button>}{can("delete")&&<Button size="sm" variant="outline" data-testid="vendor_contracts-bar-delete" onClick={()=>setDelRows(data.items.filter((x)=>sel.has(x.id)).map((r)=>({id:r.id,label:[r.contract_number, r.supplier_name].filter(Boolean).join(" — ")})))}><Trash2 className="mr-1.5 h-3.5 w-3.5 text-destructive" />{sel.size===1?"Hapus":"Hapus Massal"}</Button>}<Button size="sm" variant="ghost" className="ml-auto" onClick={()=>setSel(new Set())} data-testid="vendor_contracts-clear-selection">Batal pilih</Button></div>}<MasterDeleteDialog open={!!delRows} rows={delRows||[]} checkName="vendor_contracts" entityLabel="Kontrak Harga Vendor" onDeselect={(ids)=>setSel((c)=>new Set([...c].filter((x)=>!ids.includes(x))))} onClose={()=>setDelRows(null)} onDone={()=>{setDelRows(null);setSel(new Set());load();}} />

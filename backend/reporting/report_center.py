@@ -50,7 +50,7 @@ def _int(v, default, lo, hi, label):
 async def parse_params(server, user, spec, qp) -> dict:
     """Filter tervalidasi server-side. Tanggal = tanggal bisnis WIB (YYYY-MM-DD, inklusif)."""
     allowed = {f.key for f in spec.filters}
-    p = {k: (str(v).strip() if v is not None else "") for k, v in qp.items() if k in allowed}
+    p = {k: (str(v).strip() if v is not None else "") for k, v in qp.items() if k in allowed or _passthrough(spec, k)}
     for f in spec.filters:
         if f.type == "date":
             p[f.key] = _iso(qp.get(f.key), f.label)
@@ -66,13 +66,41 @@ async def parse_params(server, user, spec, qp) -> dict:
     return p
 
 
+def _passthrough(spec, k) -> bool:
+    """Parameter daftar transaksi (P6) diteruskan apa adanya: nama persis atau prefiks berakhiran "_" (mis. f_, rf_)."""
+    return any(k == x or (x.endswith("_") and k.startswith(x)) for x in spec.passthrough)
+
+
+def _sort_param(spec, cols, qp):
+    """`sort`=kunci kolom terlihat, `dir`=asc|desc (parameter daftar). Kolom harga yang disembunyikan tidak dapat dipakai."""
+    key = (qp.get("sort") or "").strip()
+    desc = (qp.get("dir") or "").strip().lower() == "desc"
+    if key.startswith("-"):  # format daftar SPK/Kontrak: sort=-kolom
+        key, desc = key[1:], True
+    if not key:
+        return None, False
+    if key not in {c.key for c in cols} | {"created_at"}:  # created_at = urutan bawaan daftar (terbaru dahulu)
+        raise HTTPException(400, "Kolom urutan tidak valid.")
+    return key, desc
+
+
+def sort_rows(rows, key, desc):
+    """Urutan sama persis dengan daftar transaksi ber-halaman (txn_list_paging_layer): kosong selalu di akhir."""
+    from txn_list_paging_layer import _get, _sort_key
+    filled = [r for r in rows if _get(r, key) not in (None, "")]
+    empty = [r for r in rows if _get(r, key) in (None, "")]
+    filled.sort(key=lambda r: (_sort_key(_get(r, key)), str(r.get("no") or "")), reverse=desc)
+    return filled + empty
+
+
 def missing_required(spec, p) -> list:
     return [f.label for f in spec.filters if f.required and not p.get(f.key)]
 
 
-async def _filters_applied(server, spec, p, q, user=None):
+async def _filters_applied(server, spec, p, q, user=None, sort=None, cols=()):
     out = []
     labels = {f.key: f for f in spec.filters}
+    plabels = dict(spec.param_labels)
     if p.get("date_from") or p.get("date_to"):
         out.append({"key": "period", "label": "Periode", "value": f"{fmt_day(p.get('date_from')) or 'awal'} s/d {fmt_day(p.get('date_to')) or 'akhir'}"})
     for k, v in p.items():
@@ -80,6 +108,11 @@ async def _filters_applied(server, spec, p, q, user=None):
             continue
         f = labels.get(k)
         val = v
+        if not f:  # parameter passthrough daftar transaksi (P6)
+            if k in ("q", "sort", "dir", "date_field"):
+                continue
+            out.append({"key": k, "label": plabels.get(k) or (k[2:] if k.startswith("f_") else k).replace("_", " ").title(), "value": v})
+            continue
         if k == "division_id":
             d = await server.db.divisions.find_one({"id": v}, {"_id": 0, "name": 1})
             val = (d or {}).get("name") or v
@@ -100,6 +133,9 @@ async def _filters_applied(server, spec, p, q, user=None):
         out.append({"key": k, "label": f.label if f else k, "value": val})
     if q:
         out.append({"key": "q", "label": "Pencarian", "value": q})
+    if sort and sort[0]:
+        lab = next((c.label for c in cols if c.key == sort[0]), "Waktu dibuat" if sort[0] == "created_at" else sort[0])
+        out.append({"key": "sort", "label": "Urutan", "value": f"{lab} ({'menurun' if sort[1] else 'menaik'})"})
     return out
 
 
@@ -124,11 +160,16 @@ async def run(server, user, key, qp) -> dict:
     price_visible = bool(server.has_perm(user, "view_purchase_price"))
     missing = missing_required(spec, p)
     notice = f"Pilih {', '.join(missing)} terlebih dahulu untuk menampilkan laporan." if missing else ""
+    cols = spec.visible_columns(price_visible, lambda k: bool(server.has_perm(user, k)))
+    sort = _sort_param(spec, cols, qp)
+    if "q" in spec.passthrough:
+        p["q"] = q
     rows = [] if missing else await spec.builder(server, user, p)
     if q and spec.search_keys:
         terms = q.lower().split()
         rows = [r for r in rows if r.get("_kind") or all(t in " ".join(str(r.get(k) or "") for k in spec.search_keys).lower() for t in terms)]
-    cols = spec.visible_columns(price_visible, lambda k: bool(server.has_perm(user, k)))
+    if sort[0] and not spec.own_sort and not any(r.get("_kind") for r in rows):  # laporan bersaldo tidak diurutkan ulang
+        rows = sort_rows(rows, *sort)
     if price_visible and any(c.perms and c not in cols for c in spec.columns):
         price_visible = False  # kolom harga disembunyikan karena izin tambahan (mis. vendor_contract:view) -> catatan UI/Excel/PDF
     if not any(c.price for c in spec.columns):
@@ -155,7 +196,7 @@ async def run(server, user, key, qp) -> dict:
                  "generated_at": datetime.now(WIB).strftime("%d-%m-%Y %H:%M"), "notice": notice},
         "columns": [c.public() for c in cols],
         "filters": [f.public() for f in spec.filters],
-        "filters_applied": await _filters_applied(server, spec, p, q, user),
+        "filters_applied": await _filters_applied(server, spec, p, q, user, sort if (sort[0] or spec.own_sort) else None, cols),
         "rows": out_rows, "totals": totals, "total_rows": len(out_rows), "price_visible": price_visible,
         "export_limits": EXPORT_LIMITS,
     }
@@ -187,6 +228,7 @@ def install(server):
     import reporting.reports_warehouse  # noqa: F401  (P3: transfer, pinjam & pengembalian, penyesuaian, stock opname)
     import reporting.reports_spk  # noqa: F401  (P4: realisasi anggaran SPK, kontrak harga vendor, kepatuhan harga PO)
     import reporting.reports_ap  # noqa: F401  (P5: register invoice, pembayaran, outstanding, aging, rekap hutang supplier)
+    import reporting.reports_txn  # noqa: F401  (P6: export seluruh daftar transaksi; catalog=False)
     app = server.app
 
     async def catalog(user=Depends(server.current_user)):
@@ -194,7 +236,7 @@ def install(server):
         groups = []
         for g in R.GROUPS:
             reps = [{"key": s.key, "title": s.title, "description": s.description}
-                    for s in R.REGISTRY.values() if s.group == g["key"] and server.has_perm(user, s.permission)]
+                    for s in R.REGISTRY.values() if s.group == g["key"] and s.catalog and server.has_perm(user, s.permission)]
             groups.append({**g, "title": HUB.CARD_TITLES.get(g["key"], g["title"]), "reports": reps,
                            **HUB.card_extras(server, user, g["key"])})
         return {"groups": groups, "export_limits": EXPORT_LIMITS,

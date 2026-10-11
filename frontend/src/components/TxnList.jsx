@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { TxnHoverPreview } from "@/components/TxnHoverPreview";
 import { TxnSelectionBar } from "@/components/TxnSelectionBar";
 import { TxnBulkDeleteDialog } from "@/components/TxnBulkDeleteDialog";
+import { ListExportButtons } from "@/components/ListExportButtons";
 import { colValue, nextSort, searchRows, sortRows } from "@/lib/txnList";
 import { PAGE_SIZES } from "@/lib/serverList";
 import { Search, ChevronLeft, ChevronRight } from "lucide-react";
@@ -64,6 +65,7 @@ export function TxnList({ module, columns, rows, onOpen, onPrint, onEdit, onEmai
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-md"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder={searchPlaceholder} value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid={`${testidPrefix}-search`} /></div>
         {filters}
+        {server?.exportKey && <ListExportButtons reportKey={server.exportKey} query={server.query} total={total} testidPrefix={testidPrefix} />}
         <span className="ml-auto text-xs text-muted-foreground" data-testid={`${testidPrefix}-result-count`}>{server?.loading ? "Memuat... · " : ""}{total} transaksi</span>
       </div>
       <TxnSelectionBar module={module} selected={selectedRows} onClear={() => setSel(new Set())} onPrint={onPrint} onEdit={onEdit} onEmail={onEmail} emailEligible={emailEligible} canEditRow={canEditRow} onBulkDelete={() => setBulk(true)} testidPrefix={testidPrefix} />
