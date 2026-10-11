@@ -10,6 +10,7 @@ import asyncio
 import math
 from contextvars import ContextVar
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException
 
@@ -99,6 +100,49 @@ def document_status(po, rs):
 # dari state aktual approval_tasks + po_approval2_batch(_items). Tidak disimpan ke DB.
 DOC_WAITING_A1, DOC_READY_A2, DOC_WAITING_A2 = "Waiting Approval 1", "Ready Approval 2", "Waiting Approval 2"
 A2_SUBMITTED_BATCH = ("diajukan", "selesai sebagian")
+
+
+WIB = timezone(timedelta(hours=7))
+
+
+def wib_stamp(iso):
+    """Timestamp ISO (UTC, dari server.now_iso) -> 'YYYY-MM-DD HH:MM:SS' WIB (urut leksikografis; 10 karakter = tanggal WIB).
+    None bila kosong/tidak valid — tidak ada tanggal perkiraan."""
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)  # now_iso selalu UTC
+    return dt.astimezone(WIB).strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def po_approval2_at_map(server, pos):
+    """{po_id: 'YYYY-MM-DD HH:MM:SS' WIB} tanggal Approval 2 FINAL, hanya untuk PO berstatus dokumen Approved (Disetujui).
+    Sumber: approval_tasks siklus aktif (submit ulang menghapus & membuat ulang task, sehingga task seq=2 Approved yang ada
+    adalah yang final); data lama tanpa task: mirror po_approvals. Tidak memakai tanggal PO / updated_at; tanpa riwayat -> tidak ada."""
+    ids = [p["id"] for p in pos or [] if p.get("id") and _norm(p.get("document_status")) == "approved"]
+    if not ids:
+        return {}
+    db = server.db
+    by_po = {}
+    for t in await db.approval_tasks.find({"module": "po", "document_id": {"$in": ids}}, {"_id": 0}).to_list(100000):
+        by_po.setdefault(t.get("document_id"), []).append(t)
+    legacy_ids = [i for i in ids if i not in by_po]
+    if legacy_ids:
+        for t in await db.po_approvals.find({"po_id": {"$in": legacy_ids}}, {"_id": 0}).to_list(100000):
+            by_po.setdefault(t.get("po_id"), []).append(t)
+    out = {}
+    for pid, ts in by_po.items():
+        if any(_norm(t.get("status")) in ("pending", "waiting", "rejected") for t in ts):
+            continue  # siklus belum/tidak final
+        l2 = [t for t in ts if int(t.get("seq") or 0) == 2 and _norm(t.get("status")) == "approved"]
+        stamp = wib_stamp(l2[0].get("acted_at")) if len(l2) == 1 else None
+        if stamp:
+            out[pid] = stamp
+    return out
 
 
 async def po_approval_stage_map(server, pos):
@@ -494,6 +538,9 @@ async def enrich_list(server, module, rows):
             st = batch.get(r["id"]) or {}
             r["receipt_status"] = st.get("receipt_status")
             r["document_status"] = display_document_status(r, st.get("document_status"), stages.get(r["id"]))
+        a2 = await po_approval2_at_map(server, rows)
+        for r in rows:
+            r["approval2_at"] = a2.get(r["id"])  # WIB; None = bukan Disetujui / tanpa riwayat Approval 2 final
     return rows
 
 

@@ -639,7 +639,7 @@ Temuan pre-existing di luar P5 (tidak diubah): supplier_dp_test.py 80/81 bila di
 menulis ke DATABASE_URL di backend/.env (DB sandbox), bukan DB test, sehingga UPDATE status PO tidak mengenai DB test. Perlu
 perbaikan helper test terpisah (pola sama dengan 8ac72e3).
 
-### P6 — Export Seluruh Daftar Transaksi (Status: COMPLETED — seluruh gate PASS; PR #65 open ke `main` (https://github.com/akuntakitatech-design/Procurment-app/pull/65), belum di-merge, tanpa deploy; branch `feature/p6-export-transaksi` dari `main` 90c7b5d; target tepat 1 PR ke `main`, TANPA merge/deploy)
+### P6 — Export Seluruh Daftar Transaksi (Status: COMPLETED & MERGED — PR #65 di-merge oleh user ke `main` (merge c20c92f), tanpa deploy otomatis; branch `feature/p6-export-transaksi` dari `main` 90c7b5d; target tepat 1 PR ke `main`, TANPA merge/deploy)
 Status P0–P5: seluruhnya merged ke `main` (P5 via PR #64, merge 90c7b5d).
 Keputusan user: export lewat engine Pusat Laporan existing (tanpa engine baru); spec daftar transaksi `catalog=False` (tidak tampil
 di katalog/hub); export mengikuti filter/tab/pencarian/periode/sort daftar & memuat SELURUH hasil filter; tombol hanya untuk izin
@@ -668,5 +668,18 @@ tidak dilacak; run_integrity_tests_mariadb.sh, run_ro_multiprocess_test.sh, lega
 -> remediasi terpisah.
 Baseline performa: docs/perf-baseline-p6.md. Catatan untuk Performance Optimization: daftar memuat maks 1.000 dokumen terbaru
 (perilaku lama) sehingga pada volume > 1.000 total daftar < total export; export Excel 5,1 rb baris ≈ 1,3–1,4 s.
+
+### P6.1 — Tanggal Approval 2 di Daftar PO (Status: COMPLETED — gate PASS; 1 PR khusus ke `main`, belum di-merge, tanpa deploy; branch `feature/po-approval2-date` dari `main` c20c92f)
+Keputusan user: tanggal di bawah badge hijau Disetujui, kecil abu-abu `DD/MM/YYYY · Approval 2 (WIB)` (garis miring); sorting lewat
+KEDUA cara — klik judul "Status Dokumen" (klik 1 terlama→terbaru, klik 2 sebaliknya) & dropdown toolbar; tenant 1 tahap = tanpa tanggal.
+Sumber: `receipt_control_layer.po_approval2_at_map` — approval_tasks module=po seq=2 Approved `acted_at` siklus aktif (submit ulang
+menghapus & membuat ulang task), mirror po_approvals hanya bila PO tanpa task; hanya document_status=Approved; siklus belum final /
+ambigu / tanpa acted_at / tanpa riwayat -> null (tanpa perkiraan; bukan tanggal PO/updated_at). Field daftar `approval2_at` =
+'YYYY-MM-DD HH:MM:SS' WIB; sort `sort=approval2_at&dir=asc|desc` lewat paging existing (kosong di akhir). Export P6 txn-po: kolom
+"Tgl Approval 2 (WIB)" (sort export ikut daftar). Frontend: `lib/poApproval2Date.js`, Po.jsx (render kolom + `serverSort` + dropdown).
+Workflow approval, status & aturan transaksi tidak berubah.
+Gate (proc_itest serial): po_approval2_date_test 30/30; po_document_status 64/64, po_approval2_batch 84/84, po_approval2_permission 35/35;
+regresi 32/32 suite (1.683 assertion) exit 0; integrity 13/13 exit 0; frontend 20 file 28/28; CI build exit 0; git diff --check exit 0;
+UAT browser PASS (tanggal, status lain, klik judul asc/desc, dropdown, export urut); testing_agent_v3 iteration_33 0 temuan.
 
 ### P7 — Performance Optimization menyeluruh (Status: NOT STARTED, PR terpisah)
