@@ -4,6 +4,13 @@ import { dpRows } from "@/lib/poDp";
 
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const SPK_DOC_TYPES = new Set(["mro", "ro", "po", "do", "mi"]);
+// Cetak PO: nomor MRO yang terhubung ke baris (backend `mro_refs`, termasuk via RO) di atas nama barang, font kecil.
+// Tanpa referensi -> sel Description identik dengan sebelumnya (hanya nama barang).
+export const poDescCell = (l) => {
+  const name = esc(l.item_name || l.item_code || "");
+  const nos = [...new Set((l.mro_refs || []).map((x) => String(x || "").trim()).filter(Boolean))];
+  return nos.length ? `<div class="mro-ref">${esc(nos.join(", "))}</div><div class="item-name">${name}</div>` : name;
+};
 // Horizontal compact allocation text, e.g. "SPK-001: 3 • SPK-002: 4 • Non-SPK: 3"
 const allocText = (summary) => {
   if (!summary) return "Non-SPK";
@@ -211,7 +218,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     const financialCells = showPrice ? `<td class="r price">${idrPrice(p)}</td><td class="r discount">${Number(l.discount||0) ? idrPlain(l.discount) : ""}</td><td class="r amount">${idrPlain(amount)}</td>` : "";
     return `<tr>
       <td class="c no">${i+1}</td>
-      <td class="desc">${esc(l.item_name || l.item_code || "")}</td>
+      <td class="desc">${poDescCell(l)}</td>
       <td class="ket">${esc(l.notes || "")}</td>
       <td class="c qty">${num(q)}</td>
       <td class="c unit">${esc(l.display_unit || l.unit || "")}</td>
@@ -271,6 +278,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     .price-reason{margin-top:6mm}.price-reason-title{font-weight:800;margin-bottom:1.5mm}.reason-table{width:100%;border-collapse:collapse}.reason-table th,.reason-table td{border:.25mm solid ${primary};padding:1mm 1.5mm;font-size:${Math.max(8,fontSize-1)}px;vertical-align:top}.reason-table th{text-align:left;font-weight:700}.reason-table .r{text-align:right;white-space:nowrap}
     .bank-wrap{margin-top:4mm}.bank-title{font-weight:800;margin-bottom:1mm}.bank-table{width:100%;border-collapse:collapse;border-spacing:0;text-align:center}.bank-table th,.bank-table td{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1mm 1.5mm}.bank-table th{font-weight:700}
     .signatures{display:grid;grid-template-columns:1fr 1fr;gap:30mm;text-align:center;margin-top:6mm;page-break-inside:avoid}.sign-label{min-height:4mm}.sign-space{height:18mm;position:relative}.approved-signature{display:block;max-width:38mm;max-height:17mm;object-fit:contain;margin:0 auto}.sign-name{font-weight:800;text-decoration:underline}.sign-company{margin-top:.6mm}.verify{font-size:8px;text-align:right;margin-top:3mm;color:#64748b}
+    .items .desc .mro-ref{font-size:${Math.max(7,fontSize-3)}px;line-height:1.2;font-weight:400;margin-bottom:.5mm;overflow-wrap:anywhere}.items .desc .item-name{overflow-wrap:anywhere}
     @media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}.items{break-inside:auto}.items tr{break-inside:avoid}}
   </style></head><body>
     ${!approved ? `<div class="draft-watermark">DRAFT</div>` : ""}

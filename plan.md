@@ -669,7 +669,7 @@ tidak dilacak; run_integrity_tests_mariadb.sh, run_ro_multiprocess_test.sh, lega
 Baseline performa: docs/perf-baseline-p6.md. Catatan untuk Performance Optimization: daftar memuat maks 1.000 dokumen terbaru
 (perilaku lama) sehingga pada volume > 1.000 total daftar < total export; export Excel 5,1 rb baris ≈ 1,3–1,4 s.
 
-### P6.1 — Tanggal Approval 2 di Daftar PO (Status: COMPLETED — gate PASS; 1 PR khusus ke `main`, belum di-merge, tanpa deploy; branch `feature/po-approval2-date` dari `main` c20c92f)
+### P6.1 — Tanggal Approval 2 di Daftar PO (Status: COMPLETED & MERGED — PR #66 di-merge oleh user ke `main` (merge c505258); branch `feature/po-approval2-date` dari `main` c20c92f)
 Keputusan user: tanggal di bawah badge hijau Disetujui, kecil abu-abu `DD/MM/YYYY · Approval 2 (WIB)` (garis miring); sorting lewat
 KEDUA cara — klik judul "Status Dokumen" (klik 1 terlama→terbaru, klik 2 sebaliknya) & dropdown toolbar; tenant 1 tahap = tanpa tanggal.
 Sumber: `receipt_control_layer.po_approval2_at_map` — approval_tasks module=po seq=2 Approved `acted_at` siklus aktif (submit ulang
@@ -681,5 +681,16 @@ Workflow approval, status & aturan transaksi tidak berubah.
 Gate (proc_itest serial): po_approval2_date_test 30/30; po_document_status 64/64, po_approval2_batch 84/84, po_approval2_permission 35/35;
 regresi 32/32 suite (1.683 assertion) exit 0; integrity 13/13 exit 0; frontend 20 file 28/28; CI build exit 0; git diff --check exit 0;
 UAT browser PASS (tanggal, status lain, klik judul asc/desc, dropdown, export urut); testing_agent_v3 iteration_33 0 temuan.
+
+### P6.2 — Cetak PO: nomor MRO di atas nama barang (Status: COMPLETED — gate PASS; 1 PR khusus ke `main`, belum di-merge, tanpa deploy; branch `feature/po-print-mro-ref` dari `main` c505258)
+PR #66 sudah di-merge sebelum pekerjaan ini -> PR terpisah (sesuai instruksi user).
+Backend: `receipt_control_layer.po_line_mro_refs` + `decorate_po_detail` -> `lines[].mro_refs` di GET /api/po/{id} (read-only; rantai
+allocations PO<-RO<-MRO; PO<-RO ber-`via_alloc_id` = hanya MRO allocation yang dikonsumsi; allocation lama tanpa via = semua MRO sumber
+baris RO; PO<-MRO langsung ikut; unik & urut; tanpa referensi = []). po_lines disimpan dengan field whitelist -> mro_refs tidak tersimpan.
+Frontend: `print.js` `poDescCell` (template PO real_reference): `div.mro-ref` (font dasar-3px, min 7px) di atas `div.item-name`; tanpa
+MRO sel identik dengan sebelumnya. Kolom, lebar tabel, harga, perhitungan, tanda tangan & format tidak berubah. Print Preview & PDF = HTML sama.
+Gate (proc_itest serial): po_print_mro_test 16/16; frontend tests/po_print_mro_test.mjs 12/12, po_dp_print_test 15/15, src *.test.mjs 28/28;
+regresi 33/33 suite (1.699 assertion) exit 0; integrity 13/13 exit 0; CI build exit 0; UAT browser Print Preview + PDF (1 MRO, multi,
+tanpa MRO, campuran) PASS; testing_agent_v3 iteration_34 0 temuan.
 
 ### P7 — Performance Optimization menyeluruh (Status: NOT STARTED, PR terpisah)
