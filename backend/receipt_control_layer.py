@@ -545,9 +545,50 @@ async def enrich_list(server, module, rows):
 
 
 # ------------------------------------------------------------------ detail decoration
+async def po_line_mro_refs(server, lines):
+    """{po_line_id: [no MRO, ...]} — MRO yang benar-benar terhubung ke baris PO (tampilan cetak PO; tanpa duplikasi, urut nomor).
+
+    Rantai allocations existing: PO line <- RO line (source_type "ro") <- MRO line (source_type "mro").
+    - Allocation PO<-RO ber-`via_alloc_id` (PO dari RO terkonsolidasi): hanya MRO dari allocation RO<-MRO yang dikonsumsi baris PO tsb.
+    - Allocation lama tanpa `via_alloc_id`: seluruh MRO sumber baris RO tersebut (hubungan melalui RO).
+    - Allocation PO<-MRO langsung (bila ada) ikut. Tanpa referensi -> tidak ada entri (cetak nama barang seperti biasa).
+    Read-only; tidak menulis data."""
+    ids = [l["id"] for l in lines or [] if l.get("id")]
+    if not ids:
+        return {}
+    up_ro = await _upstream(server, ids, "ro")
+    up_mro_direct = await _upstream(server, ids, "mro")
+    ro_line_ids = [a.get("source_line_id") for v in up_ro.values() for a in v if not a.get("via_alloc_id")]
+    via_ids = [a.get("via_alloc_id") for v in up_ro.values() for a in v if a.get("via_alloc_id")]
+    ro_mro = await _upstream(server, ro_line_ids, "mro")
+    via = {a["id"]: a for a in await server.db.allocations.find({"id": {"$in": via_ids}, "source_type": "mro"}, {"_id": 0})
+           .to_list(500000)} if via_ids else {}
+    mro_ids = {}
+    for lid in ids:
+        docs = []
+        for a in up_ro.get(lid, []):
+            if a.get("via_alloc_id"):
+                v = via.get(a["via_alloc_id"])
+                docs.append((v or {}).get("source_doc_id") or a.get("mro_id"))
+            else:
+                docs.extend(m.get("source_doc_id") for m in ro_mro.get(a.get("source_line_id"), []))
+        docs.extend(a.get("source_doc_id") for a in up_mro_direct.get(lid, []))
+        mro_ids[lid] = [d for d in docs if d]
+    heads = await _docs_no(server, "mro", [d for v in mro_ids.values() for d in v])
+    out = {}
+    for lid, docs in mro_ids.items():
+        nos = sorted({heads[d].get("no") for d in docs if d in heads and heads[d].get("no")})
+        if nos:
+            out[lid] = nos
+    return out
+
+
 async def decorate_po_detail(server, d):
     if not isinstance(d, dict) or not d.get("id"):
         return d
+    mro_refs = await po_line_mro_refs(server, d.get("lines") or [])
+    for l in d.get("lines") or []:
+        l["mro_refs"] = mro_refs.get(l.get("id"), [])  # tampilan saja (cetak PO); po_lines disimpan dengan field whitelist
     batch, rec, per = await po_receipt_batch(server, [d])
     st = batch[d["id"]]
     stages = await po_approval_stage_map(server, [d])
