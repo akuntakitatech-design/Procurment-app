@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import api from "@/lib/api";
+import { LIST_EXPORT_KEYS } from "@/lib/listExport";
 
 export const PAGE_SIZES = [25, 50, 100];
 
@@ -31,5 +32,8 @@ export function useServerList(url, params = {}, { facets = "", counts = "" } = {
     finally { if (my === seq.current) setLoading(false); }
   }, [url, page, pageSize, dq, sort, pkey, facets, counts]);
   useEffect(() => { load(); }, [load]);
-  return { data, rows: data.items || [], total: data.total || 0, page, setPage, pageSize, setPageSize, q, setQ, sort, setSort, facets: data.facets || {}, loading, error, reload: load };
+  // P6: parameter daftar aktif (filter/tab, pencarian, periode, sort) tanpa halaman -> export seluruh hasil filter
+  const query = { ...JSON.parse(pkey), ...(dq ? { q: dq } : {}), ...(sort?.key ? { sort: sort.key, dir: sort.dir } : {}) };
+  return { data, rows: data.items || [], total: data.total || 0, page, setPage, pageSize, setPageSize, q, setQ, sort, setSort, facets: data.facets || {}, loading, error, reload: load,
+    query, exportKey: LIST_EXPORT_KEYS[url] || null };
 }

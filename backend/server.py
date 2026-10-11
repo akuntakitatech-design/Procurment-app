@@ -676,7 +676,8 @@ app.include_router(api)
 _cors_origins = [o.strip().rstrip("/") for o in (os.environ.get("CORS_ORIGINS") or os.environ.get("FRONTEND_URL", "http://localhost:3000")).split(",") if o.strip()]
 app.add_middleware(CORSMiddleware, allow_credentials=True,
                    allow_origins=_cors_origins,
-                   allow_methods=["*"], allow_headers=["*"])
+                   allow_methods=["*"], allow_headers=["*"],
+                   expose_headers=["Content-Disposition", "X-Report-Rows"])  # nama file & jumlah baris export terbaca lintas origin
 
 @app.on_event("startup")
 async def startup():

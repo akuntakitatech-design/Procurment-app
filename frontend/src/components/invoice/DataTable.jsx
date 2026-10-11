@@ -8,6 +8,7 @@ import { PAGE_SIZES } from "@/lib/serverList";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Search } from "lucide-react";
+import { ListExportButtons } from "@/components/ListExportButtons";
 
 function cell(c, r) {
   if (c.render) return c.render(r);
@@ -32,6 +33,7 @@ export function DataTable({ columns, rows, testidPrefix, onOpen, filters, emptyT
         <div className="relative w-full max-w-sm"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input placeholder={searchPlaceholder || "Cari..."} value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid={`${testidPrefix}-search`} /></div>
         {filters}
+        {server?.exportKey && <ListExportButtons reportKey={server.exportKey} query={server.query} total={total} testidPrefix={testidPrefix} />}
         <span className="ml-auto text-xs text-muted-foreground" data-testid={`${testidPrefix}-count`}>{server?.loading ? "Memuat... · " : ""}{total} {countLabel}</span>
       </div>
       <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">

@@ -14,6 +14,7 @@ import { fmtD } from "@/lib/invoice";
 import { DP_STATUS } from "@/lib/supplierDp";
 import { HandCoins, RefreshCw, Search, FolderOpen, Play } from "lucide-react";
 import { toast } from "sonner";
+import { ListExportButtons } from "@/components/ListExportButtons";
 
 const HEAD = ["No. DP", "PO", "Tanggal PO", "Supplier", "Divisi", "Nilai PO", "Ketentuan DP", "Nilai DP", "Sudah Dibayar", "Status", ""];
 const RIGHT = new Set([5, 7, 8]);
@@ -82,8 +83,10 @@ export default function SupplierDp() {
               <TabsTrigger value="all" data-testid="supplier-dp-tab-all">Semua</TabsTrigger>
             </TabsList>
           </Tabs>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <ListExportButtons reportKey="txn-supplier-dp" query={{ tab, q: q.trim() }} total={list.length} testidPrefix="supplier-dp" />
           <div className="relative md:w-80"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input className="pl-8" placeholder="Cari No. DP, PO, supplier, divisi" value={q} onChange={(e) => setQ(e.target.value)} data-testid="supplier-dp-search" /></div>
+            <Input className="pl-8" placeholder="Cari No. DP, PO, supplier, divisi" value={q} onChange={(e) => setQ(e.target.value)} data-testid="supplier-dp-search" /></div></div>
         </div>
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[1200px] text-sm" data-testid="supplier-dp-table">

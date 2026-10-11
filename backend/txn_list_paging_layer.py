@@ -76,7 +76,8 @@ async def _mro_lifecycle(rows):
         r["lifecycle_stage"] = _stage(t)
 
 
-async def paginate(module, rows, qp):
+async def filter_sort(module, rows, qp):
+    """Filter (f_*), periode, pencarian & sort daftar — SELURUH hasil (dipakai daftar ber-halaman & export P6)."""
     rows = [r for r in (rows or []) if isinstance(r, dict)]
     if module == "mro":
         await _mro_lifecycle(rows)
@@ -109,6 +110,11 @@ async def paginate(module, rows, qp):
         rows = filled + empty
     else:  # default: terbaru terlebih dahulu
         rows.sort(key=lambda r: (str(r.get("created_at") or r.get(dkey) or ""), str(r.get("no") or "")), reverse=True)
+    return rows, facets
+
+
+async def paginate(module, rows, qp):
+    rows, facets = await filter_sort(module, rows, qp)
     try:
         size = int(qp.get("page_size") or 25)
     except ValueError:
@@ -125,20 +131,35 @@ async def paginate(module, rows, qp):
 
 def install(server):
     app = server.app
+    sources = {}
+
+    async def source_rows(module, user, qp):
+        """Baris daftar persis seperti endpoint daftar (tenant -> izin -> cakupan divisi/gudang -> enrichment) + drill
+        Dashboard (rf_*). Batas muat dokumen mengikuti list_cap (export menaikkannya)."""
+        rows = await sources[module](user=user)
+        if getattr(server, "REPORT_LIST_FILTER", None) and any(k.startswith("rf_") and v for k, v in qp.items()):
+            rows = await server.REPORT_LIST_FILTER(module, rows or [], qp)
+        return rows
+
+    async def all_rows(module, user, qp):
+        """SELURUH hasil daftar sesuai filter/pencarian/periode/sort yang sama dengan tampilan daftar (tanpa halaman)."""
+        rows, _ = await filter_sort(module, await source_rows(module, user, qp), qp)
+        return rows
+
+    server.TXN_LIST_ROWS = all_rows
     for path, module in LISTS.items():
         route = next((r for r in app.router.routes if isinstance(r, APIRoute) and r.path == path and "GET" in r.methods), None)
         if not route:
             continue
         orig = route.endpoint
+        sources[module] = orig
         idx = app.router.routes.index(route)
         app.router.routes.remove(route)
 
         def make(orig=orig, module=module):
             async def listing(request: Request, user=Depends(server.current_user)):
-                rows = await orig(user=user)
                 qp = dict(request.query_params)
-                if getattr(server, "REPORT_LIST_FILTER", None) and any(k.startswith("rf_") and v for k, v in qp.items()):
-                    rows = await server.REPORT_LIST_FILTER(module, rows or [], qp)  # drill-down Dashboard (predikat sama)
+                rows = await source_rows(module, user, qp)  # drill-down Dashboard (rf_*, predikat sama)
                 if "page" not in qp:
                     return rows
                 return await paginate(module, rows, qp)

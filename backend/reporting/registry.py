@@ -71,6 +71,10 @@ class ReportSpec:
     date_basis: str = ""                  # keterangan semantik tanggal (ditampilkan di UI/Excel/PDF)
     drill: Optional[Callable] = None      # row -> {"label", "to"} (tautan dokumen sumber)
     legacy: tuple = field(default=())     # endpoint lama yang tetap dipertahankan (kompatibilitas)
+    catalog: bool = True                  # False = export daftar transaksi (P6): tidak tampil di katalog/hub Pusat Laporan
+    passthrough: tuple = ()               # parameter daftar diteruskan apa adanya ke builder (nama persis / prefiks "f_")
+    param_labels: tuple = ()              # ((param, label), ...) keterangan filter untuk parameter passthrough
+    own_sort: bool = False                # True = builder sudah mengurutkan sesuai `sort`/`dir` daftar (P6)
 
     def visible_columns(self, price_visible: bool, has_perm: Optional[Callable] = None):
         """Kolom harga dibuang tanpa view_purchase_price; kolom ber-`perms` dibuang bila salah satu izin tidak dimiliki."""
