@@ -36,26 +36,10 @@ def _summary(names):
     return names[0] if len(names) == 1 else f"{names[0]} +{len(names) - 1}"
 
 
-async def _lines_by(coll, fk, ids, projection):
-    """{doc_id: [baris]} — SATU query batch, urutan per dokumen sama dengan find({fk: id}, projection) per dokumen.
-    Projection include: fk ikut dimuat untuk pengelompokan lalu dibuang lagi (dict baris identik dengan query per dokumen)."""
-    out = {}
-    if not ids:
-        return out
-    inc = {k: v for k, v in projection.items() if k != "_id"}
-    proj = {**projection, fk: 1} if inc else projection
-    for ln in await coll.find({fk: {"$in": list(ids)}}, proj).to_list(None):
-        key = ln.get(fk)
-        if inc and fk not in inc:
-            ln.pop(fk, None)
-        out.setdefault(key, []).append(ln)
-    return out
-
-
 @api.get("/transfers")
 async def list_transfers(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.transfers.find(list_cap.base_filter("transfer"), {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
+    docs = await db.transfers.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     wm = await _wh_map()
     ids = [d["id"] for d in docs]
     all_lines = await db.transfer_lines.find({"transfer_id": {"$in": ids}}, {"_id": 0, "transfer_id": 1, "from_warehouse_id": 1, "to_warehouse_id": 1}).to_list(500000) if ids else []
@@ -206,11 +190,10 @@ async def _enrich_loan_lines(d, lines):
 @api.get("/loans")
 async def list_loans(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.loans.find(list_cap.base_filter("loan"), {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
+    docs = await db.loans.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     wm = await _wh_map()
-    by_loan = await _lines_by(db.loan_lines, "loan_id", [d["id"] for d in docs], {"_id": 0})  # P7: 1 query batch (dulu 1 per pinjaman)
     for d in docs:
-        lines = by_loan.get(d["id"], [])[:500]
+        lines = await db.loan_lines.find({"loan_id": d["id"]}, {"_id": 0}).to_list(500)
         outs = sum(max(0, l.get("qty", 0) - l.get("returned", 0)) for l in lines)
         d["outstanding_total"] = outs
         d["status"] = _loan_status(lines, outs)
@@ -400,11 +383,10 @@ async def _enrich_adjustment_lines(d, lines, see_value=True):
 @api.get("/adjustments")
 async def list_adjustments(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.adjustments.find(list_cap.base_filter("adjustment"), {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
+    docs = await db.adjustments.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     wm = await _wh_map()
-    by_adj = await _lines_by(db.adjustment_lines, "adjustment_id", [d["id"] for d in docs], {"_id": 0, "warehouse_id": 1})  # P7: batch
     for d in docs:
-        lines = by_adj.get(d["id"], [])[:500]
+        lines = await db.adjustment_lines.find({"adjustment_id": d["id"]}, {"_id": 0, "warehouse_id": 1}).to_list(500)
         whs = list(dict.fromkeys(AL.line_warehouse(l, d) for l in lines)) or [d.get("warehouse_id")]
         # Ringkasan dari LINE (bukan default header): "Gudang A" atau "Gudang A +1".
         d["warehouse_name"] = _summary([wm.get(x, {}).get("name") for x in whs])
@@ -478,15 +460,11 @@ async def create_adjustment(body: dict, user=Depends(current_user)):
 @api.get("/opname")
 async def list_opname(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.opname.find(list_cap.base_filter("opname"), {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
+    docs = await db.opname.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     wm = await _wh_map()
-    cnt = {}  # P7: jumlah baris per opname dalam 1 query batch (dulu 1 count per opname)
-    if docs:
-        for ln in await db.opname_lines.find({"opname_id": {"$in": [d["id"] for d in docs]}}, {"_id": 0, "opname_id": 1}).to_list(None):
-            cnt[ln.get("opname_id")] = cnt.get(ln.get("opname_id"), 0) + 1
     for d in docs:
         d["warehouse_name"] = wm.get(d.get("warehouse_id"), {}).get("name")
-        d["line_count"] = cnt.get(d["id"], 0)
+        d["line_count"] = await db.opname_lines.count_documents({"opname_id": d["id"]})
     return docs
 
 

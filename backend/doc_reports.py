@@ -5,16 +5,6 @@ from server import (api, db, gid, now_iso, current_user, require, has_perm, is_g
 
 
 # ---------------- DASHBOARD ----------------
-async def loan_lines_by_loan(loan_ids):
-    """{loan_id: [baris...]} urutan sama dengan find({"loan_id": id}) per pinjaman (created_at, pk) — satu query batch."""
-    out = {}
-    if not loan_ids:
-        return out
-    for x in await db.loan_lines.find({"loan_id": {"$in": list(loan_ids)}}, {"_id": 0}).to_list(None):
-        out.setdefault(x.get("loan_id"), []).append(x)
-    return out
-
-
 @api.get("/dashboard")
 async def dashboard(user=Depends(current_user)):
     require(user, "view")
@@ -34,10 +24,8 @@ async def dashboard(user=Depends(current_user)):
     do_today = await db.do.count_documents({"date": {"$gte": now_iso()[:10]}})
     mi_today = await db.mi.count_documents({"date": {"$gte": now_iso()[:10]}})
     loan_open = 0
-    loans = await db.loans.find({}, {"_id": 0}).to_list(2000)
-    by_loan = await loan_lines_by_loan([l["id"] for l in loans])  # P7: 1 query batch (dulu 1 query per pinjaman)
-    for l in loans:
-        lines = by_loan.get(l["id"], [])[:500]
+    for l in await db.loans.find({}, {"_id": 0}).to_list(2000):
+        lines = await db.loan_lines.find({"loan_id": l["id"]}, {"_id": 0}).to_list(500)
         if sum(max(0, x.get("qty", 0) - x.get("returned", 0)) for x in lines) > 0:
             loan_open += 1
     return {"stock": {"out_of_stock": out_of, "low_stock": low, "overstock": over, "normal": normal, "total": len(iws)},

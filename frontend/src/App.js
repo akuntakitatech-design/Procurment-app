@@ -7,55 +7,43 @@ import { MasterCreateProvider } from "@/components/MasterRefCombobox";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { Layout } from "@/components/Layout";
 import BrandingHead from "@/components/BrandingHead";
-import { lazy, Suspense } from "react";
-
-// P7: halaman dimuat per rute (code splitting) -> bundle awal lebih kecil; Login tetap langsung.
-const RegisterTenant = lazy(() => import("@/pages/RegisterTenant"));
-const AcceptInvite = lazy(() => import("@/pages/AcceptInvite"));
-const ActivateTenant = lazy(() => import("@/pages/ActivateTenant"));
-const PlatformAdmin = lazy(() => import("@/pages/PlatformAdmin"));
-const SubscriptionLocked = lazy(() => import("@/pages/SubscriptionLocked"));
-const Dashboard = lazy(() => import("@/pages/Dashboard"));
-const ModuleHub = lazy(() => import("@/pages/ModuleHub"));
-const ActivityLog = lazy(() => import("@/pages/ActivityLog"));
-const PrintLayouts = lazy(() => import("@/pages/PrintLayouts"));
-const ExcelImport = lazy(() => import("@/pages/ExcelImport"));
-const MasterData = lazy(() => import("@/pages/MasterData"));
-const Inventory = lazy(() => import("@/pages/Inventory"));
-const Users = lazy(() => import("@/pages/Users"));
-const Profile = lazy(() => import("@/pages/Profile"));
-const Settings = lazy(() => import("@/pages/Settings"));
-const ReportCenter = lazy(() => import("@/pages/ReportCenter"));
-const TraceabilityPage = lazy(() => import("@/pages/Traceability"));
-const Approval2Batch = lazy(() => import("@/pages/Approval2Batch"));
-const Approval = lazy(() => import("@/pages/Approval"));
-const Verify = lazy(() => import("@/pages/Verify"));
-const MroList = lazy(() => import("@/pages/Mro").then((m) => ({ default: m.MroList })));
-const MroForm = lazy(() => import("@/pages/Mro").then((m) => ({ default: m.MroForm })));
-const RoList = lazy(() => import("@/pages/Ro").then((m) => ({ default: m.RoList })));
-const RoForm = lazy(() => import("@/pages/Ro").then((m) => ({ default: m.RoForm })));
-const PoList = lazy(() => import("@/pages/Po").then((m) => ({ default: m.PoList })));
-const PoForm = lazy(() => import("@/pages/Po").then((m) => ({ default: m.PoForm })));
-const DoList = lazy(() => import("@/pages/Do").then((m) => ({ default: m.DoList })));
-const DoForm = lazy(() => import("@/pages/Do").then((m) => ({ default: m.DoForm })));
-const MiList = lazy(() => import("@/pages/Mi").then((m) => ({ default: m.MiList })));
-const MiForm = lazy(() => import("@/pages/Mi").then((m) => ({ default: m.MiForm })));
-const Transfer = lazy(() => import("@/pages/Transfer"));
-const Loan = lazy(() => import("@/pages/Loan"));
-const Adjustment = lazy(() => import("@/pages/Adjustment"));
-const Opname = lazy(() => import("@/pages/Opname"));
-const SpkList = lazy(() => import("@/pages/Spk").then((m) => ({ default: m.SpkList })));
-const SpkForm = lazy(() => import("@/pages/Spk").then((m) => ({ default: m.SpkForm })));
-const SpkDetail = lazy(() => import("@/pages/Spk").then((m) => ({ default: m.SpkDetail })));
-const VendorContractList = lazy(() => import("@/pages/VendorContract").then((m) => ({ default: m.VendorContractList })));
-const VendorContractForm = lazy(() => import("@/pages/VendorContract").then((m) => ({ default: m.VendorContractForm })));
-const VendorContractDetail = lazy(() => import("@/pages/VendorContract").then((m) => ({ default: m.VendorContractDetail })));
-const InvoiceMonitoring = lazy(() => import("@/pages/InvoiceMonitoring"));
-const InvoiceForm = lazy(() => import("@/pages/InvoiceForm"));
-const InvoiceDetail = lazy(() => import("@/pages/InvoiceDetail"));
-const SupplierDp = lazy(() => import("@/pages/SupplierDp"));
-const SupplierDpDetail = lazy(() => import("@/pages/SupplierDpDetail"));
 import Login from "@/pages/Login";
+import RegisterTenant from "@/pages/RegisterTenant";
+import AcceptInvite from "@/pages/AcceptInvite";
+import ActivateTenant from "@/pages/ActivateTenant";
+import PlatformAdmin from "@/pages/PlatformAdmin";
+import SubscriptionLocked from "@/pages/SubscriptionLocked";
+import Dashboard from "@/pages/Dashboard";
+import ModuleHub from "@/pages/ModuleHub";
+import ActivityLog from "@/pages/ActivityLog";
+import PrintLayouts from "@/pages/PrintLayouts";
+import ExcelImport from "@/pages/ExcelImport";
+import MasterData from "@/pages/MasterData";
+import Inventory from "@/pages/Inventory";
+import Users from "@/pages/Users";
+import Profile from "@/pages/Profile";
+import Settings from "@/pages/Settings";
+import ReportCenter from "@/pages/ReportCenter";
+import TraceabilityPage from "@/pages/Traceability";
+import Approval2Batch from "@/pages/Approval2Batch";
+import Approval from "@/pages/Approval";
+import Verify from "@/pages/Verify";
+import { MroList, MroForm } from "@/pages/Mro";
+import { RoList, RoForm } from "@/pages/Ro";
+import { PoList, PoForm } from "@/pages/Po";
+import { DoList, DoForm } from "@/pages/Do";
+import { MiList, MiForm } from "@/pages/Mi";
+import Transfer from "@/pages/Transfer";
+import Loan from "@/pages/Loan";
+import Adjustment from "@/pages/Adjustment";
+import Opname from "@/pages/Opname";
+import { SpkList, SpkForm, SpkDetail } from "@/pages/Spk";
+import { VendorContractList, VendorContractForm, VendorContractDetail } from "@/pages/VendorContract";
+import InvoiceMonitoring from "@/pages/InvoiceMonitoring";
+import InvoiceForm from "@/pages/InvoiceForm";
+import InvoiceDetail from "@/pages/InvoiceDetail";
+import SupplierDp from "@/pages/SupplierDp";
+import SupplierDpDetail from "@/pages/SupplierDpDetail";
 
 function Loading() {
   const auth = useAuth();
@@ -68,10 +56,6 @@ function Loading() {
     </div>
   );
   return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Memuat...</div>;
-}
-
-function RouteLoading() {
-  return <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground" data-testid="route-loading">Memuat halaman...</div>;
 }
 
 // URL lama /reports (dan ?tab=trace|lead|usage) -> laporan padanan di Pusat Laporan; endpoint API lama tetap tersedia.
@@ -87,7 +71,7 @@ function Protected({ children }) {
   if (user?.is_platform_admin) return <Navigate to="/platform" replace />;
   if (subscription === null) return <Loading />;
   if (subscription?.access_mode === "locked") return <SubscriptionLocked />;
-  return <Layout><Suspense fallback={<RouteLoading />}>{children}</Suspense></Layout>;
+  return <Layout>{children}</Layout>;
 }
 
 function PlatformProtected({ children }) {
@@ -107,7 +91,6 @@ function App() {
             <BrandingHead />
             <Toaster position="top-right" />
             <MasterCreateProvider>
-            <Suspense fallback={<RouteLoading />}>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/daftar" element={<RegisterTenant />} />
@@ -169,7 +152,6 @@ function App() {
               <Route path="/profile" element={<Protected><Profile /></Protected>} />
               <Route path="/settings" element={<Protected><Settings /></Protected>} />
             </Routes>
-            </Suspense>
             </MasterCreateProvider>
           </AuthProvider>
         </BrowserRouter>
