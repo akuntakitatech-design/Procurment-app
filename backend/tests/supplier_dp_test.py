@@ -1,4 +1,5 @@
 """DP Supplier + alokasi DP ke Invoice Vendor (throwaway tenant, dev DB, localhost). 30 skenario wajib + guard."""
+import os
 import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -20,7 +21,7 @@ PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
 def dbw(sql, args=()):
     import pymysql
     from urllib.parse import urlparse, unquote
-    url = next(x.split("=", 1)[1].strip().strip('"') for x in open("/app/backend/.env") if x.startswith("DATABASE_URL="))
+    url = os.environ.get("TEST_DATABASE_URL") or next(x.split("=", 1)[1].strip().strip('"') for x in open("/app/backend/.env") if x.startswith("DATABASE_URL="))
     assert "prod" not in url.lower()
     u = urlparse(url.replace("mariadb://", "mysql://"))
     c = pymysql.connect(host=u.hostname, port=u.port or 3306, user=unquote(u.username or ""), password=unquote(u.password or ""), database=u.path.lstrip("/"))
