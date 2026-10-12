@@ -357,6 +357,30 @@ async def _upstream(server, line_ids, source_type):
     return out
 
 
+UPSTREAM_BULK_MIN = 6000  # P7: di atas ini `IN` raksasa = full scan per query -> 1 scan bertipe dibagi via memo request
+
+
+def _gen_key(v):
+    """Nilai yang dapat cocok dengan pushdown `kolom generated IN/= ...` adapter: string non-kosong <= 191 karakter."""
+    return [v] if isinstance(v, str) and v and len(v) <= 191 else []
+
+
+async def _upstream_lineage(server, line_ids, source_type):
+    """== _upstream() (per kunci & urutan identik; field yang dipakai _lineage: source_line_id/source_doc_id). Banyak baris:
+    1 scan alokasi source_type ro/mro (SQL identik untuk kedua tahap -> memo request) menggantikan full scan per tahap."""
+    ids = [x for x in line_ids if x]
+    if len(ids) <= UPSTREAM_BULK_MIN:
+        return await _upstream(server, line_ids, source_type)
+    out = {}
+    for a in await server.db.allocations.find({"source_type": {"$in": ["ro", "mro"]}},
+                                              {"_id": 0, "target_line_id": 1, "source_line_id": 1, "source_doc_id": 1,
+                                               "source_type": 1}).to_list(None):
+        if source_type in _gen_key(a.get("source_type")):
+            for k in _gen_key(a.get("target_line_id")):
+                out.setdefault(k, []).append(a)
+    return out
+
+
 async def _docs_no(server, coll, ids):
     ids = [x for x in set(ids) if x]
     if not ids:
@@ -397,7 +421,7 @@ async def _lineage(server, module, lines):
                 res[l["id"]]["po"].add(pos[l["po_id"]].get("no"))
     if module in ("do", "po"):
         po_line_ids = [x for v in chain_po.values() for x in v] if module == "do" else [l["id"] for l in lines]
-        up = await _upstream(server, po_line_ids, "ro")
+        up = await _upstream_lineage(server, po_line_ids, "ro")
         ros = await _docs_no(server, "ro", [a.get("source_doc_id") for v in up.values() for a in v])
         chain_ro = {}
         for l in lines:
@@ -411,7 +435,7 @@ async def _lineage(server, module, lines):
     if module in ("do", "po", "ro", "mi"):
         if module == "ro" or module == "mi":
             chain_ro = {l["id"]: [l["id"]] for l in lines}
-        up = await _upstream(server, [x for v in chain_ro.values() for x in v], "mro")
+        up = await _upstream_lineage(server, [x for v in chain_ro.values() for x in v], "mro")
         mros = await _docs_no(server, "mro", [a.get("source_doc_id") for v in up.values() for a in v])
         for l in lines:
             for rl in chain_ro.get(l["id"], []):
@@ -437,7 +461,8 @@ LIST_CFG = {
 }
 
 
-async def enrich_list(server, module, rows):
+async def enrich_list(server, module, rows, items=True):
+    """items=False (P7): tanpa array `items`/`items_search` (pemanggil yang langsung membuangnya); field lain identik."""
     import doc_procurement
     rows = [r for r in (rows or []) if isinstance(r, dict) and r.get("id")]
     if not rows:
@@ -474,7 +499,7 @@ async def enrich_list(server, module, rows):
         proj_ids = {hproj} if hproj else set()
         if hdiv:
             div_s.add(hdiv)
-        items = []
+        items_ = []
         for l in ls:
             f = float(l.get("conversion_factor") or 1) or 1.0
             lg = lin.get(l.get("id")) or {}
@@ -500,6 +525,8 @@ async def enrich_list(server, module, rows):
             sp = spk.get(l.get("id"))
             for n, _, _ in sp or []:
                 spk_s.add(n)
+            if not items:
+                continue
             it = m["items"].get(l.get("item_id")) or {}
             desc = l.get("notes") or ""
             if module == "adjustment":
@@ -510,7 +537,7 @@ async def enrich_list(server, module, rows):
                 desc = f"Sistem {_fmt(l.get('snapshot'))} / Fisik {'-' if c is None else _fmt(c)}"
             else:
                 qty = float(l.get("qty") or 0) / f
-            items.append({"item": " — ".join(x for x in (it.get("code"), it.get("name")) if x) or "-", "desc": desc,
+            items_.append({"item": " — ".join(x for x in (it.get("code"), it.get("name")) if x) or "-", "desc": desc,
                           "qty": qty, "unit": sym(l), "project": pname or "-", "division": hdiv or "-",
                           "spk": _spk_join(sp) or "-"})
         for k in ("from_name", "to_name", "warehouse_name"):
@@ -529,8 +556,9 @@ async def enrich_list(server, module, rows):
         r["trace_warehouse"] = ", ".join(_uniq(wh_s))
         r["trace_unit"] = ", ".join(_uniq(unit_s))
         r["trace_requester"] = ", ".join(_uniq(req_s))
-        r["items"] = items[:300]
-        r["items_search"] = " ".join(f"{x['item']} {x['desc']}" for x in items[:300])
+        if items:
+            r["items"] = items_[:300]
+            r["items_search"] = " ".join(f"{x['item']} {x['desc']}" for x in items_[:300])
     if module == "po":
         batch, _, _ = await po_receipt_batch(server, rows)
         stages = await po_approval_stage_map(server, rows)

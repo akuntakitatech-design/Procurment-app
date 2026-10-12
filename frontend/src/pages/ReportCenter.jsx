@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { exportMode } from "@/lib/exportJob";
+import { startBackgroundExport } from "@/lib/backgroundExport";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AlertCircle, ArrowUpRight, ChevronRight, FileSpreadsheet, FileText, LayoutGrid, RotateCcw, Search } from "lucide-react";
@@ -230,6 +232,7 @@ export default function ReportCenter() {
     if (!st.ok) { toast.error(st.reason); return; }
     setBusy(fmt);
     try {
+      if (exportMode(res?.total_rows, fmt) === "background") { await startBackgroundExport(key, fmt, buildQuery(applied)); return; }  // P7
       const r = await api.get(`/report-center/${encodeURIComponent(key)}/export.${fmt}?${buildQuery(applied)}`, { responseType: "blob" });
       const cd = r.headers?.["content-disposition"] || "";
       const name = (cd.match(/filename="([^"]+)"/) || [])[1] || `${key}.${fmt}`;

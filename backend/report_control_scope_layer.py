@@ -148,10 +148,21 @@ def install(server):
                 return {**vis[m], **extra}
             today = server.now_iso()[:10]
             loans_open = 0
-            for loan in await server.db.loans.find({}, {"_id": 0, "id": 1}).to_list(10000):
-                if not await _loan_visible(server, user, loan.get("id")):
+            # P7: baris pinjaman dimuat 1 query batch (dulu 2 query per pinjaman). Pinjaman terhitung bila ada baris (2.000 pertama,
+            # urutan sama) ber-item terlihat dengan sisa > 0 — kondisi ini sudah menyiratkan pinjaman terlihat (_loan_visible).
+            loans_ = await server.db.loans.find({}, {"_id": 0, "id": 1}).to_list(10000)
+            by_loan = {}
+            if item_ids and loans_:
+                for x in await server.db.loan_lines.find({"loan_id": {"$in": [ln.get("id") for ln in loans_]}}, {"_id": 0}).to_list(None):
+                    by_loan.setdefault(x.get("loan_id"), []).append(x)
+            def _vis_line(x):  # == loan_lines.find_one({"item_id": {"$in": item_ids}}) (cocok skalar / elemen array)
+                v = x.get("item_id")
+                return (v in item_ids) if isinstance(v, str) else isinstance(v, list) and any(isinstance(e, str) and e in item_ids for e in v)
+            for loan in loans_:
+                allx = by_loan.get(loan.get("id"), [])
+                if not any(_vis_line(x) for x in allx):  # _loan_visible (seluruh baris)
                     continue
-                lines = await server.db.loan_lines.find({"loan_id": loan.get("id")}, {"_id": 0}).to_list(2000)
+                lines = allx[:2000]
                 if any(str(x.get("item_id")) in item_ids and float(x.get("qty") or 0) - float(x.get("returned") or 0) > 1e-9 for x in lines):
                     loans_open += 1
             all_wh = await server.db.warehouses.find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(5000)

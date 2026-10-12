@@ -693,4 +693,13 @@ Gate (proc_itest serial): po_print_mro_test 16/16; frontend tests/po_print_mro_t
 regresi 33/33 suite (1.699 assertion) exit 0; integrity 13/13 exit 0; CI build exit 0; UAT browser Print Preview + PDF (1 MRO, multi,
 tanpa MRO, campuran) PASS; testing_agent_v3 iteration_34 0 temuan.
 
-### P7 — Performance Optimization menyeluruh (Status: NOT STARTED, PR terpisah)
+### P7 — Performance Optimization menyeluruh (Status: COMPLETED (agent-tested) — PR #69 OPEN, tanpa merge/deploy)
+Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap, metode & angka: `docs/perf-p7.md` §13.
+- Optimasi jalur BACA saja (paging server-side tanpa cap 1.000, adapter MariaDB adaptif, N+1 Pull/Dashboard dihapus via batch
+  `alloc_out_many`/UoM/`visible_doc_ids`, pra-saring cakupan daftar user divisi, export background). MWA/HPP/valuation/ledger/
+  approval/permission/redaksi harga/tenant isolation tidak diubah.
+- Akar regresi daftar user terbatas divisi: jalur cepat RO/PO/DO/MI memperkaya seluruh kandidat 2x → jalur cepat divisi hanya MRO.
+- Benchmark final ABBA (3 run, 3 persona, 38 endpoint): Pull terburuk 0,997 (≤ 1,0), non-Pull terburuk 1,071 (≤ 1,10), FAIL 0/38.
+- Gate: regresi 40/40 file (1.769/1.769), integrity 13/13, multiprocess 9/9, scope-prefilter 166/166, paging completeness 108/108,
+  parity 327/336 (9 beda hanya `total`, by design), FE test 21/21 (main 20/20), CI build OK, UAT + testing_agent_v3 0 temuan,
+  secret scan bersih.

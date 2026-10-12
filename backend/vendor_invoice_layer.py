@@ -143,7 +143,8 @@ def install(server):
         return m
 
     async def traces(dos):
-        rows = await RC.enrich_list(server, "do", [dict(d) for d in dos]) if dos else []
+        # P7: items=False — pemanggil hanya membaca no/trace_* (items/items_search tidak dibangun; field lain identik)
+        rows = await RC.enrich_list(server, "do", [dict(d) for d in dos], items=False) if dos else []
         return {r["id"]: r for r in rows}
 
     async def vis_dos(user):

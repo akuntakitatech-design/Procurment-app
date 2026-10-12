@@ -43,13 +43,26 @@ export function MroList() {
   const nav = useNavigate(); const [stageFilter, setStageFilter] = useState("all");
   // Server-side: lifecycle (Request/RO/PO/DO/MI) & tahap dihitung backend dalam batch; tanpa /reports/mro-traceability.
   const rp = useReportParams();
-  const list = useServerList("/mro", { f_lifecycle_stage: stageFilter === "all" ? "" : stageFilter, ...rp.params }, { counts: "lifecycle_stage" });
-  const reload = list.reload;
-  const counts = useMemo(() => { const c = list.facets["count:lifecycle_stage"] || {}; return { all: Object.values(c).reduce((a, b) => a + b, 0), ...c }; }, [list.facets]);
+  const list = useServerList("/mro", { f_lifecycle_stage: stageFilter === "all" ? "" : stageFilter, ...rp.params });
+  // P7: hitungan tahap (seluruh MRO, tanpa batas) dimuat terpisah agar daftar tampil cepat; kartu menampilkan "…" saat memuat.
+  const [stageCounts, setStageCounts] = useState(null);
+  const rpKey = JSON.stringify(rp.params);
+  const countsSeq = useRef(0);
+  const loadCounts = useCallback(() => {
+    const seq = ++countsSeq.current; // respons lama (filter periode berganti cepat) diabaikan
+    setStageCounts(null);
+    api.get("/mro", { params: { page: 1, page_size: 25, counts: "lifecycle_stage", ...JSON.parse(rpKey) } })
+      .then((r) => { if (seq === countsSeq.current) setStageCounts(r.data?.facets?.["count:lifecycle_stage"] || {}); })
+      .catch(() => { if (seq === countsSeq.current) setStageCounts({}); });
+  }, [rpKey]);
+  useEffect(() => { loadCounts(); }, [loadCounts]);
+  const listReload = list.reload;
+  const reload = useCallback(() => { listReload(); loadCounts(); }, [listReload, loadCounts]);
+  const counts = useMemo(() => { if (!stageCounts) return null; const c = stageCounts; return { all: Object.values(c).reduce((a, b) => a + b, 0), ...c }; }, [stageCounts]);
   const cards = [{ key:"all",label:"Total MRO",desc:"Seluruh transaksi"},{key:"MRO",label:"Belum ke RO",desc:"Masih di tahap MRO"},{key:"RO",label:"Sampai RO",desc:"Belum menjadi PO"},{key:"PO",label:"Sampai PO",desc:"Belum ada penerimaan"},{key:"DO",label:"Sampai DO",desc:"Barang sudah diterima"},{key:"MI",label:"Sampai MI",desc:"Pengeluaran masih partial"},{key:"Completed",label:"Selesai",desc:"MI memenuhi request"}];
   const columns = useMemo(() => [noCol("No. MRO"), dateCol(fmtDate), { key: "requester", label: "Pemohon" }, { key: "division_name", label: "Divisi" }, traceCol("project"), traceCol("spk"), traceCol("warehouse"), { key: "line_count", label: "Item", num: true }, { key: "lifecycle_stage", label: "Tracking", render: (r) => <FlowMini stage={r.lifecycle_stage} /> }, { key: "req", serverSort: "lifecycle.request", label: "Request", num: true, value: (r) => r.lifecycle?.request, render: (r) => num(r.lifecycle?.request) }, { key: "mi", serverSort: "lifecycle.qty_mi", label: "MI", num: true, value: (r) => r.lifecycle?.qty_mi, render: (r) => num(r.lifecycle?.qty_mi) }, { key: "outs", serverSort: "lifecycle.outstanding", label: "Outstanding", num: true, value: (r) => r.lifecycle?.outstanding, render: (r) => <span className="font-semibold">{num(r.lifecycle?.outstanding)}</span> }, { key: "status", label: "Status", status: true }], []);
   return <div><TransactionPageHeader type="mro" mode="list"><Button onClick={() => nav("/mro/new")}><Plus className="h-4 w-4 mr-2" />Buat Baru</Button></TransactionPageHeader>
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7 mb-5">{cards.map((c) => <button key={c.key} onClick={() => setStageFilter(c.key)} className={`rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${stageFilter === c.key ? "border-primary ring-1 ring-primary/20" : ""}`}><div className="text-2xl font-bold tabular-nums" data-testid={`mro-stage-count-${c.key}`}>{counts[c.key] || 0}</div><div className="mt-1 text-sm font-semibold">{c.label}</div><div className="mt-0.5 text-[11px] text-muted-foreground">{c.desc}</div></button>)}</div>
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7 mb-5">{cards.map((c) => <button key={c.key} onClick={() => setStageFilter(c.key)} className={`rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${stageFilter === c.key ? "border-primary ring-1 ring-primary/20" : ""}`}><div className="text-2xl font-bold tabular-nums" data-testid={`mro-stage-count-${c.key}`}>{counts ? (counts[c.key] || 0) : "…"}</div><div className="mt-1 text-sm font-semibold">{c.label}</div><div className="mt-0.5 text-[11px] text-muted-foreground">{c.desc}</div></button>)}</div>
     {list.error && !list.loading && <div className="rounded-xl border bg-card p-10 text-center shadow-sm" data-testid="mro-error"><p className="mb-3 text-muted-foreground">Daftar MRO belum dapat dimuat.</p><Button variant="outline" onClick={reload} data-testid="mro-retry">Coba Lagi</Button></div>}
     {!(list.error && !list.loading) && <TxnList module="mro" columns={columns} server={list} testidPrefix="mro" onReload={reload} resetKey={stageFilter} minWidth={1600} emptyText="Belum ada transaksi pada filter ini"
       filters={<>{rp.chip}{stageFilter !== "all" && <Button variant="outline" onClick={()=>setStageFilter("all")}>Tampilkan Semua</Button>}</>}

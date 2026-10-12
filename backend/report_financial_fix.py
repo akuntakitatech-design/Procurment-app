@@ -26,6 +26,10 @@ def install(server):
         if not user or not server.has_perm(user, "view_purchase_price"):
             return rows
 
+        B = report_trace_detail._LAST_BATCH.get()  # P7: batch dari _build_rows asli (request sama)
+        if B is None:
+            B = await report_trace_detail.trace_batch(server, list(dict.fromkeys(r.get("mro_id") for r in rows if r.get("mro_id"))))
+        report_trace_detail._LAST_BATCH.set(None)
         for row in rows:
             row.update({
                 "qty_received": 0.0,
@@ -36,21 +40,14 @@ def install(server):
                 "po_total": 0.0,
                 "do_total": 0.0,
             })
-            mro_lines = await server.db.mro_lines.find(
-                {"mro_id": row.get("mro_id"), "item_id": row.get("item_id")}, {"_id": 0}
-            ).to_list(2000)
+            mro_lines = [ml for ml in await B.find("mro_lines", "mro_id", row.get("mro_id"))
+                         if ml.get("item_id") == row.get("item_id")][:2000]
             for ml in mro_lines:
-                ro_allocs = await server.db.allocations.find(
-                    {"source_line_id": ml["id"], "target_type": "ro"}, {"_id": 0}
-                ).to_list(1000)
+                ro_allocs = await B.find("allocations", "source_line_id", ml["id"], {"target_type": "ro"}, cap=1000)
                 for ra in ro_allocs:
-                    po_allocs = await server.db.allocations.find(
-                        {"source_line_id": ra.get("target_line_id"), "target_type": "po"}, {"_id": 0}
-                    ).to_list(1000)
+                    po_allocs = await B.find("allocations", "source_line_id", ra.get("target_line_id"), {"target_type": "po"}, cap=1000)
                     for pa in po_allocs:
-                        pl = await server.db.po_lines.find_one(
-                            {"id": pa.get("target_line_id")}, {"_id": 0}
-                        ) or {}
+                        pl = await B.one("po_lines", pa.get("target_line_id")) or {}
                         qty = _f(pl.get("qty"))
                         allocated = _f(pa.get("qty"))
                         share = allocated / qty if qty > 0 else 0.0
@@ -73,9 +70,7 @@ def install(server):
                         row["po_total"] += total * share
 
                         unit_dpp = dpp / qty if qty > 0 else 0.0
-                        do_allocs = await server.db.allocations.find(
-                            {"source_line_id": pa.get("target_line_id"), "target_type": "do"}, {"_id": 0}
-                        ).to_list(1000)
+                        do_allocs = await B.find("allocations", "source_line_id", pa.get("target_line_id"), {"target_type": "do"}, cap=1000)
                         for da in do_allocs:
                             received_for_source = _f(da.get("qty")) * share
                             row["qty_received"] += received_for_source

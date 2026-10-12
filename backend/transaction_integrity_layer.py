@@ -143,10 +143,57 @@ def install(server):
             active_ids.add(doc.get("id"))
         return sum(float(r.get("qty") or 0) for r in rows if r.get("target_doc_id") in active_ids)
 
+    async def active_alloc_out_many(source_line_ids, target_type):
+        """Batch `active_alloc_out` (P7 — hilangkan N+1 di endpoint Pull): {line_id: qty} untuk banyak baris sekaligus,
+        2 query total. Semantik IDENTIK per baris: allocation milik dokumen yang sedang diedit dikecualikan, hanya
+        dokumen hilir aktif yang dihitung, urutan penjumlahan float sama (urutan dasar created_at, pk), baris tanpa
+        allocation -> 0, batas 5000 allocation per baris."""
+        ids = [x for x in dict.fromkeys(source_line_ids or []) if x]
+        if not ids:
+            return {}
+        per = {i: [] for i in ids}
+        for r in await server.db.allocations.find(
+                {"source_line_id": {"$in": ids}, "target_type": target_type}, {"_id": 0}).to_list(None):
+            b = per.get(r.get("source_line_id"))
+            if b is not None and len(b) < 5000:
+                b.append(r)
+        import source_reservation_layer as _SR
+        excluded = _SR.excluded_doc(target_type)
+        if excluded:
+            per = {k: [r for r in v if r.get("target_doc_id") != excluded] for k, v in per.items()}
+        collection_name = TARGET_COLLECTIONS.get(target_type)
+        out = {}
+        if not collection_name:
+            for k, rows in per.items():
+                out[k] = sum(float(r.get("qty") or 0) for r in rows) if rows else 0
+            return out
+        doc_ids = list({r.get("target_doc_id") for rows in per.values() for r in rows if r.get("target_doc_id")})
+        active_ids = set()
+        if doc_ids:
+            docs = await getattr(server.db, collection_name).find(
+                {"id": {"$in": doc_ids}},
+                {"_id": 0, "id": 1, "cancelled": 1, "deleted": 1, "status": 1, "approval_status": 1},
+            ).to_list(len(doc_ids) + 10)
+            for doc in docs:
+                status = _norm(doc.get("status"))
+                approval_status = _norm(doc.get("approval_status"))
+                if doc.get("cancelled") is True or doc.get("deleted") is True:
+                    continue
+                if status in ("cancelled", "canceled", "rejected") or approval_status == "rejected":
+                    continue
+                active_ids.add(doc.get("id"))
+        for k, rows in per.items():
+            if not rows or not any(r.get("target_doc_id") for r in rows):
+                out[k] = 0
+            else:
+                out[k] = sum(float(r.get("qty") or 0) for r in rows if r.get("target_doc_id") in active_ids)
+        return out
+
     # Replace module globals used at request time. This makes MRO/RO/PO source
     # outstanding quantities recover when a downstream document is cancelled or
     # rejected, without deleting historical allocation rows.
     server.alloc_out = active_alloc_out
+    server.alloc_out_many = active_alloc_out_many
     doc_procurement.alloc_out = active_alloc_out
     doc_reports.alloc_out = active_alloc_out
 
