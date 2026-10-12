@@ -10,7 +10,9 @@ Default STRICT: exit 1 bila ada kebocoran / bentuk respon berubah / kebijakan DP
 Kebijakan DP Supplier (keputusan pemilik, PR #70): user TANPA view_purchase_price yang memiliki izin modul DP
 (supplier_dp.* / invoice.view) BOLEH melihat nominal DP, sisa DP, riwayat & status pembayaran; TIDAK BOLEH melihat
 nilai PO / Grand Total / sisa PO setelah DP, harga satuan, maupun persentase DP (nominal DP / persen = Grand Total).
-Nominal DP karenanya dikecualikan dari "nilai rahasia" HANYA untuk user dengan akses modul DP; nilai lain tetap rahasia.
+Nominal DP karenanya dikecualikan dari "nilai rahasia" HANYA untuk user dengan akses modul DP / Invoice Vendor; nilai lain
+tetap rahasia. Nominal tagihan (Nilai DO, Invoice, pembayaran, outstanding) boleh tampil bagi pemegang invoice.view
+(keputusan pemilik); harga satuan, diskon pembelian & Grand Total PO tetap rahasia bagi semua user tanpa izin harga.
 
 Endpoint yang gagal diperiksa (HTTP 5xx, koneksi gagal, respon tak terbaca) dicatat BELUM DIUJI (bukan PASS) dan tidak
 menghentikan pemeriksaan endpoint lain.
@@ -24,7 +26,7 @@ import uuid
 
 sys.path.insert(0, "/app/backend/tests")
 import receipt_control_test as T  # noqa: E402
-from vendor_invoice_test import mk_user  # noqa: E402
+from vendor_invoice_test import U  # noqa: E402
 
 call, API = T.call, T.API
 PRICE = 123457
@@ -175,7 +177,7 @@ def targets(ids, report_keys):
             out.append(f"{m.group(1)}/{ids[m.group(1)]}{m.group(2)}")
             continue
         repl = {"{po_id}": ids["po"], "{mro_id}": ids["mro"], "{do_id}": ids["do"], "{item_id}": ids["item"],
-                "{warehouse_id}": ids["wh"], "{did}": ids["do"] if "do-receiving" in p else None}
+                "{warehouse_id}": ids["wh"], "{did}": ids["do"] if "do-receiving" in p else None, "{iid}": ids.get("iid")}
         if p.startswith("/api/lifecycle/"):
             out += [f"lifecycle/{e}/{ids[e]}" for e in ("mro", "ro", "po", "do")]
             continue
@@ -213,6 +215,32 @@ def pay_dp_admin(po):
     assert r.status_code == 200, (r.status_code, r.text[:200])
     call("POST", f"supplier-dp/payments/{pid}/approve", {"payment_date": "2026-06-05", "fund_source": "Bank Operasional"}, 200)
     return pid
+
+
+def mk_scoped(role, overrides=None, div_mode=None, divs=None):
+    """User uji dengan override izin + cakupan divisi; GAGAL KERAS bila override ditolak (agar persona tidak diam-diam
+    berjalan dengan izin default dan tetap dihitung lulus)."""
+    email = f"pv_{role}_{uuid.uuid4().hex[:6]}@example.com"
+    sc, u = call("POST", "users", {"email": email, "password": "TestPass123!", "name": f"QA {role}", "role": role}, 200)
+    assert sc == 200, (sc, u)
+    body = {"overrides": overrides or {}}
+    if div_mode:
+        body["division_override"] = {"mode": div_mode, "divisions": divs or []}
+    sc, r = call("PUT", f"access/users/{u['id']}", body, 200)
+    assert sc == 200, ("override ditolak", sc, r)
+    return U(email)
+
+
+def make_invoice_admin(M, do):
+    """Admin membuat Invoice Vendor atas DO (nilai = Nilai DO) + 1 pembayaran, agar jalur tagihan ikut terpindai."""
+    sc, el = call("GET", f"vendor-invoices/eligible-dos?supplier_id={M['supX']['id']}", None, 200)
+    row = next((r for r in el or [] if r.get("do_no") == do["no"]), {})
+    val = row.get("do_value")
+    sc, inv = call("POST", "vendor-invoices", {"supplier_id": M["supX"]["id"], "invoice_no": f"INV-SCAN-{uuid.uuid4().hex[:4]}",
+                                               "invoice_date": "2026-06-01", "received_date": "2026-06-02", "due_date": "2026-07-01",
+                                               "amount": val, "tax_amount": 0, "allocations": [{"do_id": do["id"], "amount": val}]}, 200)
+    call("POST", f"vendor-invoices/{inv['id']}/payments", {"date": "2026-06-10", "amount": round(val / 2, 2), "reference": "TRF-SCAN"}, 200)
+    return inv
 
 
 def dp_policy(u, po, dp_nominal):
@@ -253,6 +281,7 @@ def main():
                                   "lines": [{"item_id": M["item2"]["id"], "qty": 2, "uom_id": M["uom"]["id"], "price": 98765,
                                              "discount": 0, "tax": 11, "warehouse_id": M["wh"]["id"], "price_change_reason": "scan"}]}, 200)
     pay_dp_admin(po)
+    inv = make_invoice_admin(M, do)
     sc, po = call("GET", f"po/{po['id']}")
     dp_nominal = round(float(po["dp_amount"]), 2)
     spec = T.S.get(API.rsplit("/api", 1)[0] + "/openapi.json").json()
@@ -264,17 +293,27 @@ def main():
             money_values(body, secrets)
     secrets |= {float(PRICE), float(PRICE * QTY), 98765.0, 7777.0, 55555.0}
     secrets = {s for s in secrets if abs(s) >= 1000}
+    # Nominal tagihan (Nilai DO / Invoice / pembayaran / outstanding) BOLEH tampil HANYA bagi pemegang izin modul tagihan
+    # (keputusan pemilik PR #70). Nilai tersebut berasal dari Invoice Vendor (bukan PO) dan dikecualikan dari nilai rahasia
+    # hanya untuk user yang GET vendor-invoices -> 200; harga satuan / diskon / Grand Total PO tetap rahasia.
+    inv_vals = set()
+    money_values(call("GET", f"vendor-invoices/{inv['id']}")[1], inv_vals)
+    money_values(call("GET", f"vendor-invoices/do/{do['id']}")[1], inv_vals)
+    inv_allowed = {v for v in inv_vals if v in secrets} - {float(PRICE), 4321.0, float(PRICE * QTY), round(float(po.get("grand_total") or 0), 2), 98765.0, 7777.0}
     print(f"PO {po['no']} grand_total={po.get('grand_total')} nilai rahasia: {sorted(secrets)}")
+    print(f"nominal tagihan yang boleh tampil bagi pemegang invoice.view: {sorted(inv_allowed)}")
     sc, cat = call("GET", "report-center/catalog")
     keys = [r.get("key") for g in (cat if isinstance(cat, list) else cat.get("groups", cat.get("items", []))) for r in (g.get("reports", [g]) if isinstance(g, dict) else []) if isinstance(r, dict) and r.get("key")]
-    ids = {"po": po["id"], "ro": ro["id"], "mro": mro["id"], "do": do["id"], "item": M["item"]["id"], "wh": M["wh"]["id"]}
-    paths = targets(ids, keys) + [f"po/{po2['id']}"]
+    ids = {"po": po["id"], "ro": ro["id"], "mro": mro["id"], "do": do["id"], "item": M["item"]["id"], "wh": M["wh"]["id"],
+           "iid": inv["id"]}
+    paths = targets(ids, keys) + [f"po/{po2['id']}", f"attachments?entity=invoice&entity_id={inv['id']}",
+                                  "report-center/txn-supplier-dp/export.xlsx?tab=all"]
     makers = {
-        "purchasing_deny_price": lambda: mk_user("purchasing", overrides={"view_purchase_price": "deny"}),
-        "warehouse_default": lambda: mk_user("warehouse", divs=[M["div"]["id"]]),
-        "warehouse_global": lambda: mk_user("warehouse", overrides={"view_all_division": "allow", "view_all_warehouse": "allow"}),
-        "manager_deny_price": lambda: mk_user("manager", overrides={"view_purchase_price": "deny"}),
-        "finance_deny_price": lambda: mk_user("finance", overrides={"view_purchase_price": "deny"}),
+        "purchasing_deny_price": lambda: mk_scoped("purchasing", overrides={"view_purchase_price": "deny"}),
+        "warehouse_default": lambda: mk_scoped("warehouse", div_mode="selected", divs=[M["div"]["id"]]),
+        "warehouse_global": lambda: mk_scoped("warehouse", overrides={"view_all_warehouse": "allow"}, div_mode="all"),
+        "manager_deny_price": lambda: mk_scoped("manager", overrides={"view_purchase_price": "deny"}),
+        "finance_deny_price": lambda: mk_scoped("finance", overrides={"view_purchase_price": "deny"}),
     }
     # SCAN_USERS=a,b (subset; batas user per tenant paket starter). Default: purchasing deny + warehouse (divisi & global).
     # manager_deny_price / finance_deny_price: dijalankan price_visibility_scan_roles_test.py (tenant terpisah).
@@ -283,7 +322,8 @@ def main():
     pick = [x for x in os.environ.get("SCAN_USERS", "purchasing_deny_price,warehouse_default,warehouse_global").split(",") if x in makers]
     users = {name: makers[name]() for name in pick}
     report = {"secrets": sorted(secrets), "report_keys": keys, "paths": len(paths), "leaks": {}, "admin_sees": 0, "errors": {},
-              "shape": {}, "untested": {}, "dp_access": {}, "dp_policy": {}}
+              "shape": {}, "untested": {}, "dp_access": {}, "dp_policy": {}, "invoice_access": {},
+              "invoice_allowed": sorted(inv_allowed)}
     sc, adm = call("GET", f"po/{po2['id']}")
     for uname, u in users.items():
         sc, lim = u("GET", f"po/{po2['id']}")
@@ -306,14 +346,25 @@ def main():
             report["admin_sees"] += 1
     for uname, u in users.items():
         sc, _rows = u("GET", "supplier-dp")
-        has_dp = sc == 200
         report["dp_access"][uname] = sc
-        user_secrets = (secrets - dp_allowed) if has_dp else secrets
-        if has_dp:
+        sc_i, _ = u("GET", "vendor-invoices")
+        report["invoice_access"][uname] = sc_i
+        # Sesuai DP_NOMINAL_PERMS (price_redaction_layer): nominal DP boleh tampil bagi izin supplier_dp.* ATAU invoice.view
+        # (alokasi DP pada Invoice Vendor). Persen DP tetap disembunyikan bagi keduanya.
+        has_dp = sc == 200 or sc_i == 200
+        user_secrets = (secrets - dp_allowed) if has_dp else set(secrets)
+        if sc_i == 200:
+            user_secrets -= inv_allowed
+        if sc == 200:
             report["dp_policy"][uname] = dp_policy(u, po, dp_nominal)
             print(f"kebijakan DP {uname}: {report['dp_policy'][uname]}")
+        elif has_dp:
+            sc_p, pod = u("GET", f"po/{po['id']}")
+            report["dp_policy"][uname] = {"po_detail_dp_percent_hidden": sc_p in (403, 404) or (sc_p == 200 and pod.get("dp_value") is None
+                                                                                                 and "%" not in str(pod.get("dp_terms") or ""))}
+            print(f"kebijakan DP {uname} (akses DP via invoice.view): {report['dp_policy'][uname]}")
         else:
-            print(f"kebijakan DP {uname}: tanpa akses modul DP (GET supplier-dp -> {sc}); nominal DP tetap rahasia")
+            print(f"kebijakan DP {uname}: tanpa akses modul DP/invoice (supplier-dp -> {sc}, vendor-invoices -> {sc_i}); nominal DP tetap rahasia")
         leaks = {}
         for path in paths:
             sc, body, kind = fetch(u, path)

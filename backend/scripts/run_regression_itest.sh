@@ -61,6 +61,7 @@ TESTS=(
   price_visibility_scan_test.py
   price_visibility_scan_roles_test.py
   supplier_dp_price_policy_test.py
+  vendor_invoice_price_policy_test.py
   supplier_dp_test.py
   po_dp_test.py
   vendor_invoice_test.py
