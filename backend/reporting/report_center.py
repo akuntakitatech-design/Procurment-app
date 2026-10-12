@@ -269,6 +269,8 @@ def install(server):
         return await export(key, "pdf", request, user)
 
     app.add_api_route("/api/report-center/catalog", catalog, methods=["GET"], tags=["report-center"])
+    from reporting import export_jobs  # P7: export besar di background (route statis sebelum /{key})
+    export_jobs.install(server, run, check_limit, to_xlsx, to_pdf, WIB)
     app.add_api_route("/api/report-center/{key}/export.xlsx", export_xlsx, methods=["GET"], tags=["report-center"])
     app.add_api_route("/api/report-center/{key}/export.pdf", export_pdf, methods=["GET"], tags=["report-center"])
     app.add_api_route("/api/report-center/{key}", report, methods=["GET"], tags=["report-center"])
