@@ -5,7 +5,15 @@ oleh admin, lalu memanggil SELURUH route GET (OpenAPI) sebagai user TANPA izin `
 (purchasing deny + warehouse default) dan mencari nilai tersebut di JSON / XLSX / HTML.
 
 Pakai: TEST_API_URL=http://127.0.0.1:8013/api python price_visibility_scan_test.py [--report out.json] [--report-only]
-Default STRICT: exit 1 bila ada kebocoran / bentuk respon berubah. --report-only: hanya melaporkan (investigasi).
+Default STRICT: exit 1 bila ada kebocoran / bentuk respon berubah / kebijakan DP dilanggar. --report-only: hanya melaporkan.
+
+Kebijakan DP Supplier (keputusan pemilik, PR #70): user TANPA view_purchase_price yang memiliki izin modul DP
+(supplier_dp.* / invoice.view) BOLEH melihat nominal DP, sisa DP, riwayat & status pembayaran; TIDAK BOLEH melihat
+nilai PO / Grand Total / sisa PO setelah DP, harga satuan, maupun persentase DP (nominal DP / persen = Grand Total).
+Nominal DP karenanya dikecualikan dari "nilai rahasia" HANYA untuk user dengan akses modul DP; nilai lain tetap rahasia.
+
+Endpoint yang gagal diperiksa (HTTP 5xx, koneksi gagal, respon tak terbaca) dicatat BELUM DIUJI (bukan PASS) dan tidak
+menghentikan pemeriksaan endpoint lain.
 """
 import io
 import json
@@ -98,14 +106,23 @@ def make_po_priced(M):
 
 
 def fetch(caller, path):
-    """GET -> (status, parsed-object|None, kind)."""
-    try:
-        if hasattr(caller, "S"):
-            r = caller.S.get(f"{API}/{path}", timeout=120)
-        else:
-            r = T.S.get(f"{API}/{path}", timeout=120)
-    except Exception as exc:
-        return 599, None, f"conn-error:{type(exc).__name__}"
+    """GET -> (status, parsed-object|None, kind). Koneksi gagal -> 1x ulang dengan koneksi baru; 5xx -> pool koneksi
+    dikosongkan agar koneksi keep-alive yang diputus server tidak menggagalkan endpoint berikutnya."""
+    sess = caller.S if hasattr(caller, "S") else T.S
+    r, err = None, None
+    for _attempt in range(2):
+        try:
+            r = sess.get(f"{API}/{path}", timeout=120)
+            break
+        except Exception as exc:  # noqa: BLE001
+            err = exc
+            for ad in sess.adapters.values():
+                ad.poolmanager.clear()
+    if r is None:
+        return 599, None, f"conn-error:{type(err).__name__}"
+    if r.status_code >= 500:
+        for ad in sess.adapters.values():
+            ad.poolmanager.clear()
     ct = r.headers.get("content-type", "")
     if "json" in ct:
         try:
@@ -182,6 +199,48 @@ def targets(ids, report_keys):
     return sorted(set(out))
 
 
+def untested(sc, body, kind):
+    """Respon yang isinya tidak dapat diperiksa -> BELUM DIUJI (bukan PASS)."""
+    return sc >= 500 or (sc == 200 and (body is None or kind.endswith("?")))
+
+
+def pay_dp_admin(po):
+    """Admin membayar DP PO (draft -> bukti -> approve) agar riwayat & status pembayaran ikut terpindai."""
+    sc, d = call("POST", f"supplier-dp/{po['id']}/draft", {}, 200)
+    pid = d["active_payment"]["id"]
+    r = T.S.post(f"{API}/attachments", files={"file": ("bukti.pdf", b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n", "application/pdf")},
+                 data={"entity": "supplier_dp_payment", "entity_id": pid, "category": "Bukti Pembayaran"})
+    assert r.status_code == 200, (r.status_code, r.text[:200])
+    call("POST", f"supplier-dp/payments/{pid}/approve", {"payment_date": "2026-06-05", "fund_source": "Bank Operasional"}, 200)
+    return pid
+
+
+def dp_policy(u, po, dp_nominal):
+    """User dgn akses DP: nominal/sisa/riwayat/status DP tampil; Nilai PO, Grand Total, sisa PO & persen DP tidak."""
+    sc, rows = u("GET", "supplier-dp?tab=all")
+    row = next((r for r in rows if r.get("po_id") == po["id"]), None) if isinstance(rows, list) else None
+    sc_d, det = u("GET", f"supplier-dp/{po['id']}")
+    sc_p, pod = u("GET", f"po/{po['id']}")
+    det = det if sc_d == 200 and isinstance(det, dict) else {}
+    pays = det.get("payments") or []
+    r = row or {}
+    return {
+        "list_200": sc == 200 and row is not None,
+        "dp_nominal_visible": r.get("dp_amount") == dp_nominal and det.get("dp_amount") == dp_nominal,
+        "dp_paid_and_available_visible": r.get("paid_amount") == dp_nominal and r.get("dp_available") == dp_nominal,
+        "payment_history_visible": len(pays) >= 1 and pays[0].get("amount") == dp_nominal and pays[0].get("status") == "Approved"
+                                   and bool(pays[0].get("status_label")),
+        "status_visible": r.get("status") == "Approved" and bool(r.get("status_label")),
+        "po_value_hidden": "po_value" in r and r.get("po_value") is None and det.get("po_value") is None,
+        "po_grand_total_hidden": isinstance(det.get("po"), dict) and det["po"].get("grand_total") is None
+                                 and det["po"].get("dp_remaining") is None,
+        "dp_percent_hidden": r.get("dp_value") is None and det.get("dp_value") is None
+                             and all(p.get("dp_value") is None for p in pays)
+                             and "%" not in str(r.get("dp_terms")) and "%" not in str(det.get("dp_terms")),
+        "po_detail_dp_percent_hidden": sc_p in (403, 404) or (sc_p == 200 and pod.get("dp_value") is None),
+    }
+
+
 def main():
     strict = "--report-only" not in sys.argv
     rep = sys.argv[sys.argv.index("--report") + 1] if "--report" in sys.argv else None
@@ -193,6 +252,9 @@ def main():
                                   "dp_enabled": True, "dp_type": "nominal", "dp_value": 55555,
                                   "lines": [{"item_id": M["item2"]["id"], "qty": 2, "uom_id": M["uom"]["id"], "price": 98765,
                                              "discount": 0, "tax": 11, "warehouse_id": M["wh"]["id"], "price_change_reason": "scan"}]}, 200)
+    pay_dp_admin(po)
+    sc, po = call("GET", f"po/{po['id']}")
+    dp_nominal = round(float(po["dp_amount"]), 2)
     spec = T.S.get(API.rsplit("/api", 1)[0] + "/openapi.json").json()
     json.dump(spec, open("/tmp/price_scan_openapi.json", "w"))
     secrets = set()
@@ -215,13 +277,13 @@ def main():
         "finance_deny_price": lambda: mk_user("finance", overrides={"view_purchase_price": "deny"}),
     }
     # SCAN_USERS=a,b (subset; batas user per tenant paket starter). Default: purchasing deny + warehouse (divisi & global).
-    # manager_deny_price / finance_deny_price: jalankan terpisah. Catatan: modul DP Supplier & Invoice Vendor memakai izin
-    # modulnya sendiri (supplier_dp.* / vendor_invoice.*) dan menampilkan nilai DP/PO walau view_purchase_price=deny
-    # (kebijakan, menunggu keputusan pemilik) -> finance_deny_price diharapkan menandai supplier-dp.
+    # manager_deny_price / finance_deny_price: dijalankan price_visibility_scan_roles_test.py (tenant terpisah).
+    # Nominal DP (bukan Nilai PO) boleh tampil HANYA untuk user dengan akses modul DP (lihat docstring).
+    dp_allowed = {dp_nominal, 55555.0}  # nominal DP PO persen (sudah dibayar) & PO nominal
     pick = [x for x in os.environ.get("SCAN_USERS", "purchasing_deny_price,warehouse_default,warehouse_global").split(",") if x in makers]
     users = {name: makers[name]() for name in pick}
     report = {"secrets": sorted(secrets), "report_keys": keys, "paths": len(paths), "leaks": {}, "admin_sees": 0, "errors": {},
-              "shape": {}}
+              "shape": {}, "untested": {}, "dp_access": {}, "dp_policy": {}}
     sc, adm = call("GET", f"po/{po2['id']}")
     for uname, u in users.items():
         sc, lim = u("GET", f"po/{po2['id']}")
@@ -238,17 +300,31 @@ def main():
         print(f"bentuk respon {uname}: {report['shape'][uname]}")
     for path in paths:
         sc, body, kind = fetch(None, path)
-        if sc == 200 and body is not None and find_hits(body, secrets):
+        if untested(sc, body, kind):
+            report["untested"].setdefault("admin", []).append(f"{path} -> {sc} {kind}")
+        elif sc == 200 and find_hits(body, secrets):
             report["admin_sees"] += 1
     for uname, u in users.items():
+        sc, _rows = u("GET", "supplier-dp")
+        has_dp = sc == 200
+        report["dp_access"][uname] = sc
+        user_secrets = (secrets - dp_allowed) if has_dp else secrets
+        if has_dp:
+            report["dp_policy"][uname] = dp_policy(u, po, dp_nominal)
+            print(f"kebijakan DP {uname}: {report['dp_policy'][uname]}")
+        else:
+            print(f"kebijakan DP {uname}: tanpa akses modul DP (GET supplier-dp -> {sc}); nominal DP tetap rahasia")
         leaks = {}
         for path in paths:
             sc, body, kind = fetch(u, path)
             if sc >= 500:
                 report["errors"].setdefault(uname, []).append(f"{path} -> {sc}")
-            if sc != 200 or body is None:
+            if untested(sc, body, kind):
+                report["untested"].setdefault(uname, []).append(f"{path} -> {sc} {kind}")
                 continue
-            hits = uniq(find_hits(body, secrets))
+            if sc != 200:
+                continue  # 401/403/404/409/422: tidak ada isi yang dikembalikan = tidak ada nilai yang bocor
+            hits = uniq(find_hits(body, user_secrets))
             if hits:
                 leaks[path] = {"kind": kind, "hits": [f"{p} = {v}" for p, v in hits[:25]]}
         report["leaks"][uname] = leaks
@@ -260,18 +336,24 @@ def main():
     print(f"\nadmin melihat nilai harga di {report['admin_sees']} endpoint (kontrol positif)")
     if report["errors"]:
         print("HTTP 5xx:", json.dumps(report["errors"], indent=1))
+    n_untested = sum(len(v) for k, v in report["untested"].items() if k != "admin")
+    if report["untested"]:
+        print("BELUM DIUJI (isi respon tidak dapat diperiksa; BUKAN PASS):", json.dumps(report["untested"], indent=1))
     if rep:
         json.dump(report, open(rep, "w"), indent=1)
     total = sum(len(v) for v in report["leaks"].values())
     shape_ok = all(all(v.values()) if isinstance(v, dict) else False for v in
                    ({k: x for k, x in s.items() if k != "status"} for s in report["shape"].values()))
-    print(f"\nRINGKASAN: {total} kebocoran (user x endpoint); kontrol positif admin={report['admin_sees']}; bentuk respon OK={shape_ok}")
-    n_checks = len(paths) * len(users) + len(report["shape"]) + 1
+    dp_fail = sum(0 if all(v.values()) else 1 for v in report["dp_policy"].values())
+    print(f"\nRINGKASAN: {total} kebocoran (user x endpoint); kontrol positif admin={report['admin_sees']}; bentuk respon OK={shape_ok}; "
+          f"kebijakan DP gagal={dp_fail}/{len(report['dp_policy'])}; BELUM DIUJI={n_untested}")
+    n_checks = len(paths) * len(users) + len(report["shape"]) + len(report["dp_policy"]) + 1
     n_fail = total + sum(0 if all(v for k, v in s.items() if k != "status") else 1 for s in report["shape"].values()) \
-        + (0 if report["admin_sees"] > 0 else 1)
-    print(f"{n_checks - n_fail}/{n_checks} passed")
+        + dp_fail + (0 if report["admin_sees"] > 0 else 1)
+    # endpoint BELUM DIUJI tidak dihitung lulus (n_checks - n_fail - n_untested), dilaporkan terpisah
+    print(f"{n_checks - n_fail - n_untested}/{n_checks} passed ({n_untested} belum diuji, {n_fail} gagal)")
     if strict:
-        return 0 if (total == 0 and report["admin_sees"] > 0 and shape_ok) else 1
+        return 0 if (total == 0 and report["admin_sees"] > 0 and shape_ok and dp_fail == 0) else 1
     return 0 if report["admin_sees"] > 0 else 1
 
 
