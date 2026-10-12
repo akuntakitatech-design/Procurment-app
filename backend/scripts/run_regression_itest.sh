@@ -58,6 +58,7 @@ TESTS=(
   stock_info_test.py
   master_tenant_isolation_test.py
   stock_opname_uat_fixture_test.py
+  price_visibility_scan_test.py
 )
 if [ -n "${ONLY:-}" ]; then read -r -a TESTS <<< "$ONLY"; fi
 
