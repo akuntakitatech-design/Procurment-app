@@ -54,78 +54,6 @@ def _join_refs(refs, key):
     return "\n".join(values)
 
 
-import contextvars
-
-_CHUNK = 5000
-_LAST_BATCH: contextvars.ContextVar = contextvars.ContextVar("trace_last_batch", default=None)
-
-
-class TraceBatch:
-    """P7 — pengganti N+1 query traceability: data dimuat batch (`$in`) lalu dibaca per kunci dari memori.
-
-    `find(coll, field, key, extra)` == `db[coll].find({field: key, **extra}).to_list(None)` (urutan dasar created_at,pk per
-    kunci sama karena satu kunci selalu berada dalam satu chunk); `one(coll, id)` == `find_one({"id": id})` (dokumen
-    pertama urutan dasar). Kunci yang belum dimuat / bukan string -> query asli (hasil identik, hanya lebih lambat)."""
-
-    def __init__(self, server):
-        self.db = server.db
-        self.groups = {}
-
-    @staticmethod
-    def _tag(coll, field, extra):
-        return coll, field, tuple(sorted((extra or {}).items()))
-
-    async def load(self, coll, field, keys, extra=None):
-        tag = self._tag(coll, field, extra)
-        loaded, data = self.groups.setdefault(tag, (set(), {}))
-        todo = [k for k in dict.fromkeys(keys) if isinstance(k, str) and k not in loaded]
-        for i in range(0, len(todo), _CHUNK):
-            part = todo[i:i + _CHUNK]
-            pset = set(part)
-            for d in await getattr(self.db, coll).find({field: {"$in": part}, **(extra or {})}, {"_id": 0}).to_list(None):
-                v = d.get(field)
-                for k in ([v] if isinstance(v, str) else [x for x in v if x in pset] if isinstance(v, list) else []):
-                    if k in pset:
-                        data.setdefault(k, []).append(d)
-            loaded.update(part)
-
-    async def find(self, coll, field, key, extra=None, cap=None):
-        loaded, data = self.groups.get(self._tag(coll, field, extra), (set(), {}))
-        if isinstance(key, str) and key in loaded:
-            rows = data.get(key, [])
-            return list(rows[:cap] if cap else rows)
-        return await getattr(self.db, coll).find({field: key, **(extra or {})}, {"_id": 0}).to_list(cap)
-
-    async def one(self, coll, key):
-        loaded, data = self.groups.get(self._tag(coll, "id", None), (set(), {}))
-        if isinstance(key, str) and key in loaded:
-            rows = data.get(key)
-            return rows[0] if rows else None
-        return await getattr(self.db, coll).find_one({"id": key}, {"_id": 0})
-
-
-async def trace_batch(server, mro_ids, line_filter=None):
-    """Muat seluruh rantai MRO line -> RO -> PO -> DO / MI untuk `mro_ids` dalam ±10 query batch (bukan per baris)."""
-    b = TraceBatch(server)
-    await b.load("mro_lines", "mro_id", mro_ids)
-    lines = [ln for k in mro_ids for ln in (b.groups[b._tag("mro_lines", "mro_id", None)][1].get(k) or [])]
-    lids = [ln.get("id") for ln in lines]
-    await b.load("allocations", "source_line_id", lids, {"target_type": "ro"})
-    await b.load("allocations", "source_line_id", lids, {"target_type": "mi"})
-    ro_a = [a for k in lids for a in await b.find("allocations", "source_line_id", k, {"target_type": "ro"})]
-    mi_a = [a for k in lids for a in await b.find("allocations", "source_line_id", k, {"target_type": "mi"})]
-    await b.load("allocations", "source_line_id", [a.get("target_line_id") for a in ro_a], {"target_type": "po"})
-    po_a = [a for r in ro_a for a in await b.find("allocations", "source_line_id", r.get("target_line_id"), {"target_type": "po"})]
-    await b.load("allocations", "source_line_id", [a.get("target_line_id") for a in po_a], {"target_type": "do"})
-    do_a = [a for p in po_a for a in await b.find("allocations", "source_line_id", p.get("target_line_id"), {"target_type": "do"})]
-    await b.load("ro", "id", [a.get("target_doc_id") for a in ro_a])
-    await b.load("po", "id", [a.get("target_doc_id") for a in po_a])
-    await b.load("po_lines", "id", [a.get("target_line_id") for a in po_a])
-    await b.load("do", "id", [a.get("target_doc_id") for a in do_a])
-    await b.load("mi", "id", [a.get("target_doc_id") for a in mi_a])
-    return b
-
-
 async def _build_rows(server, date_from=None, date_to=None, user=None):
     """Baris MRO Traceability (dipakai endpoint lama JSON/Excel DAN Pusat Laporan -> satu sumber; scope divisi &
     nilai finansial dipasang oleh report_control_scope_layer/report_financial_fix yang membungkus fungsi ini).
@@ -143,9 +71,8 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
     }
 
     out = []
-    B = await trace_batch(server, [mh["id"] for mh in mros])  # P7: rantai dimuat batch (dulu ±6 query per baris)
     for mh in mros:
-        lines = await B.find("mro_lines", "mro_id", mh["id"])
+        lines = await server.db.mro_lines.find({"mro_id": mh["id"]}, {"_id": 0}).to_list(None)
         grouped = {}
 
         for line in lines:
@@ -186,21 +113,27 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
             row["request"] += _f(line.get("qty"))
             _add_ref(row["mro_refs"], mh)
 
-            ro_allocs = await B.find("allocations", "source_line_id", line["id"], {"target_type": "ro"})
+            ro_allocs = await server.db.allocations.find(
+                {"source_line_id": line["id"], "target_type": "ro"},
+                {"_id": 0},
+            ).to_list(None)
             row["qty_ro"] += sum(_f(a.get("qty")) for a in ro_allocs)
 
             for ra in ro_allocs:
-                rh = await B.one("ro", ra.get("target_doc_id"))
+                rh = await server.db.ro.find_one({"id": ra.get("target_doc_id")}, {"_id": 0})
                 _add_ref(row["ro_refs"], rh)
 
-                po_allocs = await B.find("allocations", "source_line_id", ra.get("target_line_id"), {"target_type": "po"})
+                po_allocs = await server.db.allocations.find(
+                    {"source_line_id": ra.get("target_line_id"), "target_type": "po"},
+                    {"_id": 0},
+                ).to_list(None)
                 for pa in po_allocs:
                     allocated_po_qty = _f(pa.get("qty"))
                     row["qty_po"] += allocated_po_qty
-                    ph = await B.one("po", pa.get("target_doc_id"))
+                    ph = await server.db.po.find_one({"id": pa.get("target_doc_id")}, {"_id": 0})
                     _add_ref(row["po_refs"], ph)
 
-                    po_line = await B.one("po_lines", pa.get("target_line_id")) or {}
+                    po_line = await server.db.po_lines.find_one({"id": pa.get("target_line_id")}, {"_id": 0}) or {}
                     po_line_qty = _f(po_line.get("qty"))
                     gross_line = po_line_qty * _f(po_line.get("price"))
                     discount_line = _f(po_line.get("discount"))
@@ -216,20 +149,26 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                         row["po_tax"] += tax_line * share
                         row["po_total"] += total_line * share
 
-                    do_allocs = await B.find("allocations", "source_line_id", pa.get("target_line_id"), {"target_type": "do"})
+                    do_allocs = await server.db.allocations.find(
+                        {"source_line_id": pa.get("target_line_id"), "target_type": "do"},
+                        {"_id": 0},
+                    ).to_list(None)
                     unit_dpp = (dpp_line / po_line_qty) if po_line_qty > 0 else 0.0
                     for da in do_allocs:
                         received_qty = _f(da.get("qty"))
                         row["qty_received"] += received_qty
                         if show_financial:
                             row["do_total"] += unit_dpp * received_qty
-                        dh = await B.one("do", da.get("target_doc_id"))
+                        dh = await server.db.do.find_one({"id": da.get("target_doc_id")}, {"_id": 0})
                         _add_ref(row["do_refs"], dh)
 
-            mi_allocs = await B.find("allocations", "source_line_id", line["id"], {"target_type": "mi"})
+            mi_allocs = await server.db.allocations.find(
+                {"source_line_id": line["id"], "target_type": "mi"},
+                {"_id": 0},
+            ).to_list(None)
             row["qty_mi"] += sum(_f(a.get("qty")) for a in mi_allocs)
             for ma in mi_allocs:
-                mih = await B.one("mi", ma.get("target_doc_id"))
+                mih = await server.db.mi.find_one({"id": ma.get("target_doc_id")}, {"_id": 0})
                 _add_ref(row["mi_refs"], mih)
 
         for row in grouped.values():
@@ -243,9 +182,7 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                 row[key] = _refs(row[key])
             out.append(row)
 
-    out_rows = out
-    _LAST_BATCH.set(B)  # dipakai ulang wrapper report_financial_fix (request sama) -> tanpa query ulang
-    return out_rows
+    return out
 
 
 def _excel(rows):

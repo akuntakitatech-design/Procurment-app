@@ -51,7 +51,7 @@ async def load_po_rows(server, user, lo=None, hi=None, show_price=True):
         d["division_name"] = (m["divisions"].get(d.get("division_id")) or {}).get("name")
         if not show_price:
             d["grand_total"] = None
-    rows = await RC.enrich_list(server, "po", docs, items=False)  # P7: items langsung dibuang -> tidak dibangun
+    rows = await RC.enrich_list(server, "po", docs)
     for r in rows:
         r.pop("items", None)
         r.pop("items_search", None)

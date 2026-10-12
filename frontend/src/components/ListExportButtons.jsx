@@ -5,8 +5,6 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { listExportQuery, listExportState } from "@/lib/listExport";
-import { exportMode } from "@/lib/exportJob";
-import { startBackgroundExport } from "@/lib/backgroundExport";
 
 const errMsg = async (e) => {
   const d = e?.response?.data;
@@ -27,7 +25,6 @@ export function ListExportButtons({ reportKey, query, total, testidPrefix = "lis
     setBusy(fmt);
     try {
       const qs = listExportQuery(query);
-      if (exportMode(total, fmt) === "background") { await startBackgroundExport(reportKey, fmt, qs); return; }  // P7: export besar
       const r = await api.get(`/report-center/${encodeURIComponent(reportKey)}/export.${fmt}${qs ? `?${qs}` : ""}`, { responseType: "blob" });
       const cd = r.headers?.["content-disposition"] || "";
       const name = (cd.match(/filename="([^"]+)"/) || [])[1] || `${reportKey}.${fmt}`;
