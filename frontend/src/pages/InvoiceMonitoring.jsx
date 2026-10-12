@@ -59,9 +59,9 @@ function useFilterUI(defs, facets) {
 }
 
 function RangeUI({ from, to, setFrom, setTo }) {
-  return <div className="flex items-center gap-1 text-xs text-muted-foreground">Tanggal
-    <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-36" data-testid="filter-date-from" />s/d
-    <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-36" data-testid="filter-date-to" /></div>;
+  return <div className="flex w-full sm:w-auto flex-wrap items-center gap-1 text-xs text-muted-foreground">Tanggal
+    <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-11 sm:h-9 min-w-0 flex-1 sm:flex-none sm:w-36" aria-label="Tanggal dari" data-testid="filter-date-from" />s/d
+    <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-11 sm:h-9 min-w-0 flex-1 sm:flex-none sm:w-36" aria-label="Tanggal sampai" data-testid="filter-date-to" /></div>;
 }
 
 // Satu tab = satu list server-side (search/filter/sort/pagination di backend). Tab DO baru dimuat saat dibuka.
@@ -91,7 +91,7 @@ export default function InvoiceMonitoring() {
       </TransactionPageHeader>
       <InvoiceSummary />
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList><TabsTrigger value="invoice" data-testid="tab-invoice">Invoice Vendor</TabsTrigger><TabsTrigger value="do" data-testid="tab-do-billing">Status Penagihan DO</TabsTrigger></TabsList>
+        <TabsList className="h-auto w-full sm:w-auto flex-wrap justify-start"><TabsTrigger value="invoice" data-testid="tab-invoice">Invoice Vendor</TabsTrigger><TabsTrigger value="do" data-testid="tab-do-billing">Status Penagihan DO</TabsTrigger></TabsList>
         <TabsContent value="invoice" className="mt-4">
           <ServerTable url="/vendor-invoices" extra={tab === "invoice" ? rfx : {}} chip={tab === "invoice" && rpt.chip} defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={1700}
             emptyText="Belum ada invoice" searchPlaceholder="Cari supplier, no invoice, PO, DO, SPK, proyek..." onOpen={(r) => nav(`/invoice/${r.id}`)} />

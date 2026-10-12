@@ -17,7 +17,7 @@ export function TopSuppliers({ rank, onPick, delay }) {
           {items.map((x, i) => (
             <li key={x.supplier_id}>
               <button type="button" onClick={() => onPick?.(x.supplier_id)} data-testid={`dash-supplier-${i + 1}`}
-                className="group w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+                className="group min-h-11 sm:min-h-0 w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
                 <div className="flex items-center gap-3 text-[13px]">
                   <span className="w-4 text-xs tabular-nums text-slate-400">{i + 1}</span>
                   <span className="min-w-0 flex-1 truncate font-medium text-slate-700 group-hover:text-[#2C4A6E] dark:text-slate-200">{x.supplier_name}</span>

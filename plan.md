@@ -703,3 +703,11 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
 - Gate: regresi 40/40 file (1.769/1.769), integrity 13/13, multiprocess 9/9, scope-prefilter 166/166, paging completeness 108/108,
   parity 327/336 (9 beda hanya `total`, by design), FE test 21/21 (main 20/20), CI build OK, UAT + testing_agent_v3 0 temuan,
   secret scan bersih.
+
+## Responsive Design — Seluruh Aplikasi (branch `feat/responsive-ui`, base `main` 5865db3 (setelah merge #69/#70/#71)) (Status: COMPLETED — menunggu push/PR)
+- Keputusan user: base `main`, terpisah dari PR #69/#70/#71 (kini sudah di-merge user; branch di-rebase); frontend/CSS/layout only; mobile-first; sidebar drawer di mobile;
+  **hybrid table** (kartu untuk MRO/RO/PO/DO/MI/Invoice, tabel lain scroll dalam container); form 1 kolom di mobile;
+  viewport QA 320/375/390/430/768/1024/1366/1440/1920; screenshot dirangkum (tidak di-commit); 1 PR ke `main`, tanpa merge/deploy.
+- Hasil: overflow 13 → 0 dari 396 kombinasi route×viewport; target sentuh mobile ≥44px untuk kontrol shadcn; `MobileSortBar` baru.
+- Verifikasi: `CI=true yarn build` OK; node unit test 29/29; testing_agent iterasi 7 (1 temuan overlay drawer → fixed), iterasi 8 & 9 (pasca-rebase) = 0 temuan.
+- Detail: `docs/responsive-audit.md`.

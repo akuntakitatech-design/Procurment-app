@@ -28,7 +28,7 @@ export function StatusDonut({ composition, onPick, delay }) {
             {items.map((x) => (
               <li key={x.status}>
                 <button type="button" onClick={() => onPick?.(x.status)} data-testid={`dash-composition-${x.status.toLowerCase().replace(/\s+/g, "-")}`}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:hover:bg-slate-800/50">
+                  className="flex min-h-11 sm:min-h-0 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] transition-colors duration-150 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 dark:hover:bg-slate-800/50">
                   <i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: statusColor(x.status) }} />
                   <span className="min-w-0 flex-1 leading-tight text-slate-600 dark:text-slate-300">{statusLabel(x.status)}</span>
                   <b className="tabular-nums text-slate-800 dark:text-slate-100">{x.count}</b>

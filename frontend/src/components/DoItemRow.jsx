@@ -41,23 +41,23 @@ export function DoItemRow({ l, i, editable, upd, remove, names, allocCell }) {
   return (
     <div className={`border-b px-3 py-2.5 last:border-b-0 ${over > 0 ? "bg-orange-50/40" : ""}`} data-testid={`do-item-block-${i}`}>
       <SourceInfo l={l} i={i} allocCell={allocCell} />
-      <div className="flex items-center gap-1.5">
-        <div className="w-[200px] shrink-0 text-sm font-medium" data-testid={`do-item-${i}`}>{l.item_name || l.item_code || "-"}</div>
-        <div className="w-[160px] shrink-0"><RO v={l.notes} tid={`do-notes-${i}`} /></div>
-        <div className="w-[130px] shrink-0"><RO v={names.wh(l)} tid={`do-wh-${i}`} /></div>
-        <div className="w-[130px] shrink-0"><RO v={names.project(l)} tid={`do-project-${i}`} /></div>
-        <div className="w-[120px] shrink-0"><RO v={names.unit(l)} tid={`do-unit-${i}`} /></div>
-        <div className="w-[80px] shrink-0 text-right text-sm tabular-nums" data-testid={`do-qty-po-${i}`}>{l.qty_po == null ? "-" : num(l.qty_po)}</div>
-        <div className="w-[100px] shrink-0 text-right text-sm tabular-nums" data-testid={`do-received-${i}`}>{l.qty_po == null ? "-" : num(l.received_before)}</div>
-        <div className="w-[80px] shrink-0 text-right text-sm font-medium tabular-nums" data-testid={`do-sisa-${i}`}>{l.qty_po == null ? "-" : num(sisaOf(l))}</div>
-        <div className="w-[110px] shrink-0"><QtyStock itemId={l.item_id} warehouseId={l.warehouse_id} itemName={l.item_name} testid={`do-stock-${i}`}>{editable ? <NumericInput mode="quantity" value={l.qty} onChange={(v) => upd(i, { qty: v })} className={`h-9 text-right ${over > 0 ? "border-orange-400" : ""}`} data-testid={`do-qty-${i}`} /> : <div className="h-9 pt-2 text-right text-sm tabular-nums">{num(l.display_qty ?? l.qty)}</div>}</QtyStock></div>
-        <div className="w-[90px] shrink-0 truncate text-sm" data-testid={`do-uom-${i}`}>{l.display_unit || l.unit || "-"}</div>
-        <div className="w-[110px] shrink-0">{editable ? <Combobox dense options={CONDITIONS} value={l.condition || "Baik"} onChange={(v) => upd(i, { condition: v })} testid={`do-condition-${i}`} /> : <span className="text-sm">{l.condition || "Baik"}</span>}</div>
-        <div className="w-[120px] shrink-0"><Selisih l={l} i={i} editable={editable} upd={upd} /></div>
-        <div className="w-[44px] shrink-0">{editable && <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => remove(i)} data-testid={`do-remove-${i}`}><Trash2 className="h-4 w-4 text-destructive" /></Button>}</div>
+      <div className="flex items-center gap-1.5 m-flex">
+        <div data-label="Barang" className="w-[200px] shrink-0 m-full text-sm font-medium" data-testid={`do-item-${i}`}>{l.item_name || l.item_code || "-"}</div>
+        <div data-label="Keterangan" className="w-[160px] shrink-0 m-full"><RO v={l.notes} tid={`do-notes-${i}`} /></div>
+        <div data-label="Gudang" className="w-[130px] shrink-0"><RO v={names.wh(l)} tid={`do-wh-${i}`} /></div>
+        <div data-label="Proyek" className="w-[130px] shrink-0"><RO v={names.project(l)} tid={`do-project-${i}`} /></div>
+        <div data-label="Unit/Aset" className="w-[120px] shrink-0"><RO v={names.unit(l)} tid={`do-unit-${i}`} /></div>
+        <div data-label="Qty PO" className="w-[80px] shrink-0 text-right text-sm tabular-nums" data-testid={`do-qty-po-${i}`}>{l.qty_po == null ? "-" : num(l.qty_po)}</div>
+        <div data-label="Sudah Diterima" className="w-[100px] shrink-0 text-right text-sm tabular-nums" data-testid={`do-received-${i}`}>{l.qty_po == null ? "-" : num(l.received_before)}</div>
+        <div data-label="Sisa" className="w-[80px] shrink-0 text-right text-sm font-medium tabular-nums" data-testid={`do-sisa-${i}`}>{l.qty_po == null ? "-" : num(sisaOf(l))}</div>
+        <div data-label="Qty Terima" className="w-[110px] shrink-0"><QtyStock itemId={l.item_id} warehouseId={l.warehouse_id} itemName={l.item_name} testid={`do-stock-${i}`}>{editable ? <NumericInput mode="quantity" value={l.qty} onChange={(v) => upd(i, { qty: v })} className={`h-9 text-right ${over > 0 ? "border-orange-400" : ""}`} data-testid={`do-qty-${i}`} /> : <div className="h-9 pt-2 text-right text-sm tabular-nums">{num(l.display_qty ?? l.qty)}</div>}</QtyStock></div>
+        <div data-label="Satuan" className="w-[90px] shrink-0 truncate text-sm" data-testid={`do-uom-${i}`}>{l.display_unit || l.unit || "-"}</div>
+        <div data-label="Kondisi" className="w-[110px] shrink-0">{editable ? <Combobox dense options={CONDITIONS} value={l.condition || "Baik"} onChange={(v) => upd(i, { condition: v })} testid={`do-condition-${i}`} /> : <span className="text-sm">{l.condition || "Baik"}</span>}</div>
+        <div data-label="Qty Selisih" className="w-[120px] shrink-0"><Selisih l={l} i={i} editable={editable} upd={upd} /></div>
+        <div className="w-[44px] shrink-0 m-end">{editable && <Button variant="ghost" size="icon" className="h-11 w-11 sm:h-9 sm:w-9" onClick={() => remove(i)} data-testid={`do-remove-${i}`} aria-label="Hapus baris"><Trash2 className="h-4 w-4 text-destructive" /></Button>}</div>
       </div>
-      {over > 0 && <div className="mt-2 flex items-center gap-2 pl-[200px]" data-testid={`do-over-row-${i}`}>
-        <span className="shrink-0 text-xs font-semibold text-orange-800">Penerimaan Berlebih +{num(over)} {l.display_unit || l.unit || ""} · Alasan Penerimaan Berlebih *</span>
+      {over > 0 && <div className="mt-2 flex flex-wrap sm:flex-nowrap items-center gap-2 sm:pl-[200px]" data-testid={`do-over-row-${i}`}>
+        <span className="sm:shrink-0 text-xs font-semibold text-orange-800">Penerimaan Berlebih +{num(over)} {l.display_unit || l.unit || ""} · Alasan Penerimaan Berlebih *</span>
         {editable ? <Input value={l.over_receipt_reason || ""} onChange={(e) => upd(i, { over_receipt_reason: e.target.value })} placeholder="Wajib diisi sebelum posting" className={`h-8 max-w-md text-sm ${String(l.over_receipt_reason || "").trim() ? "" : "border-destructive"}`} data-testid={`do-over-reason-${i}`} /> : <span className="text-xs">{l.over_receipt_reason || "-"}</span>}
       </div>}
     </div>

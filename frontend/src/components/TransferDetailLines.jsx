@@ -19,7 +19,7 @@ export function TransferDetailLines({ doc }) {
       </div>
       {legacy && <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800" data-testid="trf-detail-legacy"><Info className="h-3.5 w-3.5" />Transaksi lama: gudang per baris dibaca dari gudang header (data asli tidak diubah).</div>}
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[960px] text-sm" data-testid="trf-detail-lines">
+        <table className="m-stack w-full min-w-[960px] text-sm" data-testid="trf-detail-lines">
           <thead className="bg-muted"><tr className="text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             <th className="p-2">#</th><th className="p-2">Barang</th><th className="p-2">Keterangan</th><th className="p-2 text-right">Qty</th><th className="p-2">Satuan</th>
             <th className="p-2">Gudang Asal</th><th className="p-2"></th><th className="p-2">Gudang Tujuan</th><th className="p-2">Project</th><th className="p-2">Unit/Aset</th>
@@ -28,16 +28,16 @@ export function TransferDetailLines({ doc }) {
             {lines.length === 0 && <tr><td colSpan={10} className="p-4 text-center text-muted-foreground">Tidak ada baris</td></tr>}
             {lines.map((l, i) => (
               <tr key={l.id || i} className="border-t" data-testid={`trf-detail-line-${i}`}>
-                <td className="p-2 text-muted-foreground">{i + 1}</td>
-                <td className="p-2"><div className="font-medium">{l.item_name || "-"}</div>{l.item_code && <div className="font-mono text-[11px] text-muted-foreground">{l.item_code}</div>}</td>
-                <td className="p-2 text-muted-foreground">{l.notes || "-"}</td>
-                <td className="p-2 text-right tabular-nums">{num(l.qty)}</td>
-                <td className="p-2">{l.display_unit || l.unit || "-"}</td>
-                <td className="p-2" data-testid={`trf-detail-from-${i}`}>{l.from_name || "-"}</td>
-                <td className="p-2 text-muted-foreground"><ArrowRight className="h-3.5 w-3.5" /></td>
-                <td className="p-2" data-testid={`trf-detail-to-${i}`}>{l.to_name || "-"}</td>
-                <td className="p-2" data-testid={`trf-detail-project-${i}`}>{l.project_name || "-"}</td>
-                <td className="p-2" data-testid={`trf-detail-unit-${i}`}>{l.unit_name || "-"}</td>
+                <td data-label="#" className="m-hidden p-2 text-muted-foreground">{i + 1}</td>
+                <td data-label="Barang" className="m-full p-2"><div className="font-medium">{l.item_name || "-"}</div>{l.item_code && <div className="font-mono text-[11px] text-muted-foreground">{l.item_code}</div>}</td>
+                <td data-label="Keterangan" className="m-full p-2 text-muted-foreground">{l.notes || "-"}</td>
+                <td data-label="Qty" className="p-2 text-right tabular-nums">{num(l.qty)}</td>
+                <td data-label="Satuan" className="p-2">{l.display_unit || l.unit || "-"}</td>
+                <td data-label="Gudang Asal" className="p-2" data-testid={`trf-detail-from-${i}`}>{l.from_name || "-"}</td>
+                <td data-label="" className="m-hidden p-2 text-muted-foreground"><ArrowRight className="h-3.5 w-3.5" /></td>
+                <td data-label="Gudang Tujuan" className="p-2" data-testid={`trf-detail-to-${i}`}>{l.to_name || "-"}</td>
+                <td data-label="Project" className="p-2" data-testid={`trf-detail-project-${i}`}>{l.project_name || "-"}</td>
+                <td data-label="Unit/Aset" className="p-2" data-testid={`trf-detail-unit-${i}`}>{l.unit_name || "-"}</td>
               </tr>
             ))}
           </tbody>

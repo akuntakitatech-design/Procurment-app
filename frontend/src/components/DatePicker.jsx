@@ -10,7 +10,7 @@ export function DatePicker({ value, onChange, testid }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" data-testid={testid} className={cn("w-full justify-start font-normal h-9", !date && "text-muted-foreground")}>
+        <Button variant="outline" data-testid={testid} className={cn("w-full justify-start font-normal h-11 sm:h-9", !date && "text-muted-foreground")}>
           <CalIcon className="mr-2 h-4 w-4" />
           {date ? format(date, "dd/MM/yyyy") : "Pilih tanggal"}
         </Button>

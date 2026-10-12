@@ -58,7 +58,7 @@ export function PriceExceptionTable({ vc, actLabel, nav, onDrill, delay = 0 }) {
           <thead><tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400 dark:border-slate-800">
             {cols.map((c) => <th key={c} className={`whitespace-nowrap px-2 py-2 font-medium ${right.has(c) ? "text-right" : ""}`}>{c}</th>)}</tr></thead>
           <tbody>{rows.map((r, i) => <tr key={`${r.po_id}-${r.item_id}-${i}`} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/60 dark:hover:bg-slate-800/30" data-testid={`dash-price-row-${i + 1}`}>
-            <td className="px-2 py-2.5"><button type="button" onClick={() => nav(poDetailLink(r.po_id))} className="rounded font-medium text-[#3D5A80] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3D5A80]/30" data-testid={`dash-price-row-${i + 1}-po`}>{r.po_no}</button>
+            <td className="px-2 py-2.5"><button type="button" onClick={() => nav(poDetailLink(r.po_id))} className="inline-flex min-h-11 sm:min-h-0 items-center rounded font-medium text-[#3D5A80] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3D5A80]/30" data-testid={`dash-price-row-${i + 1}-po`}>{r.po_no}</button>
               <div className="text-[11px] text-slate-400">{asOfLabel(r.po_date)}</div></td>
             <td className="max-w-[180px] truncate px-2 py-2.5 text-slate-700 dark:text-slate-200">{r.supplier_name}</td>
             <td className="max-w-[220px] px-2 py-2.5"><div className="truncate text-slate-700 dark:text-slate-200">{r.item_name}</div><div className="text-[11px] text-slate-400">{r.qty?.toLocaleString("id-ID")} {r.uom || ""}</div></td>

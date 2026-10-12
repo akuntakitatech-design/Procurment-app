@@ -420,7 +420,7 @@ function AddendumPanel({ spk, onChanged }) {
             {f.addendum_type !== "PROCUREMENT_BUDGET" && (
               <div className="rounded-xl border p-3 space-y-2">
                 <div className="text-xs font-semibold">Perubahan Nilai SPK</div>
-                <div className="grid grid-cols-3 gap-2 items-end">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
                   <Field label="Arah"><Combobox options={[{ value: "+", label: "Tambah (+)" }, { value: "-", label: "Kurang (-)" }]} value={f.sv_dir} onChange={(v) => set("sv_dir", v)} /></Field>
                   <Field label="Nilai"><MoneyInput value={f.sv_mag} onChange={(v) => set("sv_mag", v)} data-testid="addendum-sv-mag" /></Field>
                   <div className="text-xs">Current {rupiah(curSv)}<br />Baru <b data-testid="addendum-new-sv">{rupiah(newSv)}</b></div>
@@ -430,7 +430,7 @@ function AddendumPanel({ spk, onChanged }) {
             {f.addendum_type !== "SPK_VALUE" && (
               <div className="rounded-xl border p-3 space-y-2">
                 <div className="text-xs font-semibold">Perubahan Budget Procurement</div>
-                <div className="grid grid-cols-3 gap-2 items-end">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
                   <Field label="Arah"><Combobox options={[{ value: "+", label: "Tambah (+)" }, { value: "-", label: "Kurang (-)" }]} value={f.bud_dir} onChange={(v) => set("bud_dir", v)} /></Field>
                   <Field label="Nilai"><MoneyInput value={f.bud_mag} onChange={(v) => set("bud_mag", v)} data-testid="addendum-bud-mag" /></Field>
                   <div className="text-xs">Current {rupiah(curBud)}<br />Baru <b data-testid="addendum-new-bud">{rupiah(newBud)}</b></div>

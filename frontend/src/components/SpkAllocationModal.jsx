@@ -146,7 +146,7 @@ export function SpkAllocationModal({ open, onClose, sourceType, lineId, docStatu
           {editable && <Button variant="outline" size="sm" onClick={addRow} data-testid="spk-alloc-add"><Plus className="h-4 w-4 mr-1" />Tambah SPK</Button>}
         </div>
 
-        <div className="rounded-lg border p-3 text-sm grid grid-cols-3 gap-2" data-testid="spk-alloc-totals">
+        <div className="rounded-lg border p-3 text-sm grid grid-cols-1 min-[400px]:grid-cols-3 gap-2" data-testid="spk-alloc-totals">
           <div>Total SPK: <b data-testid="spk-alloc-total-spk">{totalSpk}</b></div>
           <div>Non-SPK: <b data-testid="spk-alloc-non-spk">{nonSpk}</b></div>
           <div className={over ? "text-destructive font-semibold" : "text-emerald-600"}>{totalSpk + nonSpk} / {itemQty} {over ? "⚠ melebihi" : "✓"}</div>

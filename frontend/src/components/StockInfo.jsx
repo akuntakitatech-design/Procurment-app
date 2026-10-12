@@ -56,7 +56,7 @@ export function StockBadge({ itemId, warehouseId, itemName, value, testid, class
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} title={title} data-testid={testid || "stock-badge"}
-        className={`absolute -top-2 right-1 z-10 h-4 min-w-[18px] rounded-full border px-1 text-[10px] font-semibold leading-[14px] tabular-nums shadow-sm transition-transform hover:scale-110 ${tone} ${className}`}>{text}</button>
+        className={`absolute -top-2 right-1 z-10 h-4 min-w-[18px] rounded-full before:absolute before:-left-3 before:-right-3 before:-top-3 before:bottom-0 before:content-[''] border px-1 text-[10px] font-semibold leading-[14px] tabular-nums shadow-sm transition-transform hover:scale-110 ${tone} ${className}`}>{text}</button>
       {open && <StockPopup itemId={itemId} itemName={itemName} warehouseId={warehouseId} open onClose={() => setOpen(false)} />}
     </>
   );

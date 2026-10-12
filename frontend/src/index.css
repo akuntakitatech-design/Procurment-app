@@ -103,7 +103,80 @@ button, input, select, textarea {
   .print-area { box-shadow: none !important; }
 }
 
+/* ===== Responsive (mobile < 640px) — opt-in per komponen, tidak ada override global elemen. =====
+   .m-stack  : tabel -> kartu bertumpuk (DOM sama; label dari data-label). Desktop tidak terpengaruh.
+   .m-flex   : editor baris ber-lebar-tetap (flex + w-[px]) -> grid 2 kolom yang membungkus.            */
+@media (max-width: 639.98px) {
+  .m-scroll-reset { min-width: 0 !important; }
+  table.m-stack { min-width: 0 !important; width: 100%; }
+  table.m-stack > thead { display: none; }
+  table.m-stack, table.m-stack > tbody, table.m-stack > tfoot { display: block; }
+  table.m-stack > tbody > tr, table.m-stack > tfoot > tr {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.625rem 0.75rem;
+    padding: 0.875rem 0.875rem; border-top: 1px solid hsl(var(--border));
+  }
+  table.m-stack > tbody > tr:first-child { border-top: 0; }
+  table.m-stack > tbody > tr > td, table.m-stack > tfoot > tr > td {
+    display: block; min-width: 0 !important; width: auto !important; max-width: none !important;
+    padding: 0 !important; text-align: left !important; overflow-wrap: anywhere;
+  }
+  table.m-stack > tbody > tr > td[data-label]::before, table.m-stack > tfoot > tr > td[data-label]::before {
+    content: attr(data-label); display: block; margin-bottom: 0.2rem;
+    font-size: 0.6875rem; line-height: 1rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+  table.m-stack td.m-full, table.m-stack td[colspan] { grid-column: 1 / -1; }
+  table.m-stack td[data-label=""]::before, .m-flex > [data-label=""]::before { display: none; }
+  table.m-stack td[colspan] { text-align: center !important; padding: 1.25rem 0 !important; }
+  table.m-stack td.m-end { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 0.5rem; }
+  table.m-stack td.m-hide-empty:empty { display: none; }
+  table.m-stack td.m-hidden { display: none; }
+  table.m-stack td.m-end button, table.m-stack td[data-label="Aksi"] button, .m-flex > .m-end button { min-height: 2.75rem; }
+  table.m-stack > tfoot > tr { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  table.m-stack > tfoot > tr > td[colspan] { grid-column: auto; text-align: left !important; padding: 0 !important; }
+  table.m-stack.zebra tbody tr:nth-child(odd) { background: transparent; }
+
+  /* Daftar transaksi (TxnList): kartu per baris; checkbox pojok kanan atas, kolom pertama (No.) sebagai judul. */
+  table.m-cards > tbody > tr { position: relative; }
+  table.m-cards td.m-check { position: absolute; top: 0.75rem; right: 0.75rem; }
+  table.m-cards td.m-check button[role="checkbox"] { position: relative; width: 1.25rem; height: 1.25rem; }
+  table.m-cards td.m-check button[role="checkbox"]::after { content: ""; position: absolute; inset: -0.75rem; }
+  table.m-cards td.m-title { grid-column: 1 / -1; padding-right: 2.75rem !important; font-size: 0.875rem; }
+
+  .m-flex-wrap { min-width: 0 !important; }
+  .m-flex-head { display: none !important; }
+  .m-flex { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.625rem 0.75rem !important; padding-left: 0 !important; }
+  .m-flex > * { width: auto !important; min-width: 0 !important; }
+  .m-flex > .m-full { grid-column: 1 / -1; }
+  .m-flex > [data-label]::before {
+    content: attr(data-label); display: block; margin-bottom: 0.2rem;
+    font-size: 0.6875rem; line-height: 1rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+  .m-flex > .m-end { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+}
+
 /* Dashboard: muncul bertahap (opacity + transform saja) */
 @keyframes dash-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .dash-rise { animation: dash-rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0ms); }
 @media (prefers-reduced-motion: reduce) { .dash-rise { animation: none; } }
+
+/* Target sentuh mobile (< 640px): kontrol shadcn (Button, Select, Input, Tabs) di konten & dialog minimal 44px.
+   Hanya min-height/min-width (tidak mengubah lebar/tata letak desktop); checkbox/switch/radio dikecualikan
+   (checkbox kartu sudah punya area sentuh 44px via ::after). */
+@media (max-width: 639.98px) {
+  main button.inline-flex.justify-center:not([role="checkbox"]):not([role="switch"]):not([role="radio"]),
+  [role="dialog"] button.inline-flex.justify-center:not([role="checkbox"]):not([role="switch"]):not([role="radio"]),
+  main button[role="combobox"], [role="dialog"] button[role="combobox"],
+  main input.border-input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  [role="dialog"] input.border-input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+    min-height: 2.75rem;
+  }
+  main button.inline-flex.justify-center:is(.w-7, .w-8, .w-9, .w-10),
+  [role="dialog"] button.inline-flex.justify-center:is(.w-7, .w-8, .w-9, .w-10) { min-width: 2.75rem; }
+  main [role="tablist"], [role="dialog"] [role="tablist"] { height: auto; flex-wrap: wrap; }
+  main thead th > button, [role="dialog"] thead th > button { min-height: 2.75rem; }
+}
+
+/* Tinggi viewport app-shell: 100dvh (address bar mobile) dengan fallback 100vh. */
+.app-vh { height: 100vh; height: 100dvh; }

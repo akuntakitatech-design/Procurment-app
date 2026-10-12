@@ -73,7 +73,7 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1000px] text-sm zebra">
+        <table className="m-stack w-full min-w-[1000px] text-sm zebra">
           <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
             <th className="w-10 p-3"><Checkbox checked={allChecked} disabled={ready.length === 0} onCheckedChange={() => setSel(allChecked ? sel.filter((id) => !ready.some((r) => r.approval_task_id === id)) : Array.from(new Set([...sel, ...ready.map((r) => r.approval_task_id)])))} aria-label="Pilih semua" data-testid="approval2-select-all" /></th>
             <th className="p-3">No PO</th><th className="p-3">Tanggal PO</th><th className="p-3">Supplier</th><th className="p-3">Project</th><th className="p-3 text-right">Nilai</th><th className="p-3">PIC</th><th className="p-3">Status Pengajuan</th>
@@ -85,11 +85,11 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
             {!loading && !error && filtered.map((r) => {
               const isReady = r.submission_status === A2_READY;
               return <tr key={r.approval_task_id} className="border-t" data-testid={`approval2-row-${r.po_no}`}>
-                <td className="p-3"><Checkbox checked={sel.includes(r.approval_task_id)} disabled={!isReady} onCheckedChange={() => setSel((s) => toggleId(s, r.approval_task_id))} aria-label={`Pilih ${r.po_no}`} data-testid={`approval2-check-${r.po_no}`} /></td>
-                <td className="p-3"><button onClick={() => nav(`/po/${r.po_id}`)} className="font-mono text-xs font-semibold text-primary hover:underline">{r.po_no}</button></td>
-                <td className="p-3">{fmtA2Date(r.po_date)}</td><td className="p-3">{r.supplier_name}</td><td className="p-3">{r.project_text}</td>
-                <td className="p-3 text-right tabular-nums">{fmtRp(r.grand_total)}</td><td className="p-3">{r.pic_name}</td>
-                <td className="p-3"><div className="flex items-center gap-2"><StatusBadge status={r.submission_status} />{!isReady && r.batch_id && <button className="font-mono text-xs text-primary hover:underline" onClick={() => nav(`/approval/approval2/${r.batch_id}`)}>{r.batch_no}</button>}</div></td>
+                <td data-label="Pilih" className="m-full p-3"><Checkbox checked={sel.includes(r.approval_task_id)} disabled={!isReady} onCheckedChange={() => setSel((s) => toggleId(s, r.approval_task_id))} aria-label={`Pilih ${r.po_no}`} data-testid={`approval2-check-${r.po_no}`} /></td>
+                <td data-label="No PO" className="m-full p-3"><button onClick={() => nav(`/po/${r.po_id}`)} className="font-mono text-xs font-semibold text-primary hover:underline">{r.po_no}</button></td>
+                <td data-label="Tanggal PO" className="p-3">{fmtA2Date(r.po_date)}</td><td data-label="Supplier" className="p-3">{r.supplier_name}</td><td data-label="Project" className="p-3">{r.project_text}</td>
+                <td data-label="Nilai" className="p-3 text-right tabular-nums">{fmtRp(r.grand_total)}</td><td data-label="PIC" className="p-3">{r.pic_name}</td>
+                <td data-label="Status Pengajuan" className="p-3"><div className="flex items-center gap-2"><StatusBadge status={r.submission_status} />{!isReady && r.batch_id && <button className="font-mono text-xs text-primary hover:underline" onClick={() => nav(`/approval/approval2/${r.batch_id}`)}>{r.batch_no}</button>}</div></td>
               </tr>;
             })}
           </tbody>
@@ -100,14 +100,14 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
     <Card><CardContent className="p-0">
       <div className="flex items-center gap-2 border-b p-4"><Layers className="h-4 w-4 text-muted-foreground" /><div className="font-semibold">Riwayat Pengajuan Approval 2</div></div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-sm zebra">
+        <table className="m-stack w-full min-w-[900px] text-sm zebra">
           <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground"><th className="p-3">No Pengajuan</th><th className="p-3">Judul</th><th className="p-3">Tanggal Pengajuan</th><th className="p-3">Dibuat Oleh</th><th className="p-3 text-right">Jumlah PO</th><th className="p-3 text-right">Total Nilai</th><th className="p-3">Status</th></tr></thead>
           <tbody>
             {!loading && batches.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Belum ada pengajuan</td></tr>}
             {batches.map((b) => <tr key={b.id} className="border-t cursor-pointer hover:bg-accent/40" onClick={() => nav(`/approval/approval2/${b.id}`)} data-testid={`approval2-batch-${b.no}`}>
-              <td className="p-3 font-mono text-xs font-semibold text-primary">{b.no}</td><td className="p-3 font-medium">{b.title}</td><td className="p-3">{fmtA2Date(b.submission_date)}</td>
-              <td className="p-3">{b.created_by_name}</td><td className="p-3 text-right tabular-nums">{b.po_count} <span className="text-xs text-muted-foreground">({b.approved_count} approved)</span></td>
-              <td className="p-3 text-right tabular-nums">{fmtRp(b.total_value)}</td><td className="p-3"><StatusBadge status={b.status} /></td>
+              <td data-label="No Pengajuan" className="m-full p-3 font-mono text-xs font-semibold text-primary">{b.no}</td><td data-label="Judul" className="p-3 font-medium">{b.title}</td><td data-label="Tanggal Pengajuan" className="p-3">{fmtA2Date(b.submission_date)}</td>
+              <td data-label="Dibuat Oleh" className="p-3">{b.created_by_name}</td><td data-label="Jumlah PO" className="p-3 text-right tabular-nums">{b.po_count} <span className="text-xs text-muted-foreground">({b.approved_count} approved)</span></td>
+              <td data-label="Total Nilai" className="p-3 text-right tabular-nums">{fmtRp(b.total_value)}</td><td data-label="Status" className="p-3"><StatusBadge status={b.status} /></td>
             </tr>)}
           </tbody>
         </table>
@@ -122,8 +122,8 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
           <Field label="Tanggal Pengajuan *"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} data-testid="approval2-date" /></Field>
         </div>
         <div className="max-h-72 overflow-auto rounded-lg border">
-          <table className="w-full text-sm"><thead className="bg-muted sticky top-0"><tr className="text-left text-xs uppercase text-muted-foreground"><th className="p-2">No PO</th><th className="p-2">Supplier</th><th className="p-2">Keterangan</th><th className="p-2 text-right">DPP</th><th className="p-2 text-right">PPN</th><th className="p-2 text-right">Total</th></tr></thead>
-            <tbody>{chosen.map((r) => <tr key={r.approval_task_id} className="border-t align-top"><td className="p-2 font-mono text-xs">{r.po_no}</td><td className="p-2 whitespace-nowrap">{r.supplier_name}</td><td className="p-2 text-xs">{r.transaction_description}</td><td className="p-2 text-right tabular-nums whitespace-nowrap">{fmtRp(r.dpp)}</td><td className="p-2 text-right tabular-nums whitespace-nowrap">{fmtPpn(r.ppn)}</td><td className="p-2 text-right tabular-nums whitespace-nowrap font-semibold">{fmtRp(r.grand_total)}</td></tr>)}</tbody>
+          <table className="m-stack w-full text-sm"><thead className="bg-muted sticky top-0"><tr className="text-left text-xs uppercase text-muted-foreground"><th className="p-2">No PO</th><th className="p-2">Supplier</th><th className="p-2">Keterangan</th><th className="p-2 text-right">DPP</th><th className="p-2 text-right">PPN</th><th className="p-2 text-right">Total</th></tr></thead>
+            <tbody>{chosen.map((r) => <tr key={r.approval_task_id} className="border-t align-top"><td data-label="No PO" className="m-full p-2 font-mono text-xs">{r.po_no}</td><td data-label="Supplier" className="p-2 whitespace-nowrap">{r.supplier_name}</td><td data-label="Keterangan" className="p-2 text-xs">{r.transaction_description}</td><td data-label="DPP" className="p-2 text-right tabular-nums whitespace-nowrap">{fmtRp(r.dpp)}</td><td data-label="PPN" className="p-2 text-right tabular-nums whitespace-nowrap">{fmtPpn(r.ppn)}</td><td data-label="Total" className="p-2 text-right tabular-nums whitespace-nowrap font-semibold">{fmtRp(r.grand_total)}</td></tr>)}</tbody>
           </table>
         </div>
         <div className="text-right text-sm" data-testid="approval2-create-summary">{t.count} PO · Total Nilai <span className="font-bold">{fmtRp(t.total)}</span></div>

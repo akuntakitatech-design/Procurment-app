@@ -32,7 +32,7 @@ function PayDialog({ inv, open, onClose, onDone }) {
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent data-testid="payment-dialog">
         <DialogHeader><DialogTitle>Catat Pembayaran — Sisa {rupiah(inv.remaining)}</DialogTitle></DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Tanggal Pembayaran"><Input type="date" value={p.date} onChange={set("date")} data-testid="payment-date-input" /></Field>
           <Field label="Nilai Dibayar"><Input type="number" step="0.01" value={p.amount} onChange={set("amount")} data-testid="payment-amount-input" /></Field>
           <Field label="Referensi Pembayaran"><Input value={p.reference} onChange={set("reference")} placeholder="No. transfer / giro" data-testid="payment-reference-input" /></Field>

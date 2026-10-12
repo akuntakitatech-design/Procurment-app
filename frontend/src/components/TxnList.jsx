@@ -9,6 +9,7 @@ import { TxnBulkDeleteDialog } from "@/components/TxnBulkDeleteDialog";
 import { ListExportButtons } from "@/components/ListExportButtons";
 import { colValue, nextSort, searchRows, sortRows } from "@/lib/txnList";
 import { PAGE_SIZES } from "@/lib/serverList";
+import { MobileSortBar } from "@/components/MobileSortBar";
 import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 
 const PAGE = 25;
@@ -63,14 +64,15 @@ export function TxnList({ module, columns, rows, onOpen, onPrint, onEdit, onEmai
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative w-full max-w-md"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder={searchPlaceholder} value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid={`${testidPrefix}-search`} /></div>
+        <div className="relative w-full max-w-md"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder={searchPlaceholder} value={q} onChange={(e) => setQ(e.target.value)} className="pl-9 h-11 sm:h-9" data-testid={`${testidPrefix}-search`} /></div>
+        <MobileSortBar columns={columns} sort={uiSort} onChange={setSort} testidPrefix={testidPrefix} />
         {filters}
         {server?.exportKey && <ListExportButtons reportKey={server.exportKey} query={server.query} total={total} testidPrefix={testidPrefix} />}
-        <span className="ml-auto text-xs text-muted-foreground" data-testid={`${testidPrefix}-result-count`}>{server?.loading ? "Memuat... · " : ""}{total} transaksi</span>
+        <span className="ml-auto text-xs text-muted-foreground" aria-live="polite" data-testid={`${testidPrefix}-result-count`}>{server?.loading ? "Memuat... · " : ""}{total} transaksi</span>
       </div>
       <TxnSelectionBar module={module} selected={selectedRows} onClear={() => setSel(new Set())} onPrint={onPrint} onEdit={onEdit} onEmail={onEmail} emailEligible={emailEligible} canEditRow={canEditRow} onBulkDelete={() => setBulk(true)} testidPrefix={testidPrefix} />
       <div className="overflow-x-auto rounded-md border bg-card shadow-sm">
-        <table className="w-full text-sm zebra" style={{ minWidth }}>
+        <table className="w-full text-sm zebra m-stack m-cards" style={{ minWidth }}>
           <thead className="bg-muted"><tr className="text-left text-xs font-semibold text-muted-foreground">
             <th className="w-10 p-3"><Checkbox checked={allOn} onCheckedChange={toggleAll} aria-label="Pilih semua di halaman" data-testid={`${testidPrefix}-select-all`} /></th>
             {columns.map((c) => <SortHead key={c.key} col={c} sort={uiSort} onSort={(k) => setSort(nextSort(uiSort, k))} />)}
@@ -79,18 +81,18 @@ export function TxnList({ module, columns, rows, onOpen, onPrint, onEdit, onEmai
             {view.length === 0 && <tr><td colSpan={columns.length + 1} className="p-8 text-center text-muted-foreground" data-testid={`${testidPrefix}-empty`}>{server?.loading ? "Memuat transaksi..." : server?.error ? "Daftar belum dapat dimuat." : emptyText}</td></tr>}
             {view.map((r) => (
               <tr key={r.id} onClick={() => onOpen?.(r)} data-testid={`${testidPrefix}-row-${r.no || r.id}`} className={`cursor-pointer border-t transition-colors hover:bg-accent/40 ${sel.has(r.id) || selectedId === r.id ? "bg-primary/5" : ""}`}>
-                <td className="p-3" onClick={(e) => e.stopPropagation()}><Checkbox checked={sel.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label={`Pilih ${r.no}`} data-testid={`${testidPrefix}-select-${r.no || r.id}`} /></td>
-                {columns.map((c) => <td key={c.key} className={`p-3 ${c.mono ? "font-mono text-xs font-semibold" : ""} ${c.num ? "text-right tabular-nums" : ""} ${c.wrap ? "max-w-[220px] text-xs" : ""}`}><Cell col={c} row={r} onOpen={onOpen} /></td>)}
+                <td className="p-3 m-check" onClick={(e) => e.stopPropagation()}><Checkbox checked={sel.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label={`Pilih ${r.no}`} data-testid={`${testidPrefix}-select-${r.no || r.id}`} /></td>
+                {columns.map((c, ci) => <td key={c.key} data-label={ci === 0 ? undefined : c.label} className={`p-3 ${c.mono ? "font-mono text-xs font-semibold" : ""} ${c.num ? "text-right tabular-nums" : ""} ${c.wrap ? "max-w-[220px] text-xs" : ""} ${ci === 0 ? "m-title" : ""} ${c.mobileFull ? "m-full" : ""}`}><Cell col={c} row={r} onOpen={onOpen} /></td>)}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {(pages > 1 || server) && <div className="mt-3 flex items-center justify-end gap-2 text-sm" data-testid={`${testidPrefix}-pagination`}>
-        {server && <label className="mr-2 flex items-center gap-1.5 text-xs text-muted-foreground">Per halaman<select value={server.pageSize} onChange={(e) => server.setPageSize(Number(e.target.value))} className="h-8 rounded-md border bg-background px-1.5 text-sm text-foreground" data-testid={`${testidPrefix}-page-size`}>{PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>}
-        <Button size="sm" variant="outline" disabled={page === 0} onClick={() => setPage(page - 1)} data-testid={`${testidPrefix}-prev-page`}><ChevronLeft className="h-4 w-4" /></Button>
+      {(pages > 1 || server) && <div className="mt-3 flex flex-wrap items-center justify-end gap-2 text-sm" data-testid={`${testidPrefix}-pagination`}>
+        {server && <label className="mr-auto sm:mr-2 flex items-center gap-1.5 text-xs text-muted-foreground">Per halaman<select value={server.pageSize} onChange={(e) => server.setPageSize(Number(e.target.value))} className="h-11 sm:h-8 rounded-md border bg-background px-1.5 text-sm text-foreground" data-testid={`${testidPrefix}-page-size`}>{PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>}
+        <Button size="sm" variant="outline" className="h-11 w-11 sm:h-8 sm:w-auto" disabled={page === 0} onClick={() => setPage(page - 1)} aria-label="Halaman sebelumnya" data-testid={`${testidPrefix}-prev-page`}><ChevronLeft className="h-4 w-4" /></Button>
         <span className="tabular-nums">Hal {page + 1} / {pages}</span>
-        <Button size="sm" variant="outline" disabled={page >= pages - 1} onClick={() => setPage(page + 1)} data-testid={`${testidPrefix}-next-page`}><ChevronRight className="h-4 w-4" /></Button>
+        <Button size="sm" variant="outline" className="h-11 w-11 sm:h-8 sm:w-auto" disabled={page >= pages - 1} onClick={() => setPage(page + 1)} aria-label="Halaman berikutnya" data-testid={`${testidPrefix}-next-page`}><ChevronRight className="h-4 w-4" /></Button>
       </div>}
       <TxnBulkDeleteDialog open={bulk} module={module} rows={selectedRows} stockModule={STOCK.has(module)} onClose={() => setBulk(false)} onDone={() => { setBulk(false); setSel(new Set()); server ? server.reload() : onReload?.(); }} />
     </div>

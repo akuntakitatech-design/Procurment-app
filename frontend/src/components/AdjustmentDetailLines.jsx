@@ -18,7 +18,7 @@ export function AdjustmentDetailLines({ doc, canPrice = false }) {
       </div>
       {doc.legacy_header_warehouse && <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800" data-testid="adj-detail-legacy"><Info className="h-3.5 w-3.5" />Penyesuaian lama: gudang per baris yang kosong dibaca dari gudang header (data asli tidak diubah).</div>}
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[1100px] text-sm" data-testid="adj-detail-lines">
+        <table className="m-stack w-full min-w-[1100px] text-sm" data-testid="adj-detail-lines">
           <thead className="bg-muted"><tr className="text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             <th className="p-2">#</th><th className="p-2">Barang</th><th className="p-2">Gudang</th><th className="p-2">Project</th><th className="p-2">Unit/Aset</th><th className="p-2">Satuan</th>
             <th className="p-2 text-right">Stok Sebelum</th><th className="p-2 text-right">Penyesuaian</th><th className="p-2 text-right">Stok Sesudah</th>
@@ -27,17 +27,17 @@ export function AdjustmentDetailLines({ doc, canPrice = false }) {
           <tbody>
             {lines.map((l, i) => (
               <tr key={l.id || i} className="border-t" data-testid={`adj-detail-line-${i}`}>
-                <td className="p-2 text-xs text-muted-foreground">{i + 1}</td>
-                <td className="p-2"><span className="font-mono text-xs text-muted-foreground">{l.item_code}</span> {l.item_name}</td>
-                <td className="p-2" data-testid={`adj-detail-warehouse-${i}`}>{l.warehouse_name || "-"}{l.legacy_header_warehouse && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-800">header</span>}</td>
-                <td className="p-2" data-testid={`adj-detail-project-${i}`}>{l.project_name || "-"}</td>
-                <td className="p-2" data-testid={`adj-detail-unit-${i}`}>{l.unit_name || "-"}</td>
-                <td className="p-2 text-xs" data-testid={`adj-detail-uom-${i}`}>{l.uom_label || "-"}</td>
-                <td className="p-2 text-right tabular-nums">{l.before == null ? "-" : num(l.before)}</td>
-                <td className={`p-2 text-right font-semibold tabular-nums ${Number(l.adjustment) < 0 ? "text-destructive" : "text-emerald-700"}`} data-testid={`adj-detail-qty-${i}`}>{sign(l.adjustment)}</td>
-                <td className="p-2 text-right tabular-nums">{l.after == null ? "-" : num(l.after)}</td>
-                {canPrice && <td className="p-2 text-right tabular-nums">{Number(l.adjustment) > 0 && l.approved_unit_cost != null ? num(l.approved_unit_cost) : "-"}</td>}
-                <td className="p-2 text-xs">{l.reason || "-"}</td>
+                <td data-label="#" className="m-hidden p-2 text-xs text-muted-foreground">{i + 1}</td>
+                <td data-label="Barang" className="m-full p-2"><span className="font-mono text-xs text-muted-foreground">{l.item_code}</span> {l.item_name}</td>
+                <td data-label="Gudang" className="p-2" data-testid={`adj-detail-warehouse-${i}`}>{l.warehouse_name || "-"}{l.legacy_header_warehouse && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-800">header</span>}</td>
+                <td data-label="Project" className="p-2" data-testid={`adj-detail-project-${i}`}>{l.project_name || "-"}</td>
+                <td data-label="Unit/Aset" className="p-2" data-testid={`adj-detail-unit-${i}`}>{l.unit_name || "-"}</td>
+                <td data-label="Satuan" className="p-2 text-xs" data-testid={`adj-detail-uom-${i}`}>{l.uom_label || "-"}</td>
+                <td data-label="Stok Sebelum" className="p-2 text-right tabular-nums">{l.before == null ? "-" : num(l.before)}</td>
+                <td data-label="Penyesuaian" className={`p-2 text-right font-semibold tabular-nums ${Number(l.adjustment) < 0 ? "text-destructive" : "text-emerald-700"}`} data-testid={`adj-detail-qty-${i}`}>{sign(l.adjustment)}</td>
+                <td data-label="Stok Sesudah" className="p-2 text-right tabular-nums">{l.after == null ? "-" : num(l.after)}</td>
+                {canPrice && <td data-label="Biaya Satuan" className="p-2 text-right tabular-nums">{Number(l.adjustment) > 0 && l.approved_unit_cost != null ? num(l.approved_unit_cost) : "-"}</td>}
+                <td data-label="Alasan" className="m-full p-2 text-xs">{l.reason || "-"}</td>
               </tr>
             ))}
           </tbody>
