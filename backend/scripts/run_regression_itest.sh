@@ -26,6 +26,11 @@ flock -n 9 || { echo "Runner test terisolasi lain sedang berjalan (lock)"; exit 
 
 TESTS=(
   mariadb_in_match_equivalence_test.py
+  p7_adapter_equivalence_test.py
+  p7_list_paging_test.py
+  p7_export_jobs_test.py
+  p7_trace_batch_test.py
+  p7_lifecycle_scan_test.py
   stock_opname_workflow_test.py
   stock_opname_cas_retry_test.py
   report_center_test.py

@@ -81,12 +81,19 @@ def _sum(allocs):
 
 
 async def mro_monitor_batch(lines):
-    """Sama dengan mro_line_monitor, tetapi 4 query total untuk seluruh baris."""
+    """Sama dengan mro_line_monitor, tetapi 4 query total untuk seluruh baris.
+    P7: untuk banyak baris (cari/hitungan seluruh data) peta alokasi diambil dari 1 scan bertipe yang sama dengan lifecycle
+    daftar MRO (hasil per kunci identik — lihat txn_list_paging_layer._allocs_by_type; query identik -> memo request)."""
     lids = [l["id"] for l in lines]
-    to_ro, to_mi = await asyncio.gather(allocs_from(lids, "ro"), allocs_from(lids, "mi"))
-    ro_lids = [a["target_line_id"] for v in to_ro.values() for a in v]
-    to_po = await allocs_from(ro_lids, "po")
-    to_do = await allocs_from([a["target_line_id"] for v in to_po.values() for a in v], "do")
+    if len(lids) > 6000:
+        from txn_list_paging_layer import _allocs_by_type
+        allx = await _allocs_by_type(("ro", "mi", "po", "do"))
+        to_ro, to_mi, to_po, to_do = allx["ro"], allx["mi"], allx["po"], allx["do"]
+    else:
+        to_ro, to_mi = await asyncio.gather(allocs_from(lids, "ro"), allocs_from(lids, "mi"))
+        ro_lids = [a["target_line_id"] for v in to_ro.values() for a in v]
+        to_po = await allocs_from(ro_lids, "po")
+        to_do = await allocs_from([a["target_line_id"] for v in to_po.values() for a in v], "do")
     out = {}
     for l in lines:
         qty = l.get("qty", 0); qty_po = 0; qty_received = 0
@@ -118,7 +125,7 @@ def mro_status(lines_mon, cancelled=False, submitted=True):
 @api.get("/mro")
 async def list_mro(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.mro.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
+    docs = await db.mro.find(list_cap.base_filter("mro"), {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     by_doc = await lines_by_doc("mro_lines", "mro_id", [d["id"] for d in docs])
     monitor = await mro_monitor_batch([l for v in by_doc.values() for l in v])
@@ -375,7 +382,7 @@ def ro_status(states, cancelled=False, submitted=True):
 @api.get("/ro")
 async def list_ro(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.ro.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
+    docs = await db.ro.find(list_cap.base_filter("ro"), {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     by_doc = await lines_by_doc("ro_lines", "ro_id", [d["id"] for d in docs])
     ordered = await allocs_from([l["id"] for v in by_doc.values() for l in v], "po")
@@ -490,7 +497,7 @@ async def po_line_state(line):
 @api.get("/po")
 async def list_po(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.po.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
+    docs = await db.po.find(list_cap.base_filter("po"), {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     show_price = has_perm(user, "view_purchase_price")
     by_doc = await lines_by_doc("po_lines", "po_id", [d["id"] for d in docs])
@@ -905,7 +912,7 @@ async def pull_po_for_do(user=Depends(current_user), supplier_id: str = None):
 @api.get("/do")
 async def list_do(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.do.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
+    docs = await db.do.find(list_cap.base_filter("do"), {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     by_doc = await lines_by_doc("do_lines", "do_id", [d["id"] for d in docs])
     for d in docs:
@@ -1118,7 +1125,7 @@ async def do_receiving_report(did: str, user=Depends(current_user)):
 @api.get("/mi")
 async def list_mi(user=Depends(current_user)):
     require(user, "view")
-    docs = await db.mi.find({}, {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
+    docs = await db.mi.find(list_cap.base_filter("mi"), {"_id": 0}).sort("created_at", -1).to_list(list_cap.cap())
     m = await maps()
     by_doc = await lines_by_doc("mi_lines", "mi_id", [d["id"] for d in docs])
     for d in docs:
