@@ -9,6 +9,7 @@ Default STRICT: exit 1 bila ada kebocoran / bentuk respon berubah. --report-only
 """
 import io
 import json
+import os
 import re
 import sys
 import uuid
@@ -119,6 +120,13 @@ def fetch(caller, path):
             return r.status_code, cells, "xlsx"
         except Exception:
             return r.status_code, None, "xlsx?"
+    if "pdf" in ct or path.split("?")[0].endswith(".pdf"):
+        try:
+            import pypdf
+            txt = "\n".join((pg.extract_text() or "") for pg in pypdf.PdfReader(io.BytesIO(r.content)).pages)
+            return r.status_code, txt, "pdf"
+        except Exception:
+            return r.status_code, None, "pdf?"
     if "text" in ct or "html" in ct:
         return r.status_code, r.text, "text"
     return r.status_code, None, ct.split(";")[0] or "?"
@@ -128,7 +136,10 @@ def targets(ids, report_keys):
     spec = json.load(open("/tmp/price_scan_openapi.json"))
     out = []
     for p, v in spec["paths"].items():
-        if "get" not in v or p.startswith(SKIP_PREFIX) or "download" in p or p.endswith(".pdf"):
+        if "get" not in v or p.startswith(SKIP_PREFIX) or "download" in p:
+            continue
+        if p == "/api/report-center/{key}/export.pdf":
+            out += [f"report-center/{k}/export.pdf?date_from=2026-01-01&date_to=2026-12-31" for k in report_keys]
             continue
         if "{" not in p:
             out.append(p[5:])
@@ -196,15 +207,28 @@ def main():
     keys = [r.get("key") for g in (cat if isinstance(cat, list) else cat.get("groups", cat.get("items", []))) for r in (g.get("reports", [g]) if isinstance(g, dict) else []) if isinstance(r, dict) and r.get("key")]
     ids = {"po": po["id"], "ro": ro["id"], "mro": mro["id"], "do": do["id"], "item": M["item"]["id"], "wh": M["wh"]["id"]}
     paths = targets(ids, keys) + [f"po/{po2['id']}"]
-    users = {
-        "purchasing_deny_price": mk_user("purchasing", overrides={"view_purchase_price": "deny"}),
-        "warehouse_default": mk_user("warehouse", divs=[M["div"]["id"]]),
+    makers = {
+        "purchasing_deny_price": lambda: mk_user("purchasing", overrides={"view_purchase_price": "deny"}),
+        "warehouse_default": lambda: mk_user("warehouse", divs=[M["div"]["id"]]),
+        "warehouse_global": lambda: mk_user("warehouse", overrides={"view_all_division": "allow", "view_all_warehouse": "allow"}),
+        "manager_deny_price": lambda: mk_user("manager", overrides={"view_purchase_price": "deny"}),
+        "finance_deny_price": lambda: mk_user("finance", overrides={"view_purchase_price": "deny"}),
     }
+    # SCAN_USERS=a,b (subset; batas user per tenant paket starter). Default: purchasing deny + warehouse (divisi & global).
+    # manager_deny_price / finance_deny_price: jalankan terpisah. Catatan: modul DP Supplier & Invoice Vendor memakai izin
+    # modulnya sendiri (supplier_dp.* / vendor_invoice.*) dan menampilkan nilai DP/PO walau view_purchase_price=deny
+    # (kebijakan, menunggu keputusan pemilik) -> finance_deny_price diharapkan menandai supplier-dp.
+    pick = [x for x in os.environ.get("SCAN_USERS", "purchasing_deny_price,warehouse_default,warehouse_global").split(",") if x in makers]
+    users = {name: makers[name]() for name in pick}
     report = {"secrets": sorted(secrets), "report_keys": keys, "paths": len(paths), "leaks": {}, "admin_sees": 0, "errors": {},
               "shape": {}}
     sc, adm = call("GET", f"po/{po2['id']}")
     for uname, u in users.items():
         sc, lim = u("GET", f"po/{po2['id']}")
+        if sc in (403, 404):  # tidak berhak membuka dokumen sama sekali = tidak ada nilai yang bocor (bukan kegagalan bentuk)
+            report["shape"][uname] = {"status": sc, "no_access": True}
+            print(f"bentuk respon {uname}: HTTP {sc} (tanpa akses, dilewati)")
+            continue
         report["shape"][uname] = {
             "status": sc, "same_keys": sc == 200 and set(lim) == set(adm),
             "same_line_keys": sc == 200 and set(lim["lines"][0]) == set(adm["lines"][0]),
