@@ -171,17 +171,43 @@ async def unit_usage(user=Depends(current_user), unit_id: str = None):
              "unit": im.get(k[1], {}).get("unit"), "qty": v} for k, v in agg.items()]
 
 
+def _wib_dt(x):
+    """Tanggal/timestamp dokumen -> datetime AWARE zona WIB (Asia/Jakarta), agar selisih lead time tidak mencampur
+    datetime naive & aware (dulu: TypeError -> HTTP 500).
+    - tanggal murni 'YYYY-MM-DD' / timestamp tanpa zona  -> dianggap waktu lokal WIB (konvensi reporting.scope.local_day)
+    - timestamp ber-zona ('...Z', '+00:00', '+07:00')     -> dikonversi ke WIB
+    - kosong / tidak valid                               -> None (lead time tahap itu kosong, bukan error)
+    Untuk data yang sebelumnya berhasil (semua naive atau semua aware) hasil selisih hari identik dengan sebelumnya."""
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+    wib = ZoneInfo("Asia/Jakarta")
+    if x is None or x == "":
+        return None
+    if isinstance(x, datetime):
+        dt = x
+    elif isinstance(x, date):
+        dt = datetime(x.year, x.month, x.day)
+    else:
+        s = str(x).strip()
+        if not s:
+            return None
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00") if s.endswith("Z") else s)
+        except ValueError:
+            return None
+    return dt.replace(tzinfo=wib) if dt.tzinfo is None else dt.astimezone(wib)
+
+
 @api.get("/reports/lead-time")
 async def lead_time(user=Depends(current_user)):
     require(user, "view")
-    from datetime import datetime
     out = []
     for mh in await db.mro.find({}, {"_id": 0}).sort("created_at", -1).to_list(300):
         t = await traceability(mh["id"], user)
         po_no = t["documents"]["PO"][0]["no"] if t["documents"]["PO"] else None
         do_no = t["documents"]["DO"][0]["no"] if t["documents"]["DO"] else None
         mi_no = t["documents"]["MI"][0]["no"] if t["documents"]["MI"] else None
-        def d(x): return datetime.fromisoformat(x) if x else None
+        d = _wib_dt
         mro_d = d(mh.get("date"))
         po_d = do_d = mi_d = None
         if t["documents"]["PO"]:
