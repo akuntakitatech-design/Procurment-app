@@ -1,0 +1,3415 @@
+{
+ "dataset": "proc_perf_itest: MRO 1560, RO 1560, PO 1404, DO 1248, MI 416, SPK 3000, Invoice 1248, Pinjam 375 (seed perf_p7_seed.py 60 alur + perf_p7_dataset.py clone 25 + extra 1500)",
+ "base": "6e27d1d (main sebelum P7)",
+ "new": "feature/p7-performance",
+ "rows": [
+  {
+   "user": "global",
+   "label": "Dashboard",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 140,
+   "new_ms": 132,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Dashboard Premium",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 63,
+   "new_ms": 77,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Control Center (bulan)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 1371,
+   "new_ms": 1587,
+   "note": "$.timing_ms.load: '1118.8' != '1298.4'"
+  },
+  {
+   "user": "global",
+   "label": "MRO array lama (tanpa page)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 206,
+   "new_ms": 248,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "RO array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 225,
+   "new_ms": 216,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "PO array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 362,
+   "new_ms": 416,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "DO array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 272,
+   "new_ms": 276,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "MI array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 79,
+   "new_ms": 84,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Transfer array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 6,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pinjam array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 120,
+   "new_ms": 75,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Penyesuaian array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 6,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Opname array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 6,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Invoice Vendor (array)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 299,
+   "new_ms": 371,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Tagihan DO (array)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 326,
+   "new_ms": 354,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Invoice Vendor hal.1 +facets",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 245,
+   "new_ms": 276,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Invoice Vendor cari+sort",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 227,
+   "new_ms": 289,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Invoice Vendor filter periode",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 240,
+   "new_ms": 249,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Tagihan DO hal.1 +facets",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 256,
+   "new_ms": 336,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Tagihan DO hal.terakhir",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 283,
+   "new_ms": 310,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Ringkasan Invoice",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 490,
+   "new_ms": 530,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "SPK hal.1",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 40,
+   "new_ms": 40,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Kontrak Vendor hal.1",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Inventory item-stock",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Inventory ledger",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 12,
+   "new_ms": 15,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lap. Register PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 319,
+   "new_ms": 306,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lap. posisi stok",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 12,
+   "new_ms": 14,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lap. MRO traceability",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 23,
+   "new_ms": 23,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lap. AP outstanding",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 219,
+   "new_ms": 288,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Export Register PO Excel",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 667,
+   "new_ms": 687,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Export daftar PO PDF (periode)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 439,
+   "new_ms": 384,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "MRO Traceability (laporan)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 3811,
+   "new_ms": 463,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "MRO Traceability (laporan, periode)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 148,
+   "new_ms": 40,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "MRO Traceability export Excel",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 4924,
+   "new_ms": 1667,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Traceability MRO detail",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 9,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lifecycle MRO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 26,
+   "new_ms": 31,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lifecycle RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 24,
+   "new_ms": 27,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lifecycle PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 11,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lifecycle DO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Detail MRO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 14,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Detail RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 9,
+   "new_ms": 15,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Detail PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 12,
+   "new_ms": 18,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Detail DO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 10,
+   "new_ms": 15,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Detail MI",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 9,
+   "new_ms": 12,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Detail Pinjam",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 9,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Control Center (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 1121,
+   "new_ms": 1289,
+   "note": "$.timing_ms.load: '1037.2' != '1172.9'"
+  },
+  {
+   "user": "global",
+   "label": "Control Center (default)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 1047,
+   "new_ms": 1208,
+   "note": "$.timing_ms.load: '967.4' != '1128.7'"
+  },
+  {
+   "user": "global",
+   "label": "Drill price-control",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 293,
+   "new_ms": 298,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Drill SPK",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 99,
+   "new_ms": 96,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lap. lead time",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 734,
+   "new_ms": 1644,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lap. unit usage",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lap. MRO traceability periode tahun",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 189,
+   "new_ms": 53,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lap. outstanding RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 107,
+   "new_ms": 117,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Lap. outstanding PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 186,
+   "new_ms": 207,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Approval inbox",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 5,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Cari global",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 83,
+   "new_ms": 173,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pull RO untuk PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1306,
+   "new_ms": 3391,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pull PO untuk DO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 641,
+   "new_ms": 1403,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pull MRO untuk RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 838,
+   "new_ms": 3173,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "MRO paging hal.1 (by design: total tanpa cap)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 214,
+   "new_ms": 63,
+   "note": "$.total: '1000' != '1560'"
+  },
+  {
+   "user": "global",
+   "label": "PO paging hal.1 (by design)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 225,
+   "new_ms": 82,
+   "note": "$.total: '1000' != '1404'"
+  },
+  {
+   "user": "global",
+   "label": "DO paging hal.1 (by design)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 194,
+   "new_ms": 52,
+   "note": "$.total: '1000' != '1248'"
+  },
+  {
+   "user": "global",
+   "label": "MI paging hal.1",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 51,
+   "new_ms": 26,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan adjustment-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan adjustment-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan ap-aging (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 219,
+   "new_ms": 286,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan ap-invoice-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 251,
+   "new_ms": 259,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan ap-outstanding (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 256,
+   "new_ms": 285,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan ap-outstanding-summary (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 218,
+   "new_ms": 284,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan ap-payments (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 248,
+   "new_ms": 253,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan ap-supplier-recap (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 464,
+   "new_ms": 484,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan ap-supplier-recap-monthly (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 458,
+   "new_ms": 425,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan hpp-mi (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 43,
+   "new_ms": 45,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan hutang (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 29,
+   "new_ms": 6,
+   "note": "status 404/404"
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan kartu-stok-nilai (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 5,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan kartu-stok-qty (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 5,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan lead-time (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 182,
+   "new_ms": 62,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan loan-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 23,
+   "new_ms": 26,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan loan-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 24,
+   "new_ms": 27,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan loan-return-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 11,
+   "new_ms": 12,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan min-max-reorder (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 9,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan mro-traceability (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 168,
+   "new_ms": 44,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan mutasi-persediaan (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 12,
+   "new_ms": 14,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan opname-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan opname-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan outstanding-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 36,
+   "new_ms": 63,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan outstanding-mro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 30,
+   "new_ms": 32,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan outstanding-po (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 41,
+   "new_ms": 44,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan outstanding-ro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 29,
+   "new_ms": 33,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan pemakaian-barang (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 10,
+   "new_ms": 11,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan persediaan (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 404/404"
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan posisi-stok (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 11,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan price-compliance (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 267,
+   "new_ms": 277,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan procurement (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 5,
+   "note": "status 404/404"
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan register-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 59,
+   "new_ms": 75,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan register-mi (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 17,
+   "new_ms": 19,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan register-mro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 33,
+   "new_ms": 35,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan register-po (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 47,
+   "new_ms": 50,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan register-ro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 33,
+   "new_ms": 39,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan rekap-nilai-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 25,
+   "new_ms": 28,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan rekap-pembelian (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 34,
+   "new_ms": 36,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan ringkasan-nilai (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 10,
+   "new_ms": 11,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan riwayat-pergerakan-stok (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 9,
+   "new_ms": 11,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan spk (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 404/404"
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan spk-budget (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 92,
+   "new_ms": 92,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan spk-budget-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 55,
+   "new_ms": 54,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan spk-budget-po (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 53,
+   "new_ms": 55,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan transfer-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan transfer-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan vendor-contract-list (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 10,
+   "new_ms": 11,
+   "note": ""
+  },
+  {
+   "user": "global",
+   "label": "Pusat Laporan warehouse (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 404/404"
+  },
+  {
+   "user": "terbatas",
+   "label": "Dashboard",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 928,
+   "new_ms": 857,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Dashboard Premium",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1732,
+   "new_ms": 1510,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Control Center (bulan)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 662,
+   "new_ms": 765,
+   "note": "$.timing_ms.load: '545.8' != '631.7'"
+  },
+  {
+   "user": "terbatas",
+   "label": "MRO array lama (tanpa page)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 157,
+   "new_ms": 181,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "RO array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 137,
+   "new_ms": 156,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "PO array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 235,
+   "new_ms": 259,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "DO array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 157,
+   "new_ms": 199,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "MI array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 66,
+   "new_ms": 73,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Transfer array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pinjam array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 126,
+   "new_ms": 77,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Penyesuaian array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Opname array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 6,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Invoice Vendor (array)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Tagihan DO (array)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Invoice Vendor hal.1 +facets",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Invoice Vendor cari+sort",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 28,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Invoice Vendor filter periode",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Tagihan DO hal.1 +facets",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Tagihan DO hal.terakhir",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Ringkasan Invoice",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "SPK hal.1",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Kontrak Vendor hal.1",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Inventory item-stock",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Inventory ledger",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 9,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lap. Register PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 280,
+   "new_ms": 329,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lap. posisi stok",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 12,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lap. MRO traceability",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 33,
+   "new_ms": 37,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lap. AP outstanding",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Export Register PO Excel",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Export daftar PO PDF (periode)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "MRO Traceability (laporan)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 2621,
+   "new_ms": 388,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "MRO Traceability (laporan, periode)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 110,
+   "new_ms": 54,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "MRO Traceability export Excel",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Traceability MRO detail",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Lifecycle MRO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 20,
+   "new_ms": 24,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lifecycle RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 22,
+   "new_ms": 25,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lifecycle PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 10,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lifecycle DO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 12,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Detail MRO",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 9,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Detail RO",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 9,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Detail PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 15,
+   "new_ms": 20,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Detail DO",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 9,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Detail MI",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 9,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Detail Pinjam",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Control Center (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 557,
+   "new_ms": 655,
+   "note": "$.timing_ms.load: '497.2' != '593.8'"
+  },
+  {
+   "user": "terbatas",
+   "label": "Control Center (default)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 544,
+   "new_ms": 627,
+   "note": "$.timing_ms.load: '487.0' != '571.4'"
+  },
+  {
+   "user": "terbatas",
+   "label": "Drill price-control",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 290,
+   "new_ms": 306,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Drill SPK",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Lap. lead time",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 720,
+   "new_ms": 1621,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lap. unit usage",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 6,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lap. MRO traceability periode tahun",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 132,
+   "new_ms": 57,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lap. outstanding RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 103,
+   "new_ms": 114,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Lap. outstanding PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 183,
+   "new_ms": 181,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Approval inbox",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 5,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Cari global",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 123,
+   "new_ms": 259,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pull RO untuk PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1104,
+   "new_ms": 3050,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pull PO untuk DO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1161,
+   "new_ms": 2210,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pull MRO untuk RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 858,
+   "new_ms": 2784,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "MRO paging hal.1 (by design: total tanpa cap)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 167,
+   "new_ms": 284,
+   "note": "$.total: '500' != '780'"
+  },
+  {
+   "user": "terbatas",
+   "label": "PO paging hal.1 (by design)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 161,
+   "new_ms": 207,
+   "note": "$.total: '556' != '780'"
+  },
+  {
+   "user": "terbatas",
+   "label": "DO paging hal.1 (by design)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 117,
+   "new_ms": 177,
+   "note": "$.total: '500' != '624'"
+  },
+  {
+   "user": "terbatas",
+   "label": "MI paging hal.1",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 52,
+   "new_ms": 54,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan adjustment-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan adjustment-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan ap-aging (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan ap-invoice-register (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan ap-outstanding (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan ap-outstanding-summary (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan ap-payments (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan ap-supplier-recap (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan ap-supplier-recap-monthly (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan hpp-mi (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan hutang (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 404/404"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan kartu-stok-nilai (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan kartu-stok-qty (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan lead-time (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 146,
+   "new_ms": 73,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan loan-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 23,
+   "new_ms": 26,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan loan-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 24,
+   "new_ms": 26,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan loan-return-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 12,
+   "new_ms": 14,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan min-max-reorder (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 9,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan mro-traceability (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 133,
+   "new_ms": 58,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan mutasi-persediaan (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 12,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan opname-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan opname-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan outstanding-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 36,
+   "new_ms": 40,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan outstanding-mro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 30,
+   "new_ms": 32,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan outstanding-po (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 41,
+   "new_ms": 45,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan outstanding-ro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 29,
+   "new_ms": 31,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan pemakaian-barang (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 10,
+   "new_ms": 11,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan persediaan (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 404/404"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan posisi-stok (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 10,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan price-compliance (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 290,
+   "new_ms": 310,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan procurement (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 4,
+   "note": "status 404/404"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan register-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 58,
+   "new_ms": 75,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan register-mi (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 16,
+   "new_ms": 19,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan register-mro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 30,
+   "new_ms": 33,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan register-po (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 45,
+   "new_ms": 49,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan register-ro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 31,
+   "new_ms": 34,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan rekap-nilai-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 33,
+   "new_ms": 38,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan rekap-pembelian (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 46,
+   "new_ms": 52,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan ringkasan-nilai (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan riwayat-pergerakan-stok (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 9,
+   "new_ms": 11,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan spk (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 404/404"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan spk-budget (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan spk-budget-do (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan spk-budget-po (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan transfer-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan transfer-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan vendor-contract-list (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "terbatas",
+   "label": "Pusat Laporan warehouse (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 4,
+   "new_ms": 4,
+   "note": "status 404/404"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Dashboard",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 144,
+   "new_ms": 116,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Dashboard Premium",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 61,
+   "new_ms": 75,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Control Center (bulan)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 1296,
+   "new_ms": 1504,
+   "note": "$.timing_ms.load: '1051.1' != '1222.0'"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "MRO array lama (tanpa page)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 212,
+   "new_ms": 254,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "RO array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 205,
+   "new_ms": 218,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "PO array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 391,
+   "new_ms": 404,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "DO array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 254,
+   "new_ms": 298,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "MI array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 80,
+   "new_ms": 85,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Transfer array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 6,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pinjam array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 122,
+   "new_ms": 77,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Penyesuaian array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Opname array lama",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Invoice Vendor (array)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 336,
+   "new_ms": 382,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Tagihan DO (array)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 331,
+   "new_ms": 354,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Invoice Vendor hal.1 +facets",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 222,
+   "new_ms": 281,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Invoice Vendor cari+sort",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 265,
+   "new_ms": 295,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Invoice Vendor filter periode",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 220,
+   "new_ms": 247,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Tagihan DO hal.1 +facets",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 295,
+   "new_ms": 342,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Tagihan DO hal.terakhir",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 269,
+   "new_ms": 340,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Ringkasan Invoice",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 499,
+   "new_ms": 511,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "SPK hal.1",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 42,
+   "new_ms": 41,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Kontrak Vendor hal.1",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 9,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Inventory item-stock",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Inventory ledger",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 35,
+   "new_ms": 16,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lap. Register PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 292,
+   "new_ms": 331,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lap. posisi stok",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 13,
+   "new_ms": 14,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lap. MRO traceability",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 23,
+   "new_ms": 23,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lap. AP outstanding",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 252,
+   "new_ms": 259,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Export Register PO Excel",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 569,
+   "new_ms": 582,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Export daftar PO PDF (periode)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 310,
+   "new_ms": 350,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "MRO Traceability (laporan)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 2636,
+   "new_ms": 451,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "MRO Traceability (laporan, periode)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 106,
+   "new_ms": 41,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "MRO Traceability export Excel",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 3654,
+   "new_ms": 1596,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Traceability MRO detail",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lifecycle MRO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 20,
+   "new_ms": 23,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lifecycle RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 21,
+   "new_ms": 25,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lifecycle PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 16,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lifecycle DO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Detail MRO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 12,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Detail RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 14,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Detail PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 12,
+   "new_ms": 19,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Detail DO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 9,
+   "new_ms": 13,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Detail MI",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 9,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Detail Pinjam",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Control Center (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 1036,
+   "new_ms": 1255,
+   "note": "$.timing_ms.load: '954.7' != '1169.2'"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Control Center (default)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 1032,
+   "new_ms": 1186,
+   "note": "$.timing_ms.load: '951.3' != '1107.3'"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Drill price-control",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 289,
+   "new_ms": 298,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Drill SPK",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 99,
+   "new_ms": 99,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lap. lead time",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 739,
+   "new_ms": 1664,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lap. unit usage",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 6,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lap. MRO traceability periode tahun",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 129,
+   "new_ms": 45,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lap. outstanding RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 107,
+   "new_ms": 139,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Lap. outstanding PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 208,
+   "new_ms": 177,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Approval inbox",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 5,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Cari global",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 85,
+   "new_ms": 176,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pull RO untuk PO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1219,
+   "new_ms": 3606,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pull PO untuk DO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 675,
+   "new_ms": 1318,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pull MRO untuk RO",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1089,
+   "new_ms": 3086,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "MRO paging hal.1 (by design: total tanpa cap)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 216,
+   "new_ms": 62,
+   "note": "$.total: '1000' != '1560'"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "PO paging hal.1 (by design)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 270,
+   "new_ms": 86,
+   "note": "$.total: '1000' != '1404'"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "DO paging hal.1 (by design)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": false,
+   "base_ms": 178,
+   "new_ms": 53,
+   "note": "$.total: '1000' != '1248'"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "MI paging hal.1",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 51,
+   "new_ms": 26,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan adjustment-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan adjustment-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan ap-aging (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 252,
+   "new_ms": 283,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan ap-invoice-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 230,
+   "new_ms": 293,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan ap-outstanding (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 260,
+   "new_ms": 275,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan ap-outstanding-summary (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 251,
+   "new_ms": 279,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan ap-payments (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 226,
+   "new_ms": 283,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan ap-supplier-recap (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 470,
+   "new_ms": 465,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan ap-supplier-recap-monthly (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 424,
+   "new_ms": 391,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan hpp-mi (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan hutang (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 404/404"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan kartu-stok-nilai (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 4,
+   "note": "status 403/403"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan kartu-stok-qty (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan lead-time (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 152,
+   "new_ms": 61,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan loan-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 23,
+   "new_ms": 26,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan loan-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 24,
+   "new_ms": 26,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan loan-return-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 10,
+   "new_ms": 15,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan min-max-reorder (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 12,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan mro-traceability (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 141,
+   "new_ms": 44,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan mutasi-persediaan (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 12,
+   "new_ms": 38,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan opname-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 7,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan opname-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 7,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan outstanding-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 38,
+   "new_ms": 41,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan outstanding-mro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 30,
+   "new_ms": 33,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan outstanding-po (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 42,
+   "new_ms": 46,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan outstanding-ro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 29,
+   "new_ms": 33,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan pemakaian-barang (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 11,
+   "new_ms": 11,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan persediaan (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 404/404"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan posisi-stok (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 11,
+   "new_ms": 14,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan price-compliance (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 271,
+   "new_ms": 280,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan procurement (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 5,
+   "note": "status 404/404"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan register-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 87,
+   "new_ms": 76,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan register-mi (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 18,
+   "new_ms": 19,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan register-mro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 33,
+   "new_ms": 36,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan register-po (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 47,
+   "new_ms": 50,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan register-ro (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 33,
+   "new_ms": 36,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan rekap-nilai-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 26,
+   "new_ms": 28,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan rekap-pembelian (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 35,
+   "new_ms": 39,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan ringkasan-nilai (tahun)",
+   "base_status": 403,
+   "new_status": 403,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 403/403"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan riwayat-pergerakan-stok (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 10,
+   "new_ms": 12,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan spk (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 404/404"
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan spk-budget (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 69,
+   "new_ms": 93,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan spk-budget-do (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 55,
+   "new_ms": 56,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan spk-budget-po (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 54,
+   "new_ms": 60,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan transfer-detail (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 8,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan transfer-register (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 6,
+   "new_ms": 8,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan vendor-contract-list (tahun)",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 11,
+   "new_ms": 11,
+   "note": ""
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Pusat Laporan warehouse (tahun)",
+   "base_status": 404,
+   "new_status": 404,
+   "identical": true,
+   "base_ms": 5,
+   "new_ms": 5,
+   "note": "status 404/404"
+  },
+  {
+   "user": "global",
+   "label": "Control Center (bulan)",
+   "path": "dashboard/control-center?date_from=2026-09-01&date_to=2026-09-30",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1394,
+   "new_ms": 1707,
+   "note": "",
+   "rerun_timing_ms_normalized": true
+  },
+  {
+   "user": "global",
+   "label": "Control Center (tahun)",
+   "path": "dashboard/control-center?date_from=2026-01-01&date_to=2026-12-31",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1149,
+   "new_ms": 1383,
+   "note": "",
+   "rerun_timing_ms_normalized": true
+  },
+  {
+   "user": "global",
+   "label": "Control Center (default)",
+   "path": "dashboard/control-center",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1078,
+   "new_ms": 1240,
+   "note": "",
+   "rerun_timing_ms_normalized": true
+  },
+  {
+   "user": "terbatas_divisi",
+   "label": "Control Center (bulan)",
+   "path": "dashboard/control-center?date_from=2026-09-01&date_to=2026-09-30",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 648,
+   "new_ms": 776,
+   "note": "",
+   "rerun_timing_ms_normalized": true
+  },
+  {
+   "user": "terbatas_divisi",
+   "label": "Control Center (tahun)",
+   "path": "dashboard/control-center?date_from=2026-01-01&date_to=2026-12-31",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 548,
+   "new_ms": 634,
+   "note": "",
+   "rerun_timing_ms_normalized": true
+  },
+  {
+   "user": "terbatas_divisi",
+   "label": "Control Center (default)",
+   "path": "dashboard/control-center",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 573,
+   "new_ms": 637,
+   "note": "",
+   "rerun_timing_ms_normalized": true
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Control Center (bulan)",
+   "path": "dashboard/control-center?date_from=2026-09-01&date_to=2026-09-30",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1254,
+   "new_ms": 1532,
+   "note": "",
+   "rerun_timing_ms_normalized": true
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Control Center (tahun)",
+   "path": "dashboard/control-center?date_from=2026-01-01&date_to=2026-12-31",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1035,
+   "new_ms": 1220,
+   "note": "",
+   "rerun_timing_ms_normalized": true
+  },
+  {
+   "user": "tanpa_harga",
+   "label": "Control Center (default)",
+   "path": "dashboard/control-center",
+   "base_status": 200,
+   "new_status": 200,
+   "identical": true,
+   "base_ms": 1079,
+   "new_ms": 1261,
+   "note": "",
+   "rerun_timing_ms_normalized": true
+  }
+ ]
+}

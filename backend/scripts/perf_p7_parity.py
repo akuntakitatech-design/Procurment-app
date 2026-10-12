@@ -14,7 +14,7 @@ import time
 
 import requests
 
-VOLATILE = {"generated_at", "server_time", "now", "elapsed_ms", "as_of_generated"}
+VOLATILE = {"generated_at", "server_time", "now", "elapsed_ms", "as_of_generated", "timing_ms"}
 
 P = "page=1&page_size=25"
 ENDPOINTS = [
@@ -40,7 +40,48 @@ ENDPOINTS = [
     ("Lap. AP outstanding", "report-center/ap-outstanding?page=1&page_size=50", "json"),
     ("Export Register PO Excel", "report-center/register-po/export.xlsx", "xlsx"),
     ("Export daftar PO PDF (periode)", "report-center/txn-po/export.pdf?date_from=2026-09-01&date_to=2026-09-30", "pdf"),
+    # --- tambahan parity lengkap (sesi 2026-10-12): MRO Traceability, detail, lifecycle, paging, Control Center tahunan
+    ("MRO Traceability (laporan)", "reports/mro-traceability", "json"),
+    ("MRO Traceability (laporan, periode)", "reports/mro-traceability?date_from=2026-01-01&date_to=2026-06-30", "json"),
+    ("MRO Traceability export Excel", "reports/mro-traceability/export.xlsx", "xlsx"),
+    ("Traceability MRO detail", "traceability/{mro_id}", "json"),
+    ("Lifecycle MRO", "lifecycle/mro/{mro_id}", "json"), ("Lifecycle RO", "lifecycle/ro/{ro_id}", "json"),
+    ("Lifecycle PO", "lifecycle/po/{po_id}", "json"), ("Lifecycle DO", "lifecycle/do/{do_id}", "json"),
+    ("Detail MRO", "mro/{mro_id}", "json"), ("Detail RO", "ro/{ro_id}", "json"), ("Detail PO", "po/{po_id}", "json"),
+    ("Detail DO", "do/{do_id}", "json"), ("Detail MI", "mi/{mi_id}", "json"), ("Detail Pinjam", "loans/{loan_id}", "json"),
+    ("Control Center (tahun)", "dashboard/control-center?date_from=2026-01-01&date_to=2026-12-31", "json"),
+    ("Control Center (default)", "dashboard/control-center", "json"),
+    ("Drill price-control", "dashboard/drill/price-control", "json"), ("Drill SPK", "dashboard/drill/spk", "json"),
+    ("Lap. lead time", "reports/lead-time", "json"), ("Lap. unit usage", "reports/unit-usage", "json"),
+    ("Lap. MRO traceability periode tahun", "report-center/mro-traceability?page=1&page_size=50&date_from=2026-01-01&date_to=2026-12-31", "json"),
+    ("Lap. outstanding RO", "report-center/outstanding-ro?page=1&page_size=50", "json"),
+    ("Lap. outstanding PO", "report-center/outstanding-po?page=1&page_size=50", "json"),
+    ("Approval inbox", "approvals/inbox", "json"), ("Cari global", "search?q=MRO", "json"),
+    ("Pull RO untuk PO", "pull/ro-for-po", "json"), ("Pull PO untuk DO", "pull/po-for-do", "json"), ("Pull MRO untuk RO", "pull/mro-for-ro", "json"),
+    ("MRO paging hal.1 (by design: total tanpa cap)", f"mro?{P}", "json"), ("PO paging hal.1 (by design)", f"po?{P}", "json"),
+    ("DO paging hal.1 (by design)", f"do?{P}", "json"), ("MI paging hal.1", f"mi?{P}", "json"),
 ]
+IDS = {"mro_id": "mro", "ro_id": "ro", "po_id": "po", "do_id": "do", "mi_id": "mi", "loan_id": "loans"}
+RC_KEYS = ("adjustment-detail adjustment-register ap-aging ap-invoice-register ap-outstanding ap-outstanding-summary ap-payments "
+           "ap-supplier-recap ap-supplier-recap-monthly hpp-mi hutang kartu-stok-nilai kartu-stok-qty lead-time loan-detail loan-register "
+           "loan-return-register min-max-reorder mro-traceability mutasi-persediaan opname-detail opname-register outstanding-do "
+           "outstanding-mro outstanding-po outstanding-ro pemakaian-barang persediaan posisi-stok price-compliance procurement register-do "
+           "register-mi register-mro register-po register-ro rekap-nilai-do rekap-pembelian ringkasan-nilai riwayat-pergerakan-stok spk "
+           "spk-budget spk-budget-do spk-budget-po transfer-detail transfer-register vendor-contract-list warehouse").split()
+ENDPOINTS += [(f"Pusat Laporan {k} (tahun)", f"report-center/{k}?page=1&page_size=50&date_from=2026-01-01&date_to=2026-12-31", "json")
+              for k in RC_KEYS]
+
+
+def resolve_ids(api, cred):
+    """ID dokumen contoh (terbaru) per modul dari server --new; dipakai sama untuk kedua server (DB sama)."""
+    s = session(api, cred)
+    out = {}
+    for key, mod in IDS.items():
+        r = s.get(f"{api}/{mod}?page=1&page_size=1", timeout=600)
+        body = r.json() if r.status_code == 200 else {}
+        items = body.get("items") if isinstance(body, dict) else body
+        out[key] = (items or [{}])[0].get("id", "none")
+    return out
 
 
 def norm(x):
@@ -151,6 +192,10 @@ def main():
     excl = [x.strip().lower() for x in a.exclude.split(",") if x.strip()]
     eps = [e for e in ENDPOINTS if (not only or any(o in e[0].lower() for o in only)) and not any(o in e[0].lower() for o in excl)]
     users = [(a.cred_label, json.load(open(a.cred)))] + ([("terbatas", json.load(open(a.cred2)))] if a.cred2 else [])
+    if any("{" in e[1] for e in eps):
+        ids = resolve_ids(a.base if a.seq_save else a.new, users[0][1])
+        print("ID contoh:", ids, flush=True)
+        eps = [(lbl, p.format(**ids) if "{" in p else p, m) for lbl, p, m in eps]
     if a.seq_save or a.seq_compare:
         return seq(a, eps, users)
     res = []

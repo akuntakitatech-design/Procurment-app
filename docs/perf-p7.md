@@ -197,3 +197,36 @@ Lihat `docs/perf/p7-parity.json` (diisi oleh `scripts/perf_p7_parity.py`; user g
 3. Agregasi SQL untuk Control Center & MRO traceability (perlu desain + parity khusus per KPI).
 4. Indeks pencarian ter-materialisasi (search text per dokumen) dengan invalidasi saat tulis — untuk cari lintas data < 1,5 dtk.
 5. Perbaiki kebocoran harga pre-existing (§9) di PR terpisah.
+
+## 11. Verifikasi ulang terisolasi — 2026-10-12 (agent baru, kontainer baru)
+
+Lingkungan: MariaDB **11.8.9** lokal (sama dengan production), DB `*_itest` terpisah, storage lokal. Preview Emergent memakai `proc_sandbox` + S3 lokal (SeaweedFS). **Tidak ada koneksi ke production.**
+
+| Gate | Hasil |
+|---|---|
+| Regresi `run_regression_itest.sh` (P7) | **38/38 file, 1.756/1.756 check PASS** |
+| Integrity `run_integrity_tests_mariadb.sh` (P7) | **13/13 PASS** |
+| Parity `main`(6e27d1d) vs P7, 3 user (global, terbatas divisi, tanpa izin harga), ±117 endpoint | **321/339 identik**. 18 sisanya dijelaskan di bawah. File: `docs/perf/p7-parity-full-2026-10-12.json` |
+| UAT otomatis (testing agent) di sandbox | backend 29/29, frontend semua halaman kritis tanpa error/ChunkLoadError |
+
+Dataset parity (`proc_perf_itest`): seed API nyata `scripts/perf_p7_seed.py` (60 alur MRO→RO→PO→DO→MI), lalu `perf_p7_dataset.py clone 25` + `extra 1500`. Hasilnya MRO 1.560, RO 1.560, PO 1.404, DO 1.248, MI 416, SPK 3.000, Invoice 1.248, Pinjam 375. MRO/RO/PO/DO sengaja di atas batas lama 1.000.
+
+Cakupan parity tambahan sesi ini: **Control Center** (bulan/tahun/default), **MRO Traceability** (laporan, periode, export Excel, detail traceability), lifecycle MRO/RO/PO/DO, detail MRO/RO/PO/DO/MI/Pinjam, drill price-control/SPK, lead-time, unit usage, approval inbox, cari global, Pull (RO→PO, PO→DO, MRO→RO), paging hal.1, dan **seluruh 48 key Pusat Laporan** (periode 1 tahun), untuk ketiga user.
+
+Penjelasan 18 baris non-identik:
+- 9× **Control Center**: hanya `timing_ms` (durasi eksekusi). Setelah `timing_ms` dinormalisasi (VOLATILE), hasil **identik 9/9**.
+- 9× **paging hal.1** MRO/PO/DO: hanya `total` (main 1.000 karena cap, P7 = jumlah sebenarnya). Ini **sesuai desain P7**. Isi `items` halaman 1 dan 2 (urutan default) **identik** untuk ketiga user. Sort `no asc` berbeda karena main hanya mengurutkan 1.000 dokumen terbaru. Hasil P7 diverifikasi sama dengan 25 nomor terkecil di seluruh DB (MRO/PO/DO).
+- Status non-200 identik di kedua server: 403 laporan nilai untuk user tanpa izin harga, 404 key grup katalog.
+
+### Regresi performa yang DITEMUKAN (belum diperbaiki — butuh persetujuan)
+Endpoint pola N+1 **lebih lambat di P7**, padahal hasilnya identik dan jumlah query sama:
+
+| Endpoint (global, median 3×) | main | P7 | P7 + `MARIADB_SYNC_READS=0` | Query |
+|---|---|---|---|---|
+| `pull/ro-for-po` | 1.255 ms | 3.586 ms | 1.383 ms | 6.569 |
+| `pull/mro-for-ro` | 860 ms | 2.839 ms | 1.047 ms | 4.691 |
+| `pull/po-for-do` | 553 ms | 1.205 ms | – | 2.206 |
+| `reports/lead-time` | 737 ms | 1.623 ms | 772 ms | 3.824 |
+
+Penyebab: P7 mengarahkan **semua** baca (termasuk `find_one`/query titik) lewat pymysql sinkron di `ThreadPoolExecutor` (`_fetchall_bulk`, `MARIADB_SYNC_READS=1` default). Untuk ribuan query kecil berurutan, overhead thread hop ±0,3 ms per query mendominasi.
+Usulan: jalur sinkron hanya untuk baca massal, sedangkan query titik/kecil (`limit(1)`, filter `id`) tetap async. Setelah itu regresi + parity diulang. Merge #69 **tidak** disarankan sebelum ini diputuskan.
