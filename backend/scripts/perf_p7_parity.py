@@ -1,7 +1,7 @@
 """P7 — parity hasil sebelum/sesudah: GET endpoint yang sama ke backend BASE (main) dan backend P7, DB & user yang sama.
 
   python scripts/perf_p7_parity.py --base http://127.0.0.1:8032/api --new http://127.0.0.1:8031/api --cred /root/perf/cred_x20.json \
-      [--cred2 file_user_terbatas.json] [--only label,...] [--out docs/perf/p7-parity.json]
+      [--cred2 file_user_terbatas.json] [--only label,...] [--out <artefak sementara>.json]  (laporan final: scripts/perf_p7_report.py)
 JSON dibandingkan setelah normalisasi kunci waktu-generate; Excel dibandingkan per nilai sel (metadata file diabaikan); PDF
 dibandingkan jumlah baris (header X-Report-Rows) + status. Read-only (hanya GET). Hanya untuk DB uji *_itest.
 """
@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import tempfile
 import time
 
 import requests
@@ -58,6 +59,7 @@ ENDPOINTS = [
     ("Lap. outstanding PO", "report-center/outstanding-po?page=1&page_size=50", "json"),
     ("Approval inbox", "approvals/inbox", "json"), ("Cari global", "search?q=MRO", "json"),
     ("Pull RO untuk PO", "pull/ro-for-po", "json"), ("Pull PO untuk DO", "pull/po-for-do", "json"), ("Pull MRO untuk RO", "pull/mro-for-ro", "json"),
+    ("Pull MRO untuk MI", "pull/mro-for-mi", "json"), ("Pull PO untuk DO per supplier", "pull/po-for-do?supplier_id={supplier_id}", "json"),
     ("MRO paging hal.1 (by design: total tanpa cap)", f"mro?{P}", "json"), ("PO paging hal.1 (by design)", f"po?{P}", "json"),
     ("DO paging hal.1 (by design)", f"do?{P}", "json"), ("MI paging hal.1", f"mi?{P}", "json"),
 ]
@@ -81,6 +83,10 @@ def resolve_ids(api, cred):
         body = r.json() if r.status_code == 200 else {}
         items = body.get("items") if isinstance(body, dict) else body
         out[key] = (items or [{}])[0].get("id", "none")
+    r = s.get(f"{api}/po?page=1&page_size=1", timeout=600)  # supplier PO terbaru (filter Pull PO->DO per supplier)
+    body = r.json() if r.status_code == 200 else {}
+    items = body.get("items") if isinstance(body, dict) else body
+    out["supplier_id"] = (items or [{}])[0].get("supplier_id") or "none"
     return out
 
 
@@ -184,10 +190,15 @@ def main():
     ap.add_argument("--cred-label", default="global")
     ap.add_argument("--only", default="")
     ap.add_argument("--exclude", default="")
-    ap.add_argument("--out", default="/app/docs/perf/p7-parity.json")
+    ap.add_argument("--out", default="", help="hasil per-run (SEMENTARA, default $PERF_ARTIFACT_DIR/p7-parity-<label>.json). "
+                    "Laporan final ke docs/perf/ dibuat dengan scripts/perf_p7_report.py")
     ap.add_argument("--seq-save", default="", help="mode berurutan (hemat memori): ambil dari --base saja, simpan ke file")
     ap.add_argument("--seq-compare", default="", help="mode berurutan: ambil dari --new, bandingkan dengan file --seq-save")
     a = ap.parse_args()
+    if not a.out:
+        art = os.environ.get("PERF_ARTIFACT_DIR") or os.path.join(tempfile.gettempdir(), "procureflow-perf")
+        a.out = os.path.join(art, f"p7-parity-{a.cred_label}.json")
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     only = [x.strip().lower() for x in a.only.split(",") if x.strip()]
     excl = [x.strip().lower() for x in a.exclude.split(",") if x.strip()]
     eps = [e for e in ENDPOINTS if (not only or any(o in e[0].lower() for o in only)) and not any(o in e[0].lower() for o in excl)]

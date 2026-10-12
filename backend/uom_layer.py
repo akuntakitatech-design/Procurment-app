@@ -100,10 +100,18 @@ async def _line_display(server, collection_name, line_id):
     return row, factor if factor > 0 else 1
 
 async def _convert_pull_rows(server, rows, collection_name, numeric_keys):
+    # P7: baris sumber diambil sekaligus (1 query $in; dulu 1 find_one per baris). Hasil identik dengan _line_display.
+    ids = list(dict.fromkeys(r.get("line_id") for r in rows if r.get("line_id")))
+    src_by_id = {}
+    if ids:
+        for ln in await getattr(server.db, collection_name).find({"id": {"$in": ids}}, {"_id": 0}).to_list(None):
+            src_by_id.setdefault(ln.get("id"), ln)
     out = []
     for raw in rows:
         row = dict(raw)
-        src, factor = await _line_display(server, collection_name, row.get("line_id"))
+        src = src_by_id.get(row.get("line_id")) or {}
+        factor = float(src.get("conversion_factor") or 1)
+        factor = factor if factor > 0 else 1
         row["uom_id"] = src.get("uom_id")
         row["conversion_factor"] = factor
         row["unit"] = src.get("display_unit") or row.get("unit")

@@ -141,16 +141,26 @@ async def main():
         check("T5 kolom fisik created_at tidak di-pushdown range", w == "", w)
         # T8 urutan dasar Python (_py_order) == ORDER BY created_at, pk SQL (termasuk created_at kembar + fallback pk tak aman)
         bad_ord = []
+        prev_po = os.environ.get("MARIADB_PY_ORDER")
         for f in fl[:150]:
-            got = [d["id"] for d in await coll._select(f)]
-            os.environ["MARIADB_PY_ORDER"] = "0"
+            os.environ["MARIADB_PY_ORDER"] = "1"  # urutan Python (opt-in; created_at sebagai teks tetap-lebar)
             try:
+                got = [d["id"] for d in await coll._select(f)]
+                os.environ["MARIADB_PY_ORDER"] = "0"  # ORDER BY SQL (default)
                 exp = [d["id"] for d in await coll._select(f)]
             finally:
                 os.environ.pop("MARIADB_PY_ORDER", None)
+                if prev_po is not None:
+                    os.environ["MARIADB_PY_ORDER"] = prev_po
             if got != exp:
                 bad_ord.append(f)
-        got_all = [d["id"] for d in await coll._select({"p7eq": tag})]
+        os.environ["MARIADB_PY_ORDER"] = "1"
+        try:
+            got_all = [d["id"] for d in await coll._select({"p7eq": tag})]
+        finally:
+            os.environ.pop("MARIADB_PY_ORDER", None)
+            if prev_po is not None:
+                os.environ["MARIADB_PY_ORDER"] = prev_po
         check("T8 urutan dasar Python identik dengan ORDER BY SQL (150 filter + seluruh dokumen uji)",
               not bad_ord and got_all == [d["id"] for _, d in allr], bad_ord[:2])
         from datetime import datetime as _dt
@@ -159,7 +169,11 @@ async def main():
               mm._py_order([("b", t1), ("a-1", t1), ("0", t2)]) == [("a-1", t1), ("b", t1), ("0", t2)]
               and mm._py_order([("B", t1), ("a", t1)]) is None and mm._py_order([("a_b", t1), ("x", t2)]) == [("a_b", t1), ("x", t2)]
               and mm._py_order([("a", None)]) is None
-              and mm._py_order([("t~ab", t1), ("t~aa", t1)]) == [("t~aa", t1), ("t~ab", t1)])
+              and mm._py_order([("t~ab", t1), ("t~aa", t1)]) == [("t~aa", t1), ("t~ab", t1)]
+              # created_at teks tetap-lebar (CAST DATETIME(6) AS CHAR) — urutan leksikografis == kronologis
+              and mm._py_order([("b", "2026-01-02 00:00:00.000000"), ("a", "2026-01-01 23:59:59.999999"),
+                                ("c", "2026-01-01 23:59:59.999999")]) == [("a", "2026-01-01 23:59:59.999999"),
+                                                                         ("c", "2026-01-01 23:59:59.999999"), ("b", "2026-01-02 00:00:00.000000")])
         # T11 _pk_pair_safe vs collation nyata (utf8mb4_unicode_ci): setiap pasangan yang dinyatakan aman berurutan sama dgn SQL
         rnd2 = random.Random(11)
         alpha = "0123456789abcdefz-~_.ABZ \t"
@@ -179,7 +193,13 @@ async def main():
         # T10 memo baca per request: hit identik, invalidasi setelah tulis, tidak dipakai di dalam transaksi, ditutup
         calls = []
         orig_sync = db._sync_fetchall
+        orig_small = db._small_fetchall
         db._sync_fetchall = lambda sql, params: (calls.append(sql), orig_sync(sql, params))[1]
+
+        async def _small_counted(sql, params):  # jalur adaptif kecil (aiomysql) ikut dihitung sebagai query DB
+            calls.append(sql)
+            return await orig_small(sql, params)
+        db._small_fetchall = _small_counted
         memo = mm.new_read_memo()
         tok = mm.REQ_READS.set(memo)
         try:
@@ -212,6 +232,7 @@ async def main():
         finally:
             mm.REQ_READS.reset(tok)
             db._sync_fetchall = orig_sync
+            db._small_fetchall = orig_small
         check("T10 memo baca request: hit identik & terisolasi, invalidasi setelah tulis, bypass di transaksi, nonaktif setelah ditutup",
               hit and iso and inval and in_tx and closed and mm._READ_MEMO_USED[0] == 0, (hit, iso, inval, in_tx, closed, mm._READ_MEMO_USED[0]))
         check("T12 query identik bersamaan dalam 1 request -> 1 query DB, hasil identik & objek terpisah", shared)

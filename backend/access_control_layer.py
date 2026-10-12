@@ -372,6 +372,40 @@ def install(server):
 
     server.require_doc_access = require_doc  # dipakai validasi current_doc_id pada pull sumber
 
+    async def visible_doc_ids(mod, dids, user):
+        """P7 — versi batch `require_doc` untuk banyak dokumen (daftar Pull user terbatas divisi): himpunan id yang LOLOS
+        (tidak 404/403). Semantik identik per dokumen: dokumen ada, divisi (termasuk jejak) dalam cakupan ATAU ditugaskan
+        sebagai approver. 1 query dokumen + 1 enrich_list batch + 1 query penugasan, bukan N kali."""
+        alw = allowed(user)
+        dids = [d for d in dict.fromkeys(dids) if d]
+        if alw is None:
+            return set(dids)
+        if not dids:
+            return set()
+        docs = await getattr(db(), COLL[mod]).find({"id": {"$in": dids}}, {"_id": 0}).to_list(len(dids) + 5)
+        want = set(dids)
+        docs = [d for d in docs if d.get("id") in want]
+        enriched = {r.get("id"): r for r in await RC.enrich_list(server, mod, [dict(d) for d in docs], items=False)}
+        asg = None
+        ok = set()
+        for doc in docs:
+            divs = set((enriched.get(doc["id"]) or {}).get("trace_division_ids") or [])
+            if doc.get("division_id"):
+                divs.add(doc["division_id"])
+            if mod in WAREHOUSE_DOCS:
+                divs |= await wh_divs([doc.get(k) for k in ("warehouse_id", "from_warehouse_id", "to_warehouse_id")]
+                                      + (list(doc.get("line_warehouse_ids") or []) if mod in ("transfer", "loan", "adjustment") else []))
+            if visible(mod, divs, alw):
+                ok.add(doc["id"])
+                continue
+            if asg is None:
+                asg = await assigned(mod, user)
+            if doc["id"] in asg:
+                ok.add(doc["id"])
+        return ok
+
+    server.LIST_VISIBLE_IDS = visible_doc_ids  # P7: jalur cepat daftar ber-halaman user terbatas divisi (txn_list_paging_layer)
+
     async def require_body(mod, body, user):
         alw = allowed(user)
         if alw is None or not isinstance(body, dict):
@@ -514,18 +548,8 @@ def install(server):
             alw = allowed(user)
             if alw is None:
                 return rows
-            out, seen = [], {}
-            for r in rows or []:
-                did = r.get(key)
-                if did not in seen:
-                    try:
-                        await require_doc(mod, did, user)
-                        seen[did] = True
-                    except HTTPException:
-                        seen[did] = False
-                if seen[did]:
-                    out.append(r)
-            return out
+            ok = await visible_doc_ids(mod, [r.get(key) for r in rows or []], user)  # P7: batch (identik require_doc per dokumen)
+            return [r for r in rows or [] if r.get(key) in ok]
         if mod == "po":
             async def ep_po(supplier_id: str = None, user=Depends(server.current_user)):
                 return await ep(request_supplier_id=supplier_id, user=user)

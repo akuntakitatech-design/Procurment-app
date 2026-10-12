@@ -62,6 +62,26 @@ _READ_MEMO_MAX_ROWS = int(os.environ.get("DB_READ_MEMO_MAX_ROWS") or 2_000_000)
 # Anggaran memori memo GLOBAL (seluruh request bersamaan dalam satu proses), perkiraan byte isi baris.
 _READ_MEMO_BUDGET = int(os.environ.get("DB_READ_MEMO_BUDGET_MB") or 256) * 1024 * 1024
 _READ_MEMO_USED = [0]
+# P7 — jalur baca adaptif per BENTUK SQL (teks SQL dengan placeholder; parameter tidak ikut). Bentuk yang rata-rata
+# hasilnya kecil (<= MARIADB_SYNC_MIN_ROWS, default 64) dibaca aiomysql langsung (tanpa thread hop) dan tidak memakai
+# top-k 2 tahap; bentuk besar tetap PyMySQL di thread. Hanya memilih JALUR; SQL, konverter & hasil identik.
+_SHAPE_SMALL_ROWS = int(os.environ.get("MARIADB_SYNC_MIN_ROWS") or 64)
+_SHAPE_MAX = 8192
+_SHAPE_ROWS: Dict[str, float] = {}
+
+
+def _shape_is_small(sql: str) -> bool:
+    v = _SHAPE_ROWS.get(sql)
+    return v is not None and v <= _SHAPE_SMALL_ROWS
+
+
+def _shape_note(sql: str, n: int) -> None:
+    v = _SHAPE_ROWS.get(sql)
+    if v is None and len(_SHAPE_ROWS) >= _SHAPE_MAX:
+        _SHAPE_ROWS.clear()  # batas memori sederhana; statistik terbentuk ulang dalam beberapa query
+    _SHAPE_ROWS[sql] = float(n) if v is None else v * 0.7 + n * 0.3
+
+
 
 
 def _rows_bytes(rows) -> int:
@@ -121,7 +141,16 @@ _INDEX_ORDERED = {"", "`tenant_id` = %s"}  # idx_<t>_created (created_at, pk) / 
 def _py_order_wanted(where: str) -> bool:
     """Urutan Python hanya bila SQL butuh filesort. Tanpa WHERE / hanya tenant: indeks sudah memberi urutan (scan berurutan
     lebih cepat daripada scan tak berurut + sort Python) -> ORDER BY SQL tetap dipakai."""
-    return os.environ.get("MARIADB_PY_ORDER", "1") != "0" and (where or "").strip() not in _INDEX_ORDERED
+    # Default NONAKTIF (opt-in MARIADB_PY_ORDER=1): pada benchmark terkontrol 2026-10-12 (buffer pool memadai) ORDER BY SQL
+    # lebih murah — Control Center -11%, Invoice Vendor -9%, endpoint lain setara. Urutan Python tetap tersedia & teruji
+    # (identik) untuk server dengan buffer pool kecil, di mana filesort baris lebar memicu baca disk acak.
+    return os.environ.get("MARIADB_PY_ORDER", "0") == "1" and (where or "").strip() not in _INDEX_ORDERED
+
+
+# created_at dibaca sebagai teks tetap-lebar 'YYYY-MM-DD HH:MM:SS.ffffff' (DATETIME(6) -> CAST CHAR selalu 6 digit pecahan):
+# urutan & kesamaan leksikografis == urutan & kesamaan datetime, tanpa biaya konversi datetime per baris di Python
+# (±1,8 µs/baris; Control Center memuat ±55.000 baris). Hanya dipakai untuk mengurutkan; tidak dikembalikan ke pemanggil.
+_CREATED_TXT = "CAST(created_at AS CHAR)"
 
 
 def _py_order(rows):
@@ -129,9 +158,16 @@ def _py_order(rows):
     if any(r[1] is None for r in rows):
         return None
     out = sorted(rows, key=lambda r: (r[1], r[0]))
+    safe = _PK_SAFE.match
     for i in range(1, len(out)):
-        if out[i][1] == out[i - 1][1] and not _pk_pair_safe(out[i - 1][0], out[i][0]):
-            return None
+        if out[i][1] == out[i - 1][1]:
+            a, b = out[i - 1][0], out[i][0]
+            # Jalur cepat (hasil sama dengan _pk_pair_safe): kedua pk seluruhnya [0-9a-z-] dan berbeda -> karakter pembeda /
+            # akhir string pasti dari himpunan aman. Selain itu pemeriksaan per karakter (commonprefix).
+            if a != b and isinstance(a, str) and isinstance(b, str) and safe(a) and safe(b):
+                continue
+            if not _pk_pair_safe(a, b):
+                return None
     return out
 
 
@@ -181,6 +217,8 @@ class ReturnDocument:
 def _get_path(doc: Any, path: str):
     """Ambil nilai path bertitik. Mengembalikan _MISSING jika tidak ada.
     Jika melewati array, mengembalikan list nilai (semantik Mongo)."""
+    if type(doc) is dict and "." not in path:  # P7: jalur cepat field top-level (identik dengan loop di bawah)
+        return doc[path] if path in doc else _MISSING
     cur = doc
     parts = path.split(".")
     for i, part in enumerate(parts):
@@ -235,8 +273,11 @@ def _eq(a: Any, b: Any) -> bool:
 
 def _value_matches(value: Any, cond: Any) -> bool:
     """value = nilai field (bisa _MISSING / list). cond = nilai literal atau dict operator."""
-    if isinstance(cond, dict) and cond and all(isinstance(k, str) and k.startswith("$") for k in cond):
-        return all(_op_matches(value, op, arg) for op, arg in cond.items())
+    if type(cond) is _OpDict or (isinstance(cond, dict) and cond and all(isinstance(k, str) and k.startswith("$") for k in cond)):
+        for op, arg in cond.items():
+            if not _op_matches(value, op, arg):
+                return False
+        return True
     # kesetaraan literal
     if cond is None:
         return value is _MISSING or value is None or (isinstance(value, list) and None in value)
@@ -266,11 +307,20 @@ class _InList(list):
         self.lookup = frozenset((isinstance(a, bool), a) for a in self) if ok else None
 
 
+class _OpDict(dict):
+    """Dict operator (`{"$in": .., "$ne": ..}`) hasil `_compile_filter`: tidak kosong & semua kunci str berawalan `$`.
+    Hanya penanda agar `_value_matches` tidak memeriksa ulang kunci per dokumen (P7); isi & semantik sama dengan dict biasa."""
+    __slots__ = ()
+
+
 def _compile_filter(flt: Any) -> Any:
     """Salinan filter dengan argumen `$in`/`$nin` dibungkus `_InList`. Filter asli tidak diubah."""
     if isinstance(flt, dict):
-        return {k: (_InList(v) if k in ("$in", "$nin") and isinstance(v, (list, tuple)) else _compile_filter(v))
-                for k, v in flt.items()}
+        out = {k: (_InList(v) if k in ("$in", "$nin") and isinstance(v, (list, tuple)) else _compile_filter(v))
+               for k, v in flt.items()}
+        if out and all(isinstance(k, str) and k.startswith("$") for k in out):
+            return _OpDict(out)
+        return out
     if isinstance(flt, list):
         return [_compile_filter(x) for x in flt]
     return flt
@@ -281,7 +331,12 @@ def _in_fast(value: Any, arg: "_InList") -> bool:
     if value is _MISSING:
         return arg.has_none
     lookup = arg.lookup
-    for v in (value if isinstance(value, list) else [value]):
+    if not isinstance(value, list):  # P7: skalar tanpa membuat list sementara (identik)
+        try:
+            return (isinstance(value, bool), value) in lookup
+        except TypeError:
+            return False
+    for v in value:
         try:
             if (isinstance(v, bool), v) in lookup:
                 return True
@@ -362,8 +417,16 @@ def _match(doc: dict, flt: Optional[dict]) -> bool:
     if not flt:
         return True
     for key, cond in flt.items():
+        if type(cond) is str and key[:1] != "$":
+            # P7: jalur cepat kesetaraan literal string (tenant_id/item_id/status...). Identik dengan
+            # _value_matches(_get_path(doc, key), cond): hilang -> False; list -> ada elemen == cond (bool/angka/dict tidak
+            # pernah == str); skalar -> v == cond.
+            v = _get_path(doc, key)
+            if not ((cond in v) if type(v) is list else v == cond): return False
+            continue
         if key == "$and":
-            if not all(_match(doc, c) for c in cond): return False
+            for c in cond:
+                if not _match(doc, c): return False
         elif key == "$or":
             if not any(_match(doc, c) for c in cond): return False
         elif key == "$nor":
@@ -687,6 +750,7 @@ class MariaCursor:
             else:
                 docs = await self._coll._select(self._filter)
             if self._sort: docs = _apply_sort(docs, self._sort)
+            self._n_matched = len(docs)
             if self._skip: docs = docs[self._skip:]
             if self._limit: docs = docs[: self._limit]
             self._result = [_project(d, self._projection, copy=False) for d in docs]
@@ -697,9 +761,16 @@ class MariaCursor:
             # P7: (sort +) batas -> top-k dua tahap (identik), tanpa memuat/mem-parse seluruh dokumen yang cocok.
             # Lookup by id/pk tanpa sort tetap jalur lama (1 baris, 1 query).
             k = min(x for x in (self._limit or None, length) if x)
-            docs = await self._coll._select_topk(self._filter, self._sort, self._skip + k) if self._skip + k <= _TOPK_MAX else None
+            hint: dict = {}
+            docs = await self._coll._select_topk(self._filter, self._sort, self._skip + k, hint) if self._skip + k <= _TOPK_MAX else None
             if docs is not None:
                 return [_project(d, self._projection, copy=False) for d in docs[self._skip:self._skip + k]]
+            if hint.get("shape"):
+                docs = await self._run()
+                # statistik bentuk top-k tetap diperbarui dari jumlah dokumen cocok (jalur penuh) -> bila data tumbuh,
+                # top-k 2 tahap dipakai lagi. Hanya memilih JALUR; hasil identik.
+                _shape_note(hint["shape"], getattr(self, "_n_matched", len(docs)))
+                return docs[:length] if length is not None else docs
         docs = await self._run()
         if length is not None:
             docs = docs[:length]
@@ -796,6 +867,8 @@ _RANGE_SQL = {"$gt": ">", "$gte": ">=", "$lt": "<", "$lte": "<="}
 _FIELD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _LOGICAL = {"$and", "$or", "$nor"}
 _TOPK_MAX = 5000  # di atas ini (mis. to_list(200000) = "semua") jalur penuh satu query lebih murah
+# Top-k 2 tahap hanya bila rata-rata kandidat bentuk SQL > _TOPK_GAIN x k (dokumen penuh yang tidak dimuat sebanding biaya ekstra).
+_TOPK_GAIN = float(os.environ.get("MARIADB_TOPK_GAIN") or 4)
 
 
 def _include_fields(projection) -> Optional[set]:
@@ -945,7 +1018,7 @@ class MariaCollection:
                 out.append((row[0], mini))
         return out
 
-    async def _select_topk(self, flt: Optional[dict], spec, k: int) -> Optional[List[dict]]:
+    async def _select_topk(self, flt: Optional[dict], spec, k: int, hint: Optional[dict] = None) -> Optional[List[dict]]:
         """P7 — `find(flt).sort(spec)[:k]` dua tahap dalam SATU snapshot konsisten (REPEATABLE READ, satu koneksi):
         (1) field filter+sort saja (JSON_EXTRACT) -> `_match` + `_apply_sort` (stabil, urutan dasar sama) -> pk top-k;
         (2) dokumen penuh hanya untuk pk tsb. Hasil identik dengan jalur penuh. None = tidak berlaku (pakai jalur penuh)."""
@@ -958,7 +1031,15 @@ class MariaCollection:
         fl = sorted(fields)
         sel = "".join(f", JSON_EXTRACT(doc, '$.\"{f}\"')" for f in fl)
         sql1 = f"SELECT pk{sel} FROM {_q(self.name)}" + (f" WHERE {where}" if where else "") + " ORDER BY created_at ASC, pk ASC"
-        sql1u = f"SELECT pk, created_at{sel} FROM {_q(self.name)}" + (f" WHERE {where}" if where else "")
+        sql1u = f"SELECT pk, {_CREATED_TXT}{sel} FROM {_q(self.name)}" + (f" WHERE {where}" if where else "")
+        seen = _SHAPE_ROWS.get(sql1)
+        if _shape_is_small(sql1) or (seen is not None and seen <= _TOPK_GAIN * k):
+            # Kandidat terbukti sedikit (mis. find_one({"po_id": x}) berulang) ATAU tidak jauh lebih banyak dari k
+            # (mis. find({"id": {"$in": ids}}).to_list(len(ids))): top-k tidak memangkas dokumen yang dimuat, sehingga jalur
+            # penuh 1 query lebih murah daripada snapshot 2 tahap (5 statement + thread hop). Hasil identik -> None.
+            if hint is not None:
+                hint["shape"] = sql1
+            return None
         py_order = _py_order_wanted(where)
         cflt = _compile_filter(flt) if flt else flt
         table = _q(self.name)
@@ -984,6 +1065,7 @@ class MariaCollection:
                     if base is None:
                         cur.execute(sql1, params or None)
                         base = cur.fetchall()
+                    _shape_note(sql1, len(base))
                     minis = []
                     for row in base:
                         mini = {f: json.loads(v) for f, v in zip(fl, row[1:]) if v is not None}
@@ -1020,9 +1102,11 @@ class MariaCollection:
         Di luar transaksi (P7): diambil tanpa ORDER BY lalu diurutkan di Python (`_py_order`); fallback ORDER BY SQL."""
         base = f" FROM {_q(self.name)}" + (f" WHERE {where}" if where else "")
         sorted_sql = f"SELECT pk{sel}{base} ORDER BY created_at ASC, pk ASC"
-        if conn is not None or not _py_order_wanted(where):
+        if conn is not None or not _py_order_wanted(where) or (sel != ", doc" and os.environ.get("MARIADB_PY_ORDER_NARROW", "0") != "1"):
+            # Kolom sempit (JSON_EXTRACT field tertentu): filesort MariaDB atas baris kecil lebih murah daripada mengurutkan
+            # di Python; urutan Python hanya untuk baris lebar (dokumen penuh). Hasil identik di kedua jalur.
             return await self.database._fetchall_bulk(sorted_sql, params, conn=conn)
-        rows = _py_order(list(await self.database._fetchall_bulk(f"SELECT pk, created_at{sel}{base}", params)))
+        rows = _py_order(list(await self.database._fetchall_bulk(f"SELECT pk, {_CREATED_TXT}{sel}{base}", params)))
         if rows is None:
             return await self.database._fetchall_bulk(sorted_sql, params)
         return [(r[0],) + tuple(r[2:]) for r in rows]
@@ -1370,6 +1454,7 @@ class MariaDatabase:
     async def _fetchall_bulk(self, sql: str, params: Sequence, conn=None):
         if conn is not None or os.environ.get("MARIADB_SYNC_READS", "1") == "0":
             return await self._fetchall(sql, params, conn=conn)
+        small = _shape_is_small(sql)
         memo = REQ_READS.get()
         if memo is not None and (not memo["open"] or memo["tx"]):
             memo = None
@@ -1393,12 +1478,19 @@ class MariaDatabase:
         if key is not None:
             fut = asyncio.get_running_loop().create_future()
             memo["inflight"][key] = (gen, fut)
-        await self._get_pool()  # skema/pool siap (urutan inisialisasi sama)
+        if not small:
+            await self._get_pool()  # skema/pool siap (urutan inisialisasi sama; jalur kecil menyiapkan pool sendiri)
         t0 = time.perf_counter()
         try:
-            if self._sync_exec is None:
-                self._sync_exec = ThreadPoolExecutor(max_workers=self._pool_size, thread_name_prefix="mariadb-read")
-            rows = await asyncio.get_running_loop().run_in_executor(self._sync_exec, self._sync_fetchall, sql, list(params or []))
+            if small:
+                # Bentuk SQL yang terbukti kecil (pola N+1 / lookup titik): aiomysql langsung di event loop. Thread hop
+                # pymysql (±0,3 ms/query) justru mendominasi untuk ribuan query kecil berurutan. SQL & konverter identik.
+                rows = await self._small_fetchall(sql, params)
+            else:
+                if self._sync_exec is None:
+                    self._sync_exec = ThreadPoolExecutor(max_workers=self._pool_size, thread_name_prefix="mariadb-read")
+                rows = await asyncio.get_running_loop().run_in_executor(self._sync_exec, self._sync_fetchall, sql, list(params or []))
+            _shape_note(sql, len(rows))
         except BaseException as e:
             if fut is not None:
                 if memo["inflight"].get(key, (None, None))[1] is fut:
@@ -1418,6 +1510,14 @@ class MariaDatabase:
             if _READ_MEMO_USED[0] + nb <= _READ_MEMO_BUDGET:
                 memo["data"][key] = rows; memo["rows"] += len(rows); memo["bytes"] += nb; _READ_MEMO_USED[0] += nb
         return list(rows)
+
+    async def _small_fetchall(self, sql: str, params: Sequence):
+        """SELECT kecil di luar transaksi lewat pool aiomysql (tanpa thread hop); dipakai _fetchall_bulk untuk bentuk SQL kecil."""
+        pool = await self._get_pool()
+        async with pool.acquire() as c:
+            async with c.cursor() as cur:
+                await cur.execute(sql, params)
+                return await cur.fetchall()
 
     async def _fetchall(self, sql: str, params: Sequence, conn=None):
         t0 = time.perf_counter()

@@ -37,25 +37,49 @@ def _request_query():
 
 
 async def _attach_source_header(server, rows, collection, id_key):
+    # P7: 1 query $in untuk seluruh header (dulu 1 find_one per dokumen); dokumen tak ditemukan -> {} (sama).
+    ids = list(dict.fromkeys(r.get(id_key) for r in rows if r.get(id_key)))
     cache = {}
+    if ids:
+        for d in await getattr(server.db, collection).find({"id": {"$in": ids}}, {"_id": 0}).to_list(None):
+            cache.setdefault(d.get("id"), d)
     for row in rows:
         did = row.get(id_key)
         if not did:
             continue
-        if did not in cache:
-            cache[did] = await getattr(server.db, collection).find_one({"id": did}, {"_id": 0}) or {}
-        row["source_header"] = source_inheritance_layer._header(cache[did])
+        row["source_header"] = source_inheritance_layer._header(cache.get(did) or {})
     return rows
+
+
+async def _lines_by_doc(server, collection, fk, doc_ids, cap=2000):
+    """P7: baris seluruh dokumen dalam 1 query $in. Urutan per dokumen identik dengan find per dokumen (urutan dasar
+    adapter created_at, pk); batas per dokumen sama (2000)."""
+    out = {i: [] for i in doc_ids}
+    if doc_ids:
+        for line in await getattr(server.db, collection).find({fk: {"$in": list(doc_ids)}}, {"_id": 0}).to_list(None):
+            b = out.get(line.get(fk))
+            if b is not None and len(b) < cap:
+                b.append(line)
+    return out
+
+
+async def _alloc_out_many(server, line_ids, target_type):
+    many = getattr(server, "alloc_out_many", None)
+    if many is not None:
+        return await many(line_ids, target_type)
+    return {i: await server.alloc_out(i, target_type) for i in line_ids}
 
 
 async def _mro_rows(server, target_type, user):
     m = await doc_procurement.maps()
     out = []
     docs = await server.db.mro.find(_request_query(), {"_id": 0}).to_list(3000)
+    by_doc = await _lines_by_doc(server, "mro_lines", "mro_id", [d["id"] for d in docs])
+    done = await _alloc_out_many(server, [ln["id"] for v in by_doc.values() for ln in v], target_type)
     for d in docs:
-        lines = await server.db.mro_lines.find({"mro_id": d["id"]}, {"_id": 0}).to_list(2000)
+        lines = by_doc.get(d["id"], [])
         for line in lines:
-            processed = await server.alloc_out(line["id"], target_type)
+            processed = done.get(line["id"], 0)
             outstanding = float(line.get("qty") or 0) - float(processed or 0)
             if outstanding <= 1e-9:
                 continue
@@ -85,21 +109,30 @@ async def _ro_rows(server, user):
     m = await doc_procurement.maps()
     out = []
     docs = await server.db.ro.find(_request_query(), {"_id": 0}).to_list(3000)
+    by_doc = await _lines_by_doc(server, "ro_lines", "ro_id", [d["id"] for d in docs])
+    all_lines = [ln for v in by_doc.values() for ln in v]
+    done = await _alloc_out_many(server, [ln["id"] for ln in all_lines], "po")
+    open_ids = [ln["id"] for ln in all_lines if float(ln.get("qty") or 0) - float(done.get(ln["id"], 0) or 0) > 1e-9]
+    # sumber MRO pertama per baris RO (urutan dasar adapter, sama dengan find per baris) + nomor MRO (1 query $in)
+    first_src = {}
+    if open_ids:
+        for a in await server.db.allocations.find({"target_line_id": {"$in": open_ids}, "source_type": "mro"}, {"_id": 0}).to_list(None):
+            first_src.setdefault(a.get("target_line_id"), a)
+    mro_ids = list({a.get("source_doc_id") for a in first_src.values()})
+    mro_no_by_id = {}
+    if mro_ids:
+        for mh in await server.db.mro.find({"id": {"$in": mro_ids}}, {"_id": 0, "id": 1, "no": 1}).to_list(None):
+            mro_no_by_id.setdefault(mh.get("id"), mh.get("no"))
     for d in docs:
-        lines = await server.db.ro_lines.find({"ro_id": d["id"]}, {"_id": 0}).to_list(2000)
+        lines = by_doc.get(d["id"], [])
         for line in lines:
-            ordered = await server.alloc_out(line["id"], "po")
+            ordered = done.get(line["id"], 0)
             outstanding = float(line.get("qty") or 0) - float(ordered or 0)
             if outstanding <= 1e-9:
                 continue
             doc_procurement.enrich_line(line, m)
-            srcs = await server.db.allocations.find(
-                {"target_line_id": line["id"], "source_type": "mro"}, {"_id": 0}
-            ).to_list(100)
-            mro_no = None
-            if srcs:
-                mh = await server.db.mro.find_one({"id": srcs[0].get("source_doc_id")}, {"_id": 0})
-                mro_no = (mh or {}).get("no")
+            src = first_src.get(line["id"])
+            mro_no = mro_no_by_id.get(src.get("source_doc_id")) if src else None
             out.append({
                 "ro_id": d["id"], "ro_no": d.get("no"), "mro_no": mro_no,
                 "line_id": line["id"], "item_id": line.get("item_id"),
@@ -132,10 +165,12 @@ async def _po_rows(server, supplier_id, user):
     for d in await _SR.current_do_pos(server, supplier_id):
         if d["id"] not in {x["id"] for x in docs}:
             docs.append(d)
+    by_doc = await _lines_by_doc(server, "po_lines", "po_id", list(dict.fromkeys(d["id"] for d in docs)))
+    done = await _alloc_out_many(server, [ln["id"] for v in by_doc.values() for ln in v], "do")
     for d in docs:
-        lines = await server.db.po_lines.find({"po_id": d["id"]}, {"_id": 0}).to_list(2000)
+        lines = by_doc.get(d["id"], [])
         for line in lines:
-            received = await server.alloc_out(line["id"], "do")
+            received = done.get(line["id"], 0)
             outstanding = float(line.get("qty") or 0) - float(received or 0)
             if outstanding <= 1e-9:
                 continue

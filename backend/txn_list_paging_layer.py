@@ -7,6 +7,7 @@ lalu mengirim maksimal page_size baris ke browser.
 Respons: {items, total, page, page_size, facets}.
 """
 import asyncio
+import os
 
 from fastapi import Depends, Request
 from fastapi.routing import APIRoute
@@ -194,8 +195,19 @@ HEADER_COLL = {"mro": "mro", "ro": "ro", "po": "po", "do": "do", "mi": "mi", "tr
 HEADER_FIELDS = ("id", "created_at", "date", "no")
 
 
+# Jalur cepat untuk user TERBATAS divisi hanya MRO. Benchmark terkontrol (proc_perf_itest, docs/perf-p7.md §Root cause
+# daftar terbatas divisi): untuk RO/PO/DO/MI, visible_doc_ids harus memperkaya (enrich_list) SELURUH kandidat demi
+# trace_division_ids, lalu pipeline halaman memperkaya lagi -> kerja ganda, 1,2–1,6x lebih lambat dari jalur penuh +
+# pra-saring cakupan. Untuk MRO pengayaan kandidat jauh lebih murah sehingga jalur cepat tetap menang (~0,68x main).
+# P7_SCOPED_FAST=0 hanya untuk backend referensi uji ekuivalensi (jalur penuh); hasil identik di kedua jalur.
+SCOPED_FAST = {"mro"}
+
+
 def fast_ok(server, module, qp, user):
-    if module not in HEADER_COLL or not server.is_global(user):
+    if module not in HEADER_COLL:
+        return False
+    if not server.is_global(user) and (module not in SCOPED_FAST or getattr(server, "LIST_VISIBLE_IDS", None) is None
+                                       or os.environ.get("P7_SCOPED_FAST", "1") in ("0", "none")):
         return False
     for k, v in qp.items():
         if v in (None, "") or k in ("page", "page_size", "dir"):
@@ -212,13 +224,21 @@ def fast_ok(server, module, qp, user):
     return True
 
 
-async def fast_page(server, module, qp, page_rows):
-    """Header seluruh dokumen (field minimal) -> filter_sort yang SAMA -> id halaman -> pipeline daftar penuh hanya untuk id tsb.
-    None bila baris halaman tidak lengkap (fallback ke jalur penuh)."""
+async def fast_page(server, module, qp, page_rows, user=None):
+    """Header seluruh dokumen (field minimal) -> [user terbatas divisi: kandidat pra-saring -> dokumen terlihat menurut
+    access_control.visible_doc_ids] -> filter_sort yang SAMA -> id halaman -> pipeline daftar penuh (termasuk filter cakupan
+    existing) hanya untuk id tsb. None bila baris halaman tidak lengkap (fallback ke jalur penuh)."""
     import list_cap
     hdr = await getattr(server.db, HEADER_COLL[module]).find({}, {"_id": 0, **{f: 1 for f in HEADER_FIELDS}}) \
         .sort("created_at", -1).to_list(None)
     hdr = [h for h in hdr if h.get("id")]  # enrich_list existing membuang baris tanpa id
+    if user is not None and not server.is_global(user):
+        cand = await scope_candidates(server, module, user)
+        if cand is not None:
+            cs = set(cand)
+            hdr = [h for h in hdr if h["id"] in cs]
+        ok = await server.LIST_VISIBLE_IDS(module, [h["id"] for h in hdr], user)
+        hdr = [h for h in hdr if h["id"] in ok]
     need = module == "mro" and (qp.get("counts") == "lifecycle_stage" or bool(qp.get("f_lifecycle_stage")))
     rows, facets = await filter_sort(module, hdr, qp, lifecycle=need)
     total = len(rows)
@@ -233,6 +253,57 @@ async def fast_page(server, module, qp, page_rows):
     if module == "mro":
         await _mro_lifecycle(items)  # nilai per baris identik dengan perhitungan atas seluruh baris
     return {"items": items, "total": total, "page": page, "page_size": size, "facets": facets}
+
+
+# P7: pra-saring cakupan untuk user terbatas divisi (jalur daftar ber-halaman penuh). Filter cakupan daftar existing
+# (access_control mk_list) hanya meloloskan baris bila SELURUH divisi jejak (trace_division_ids + division_id baris) berada dalam
+# divisi user, ATAU user ditugaskan sebagai approver dokumen; daftar DO juga mensyaratkan division_id dalam cakupan. Jadi dokumen
+# ber-division_id tersimpan di luar cakupan & bukan penugasan approver PASTI tidak tampil -> tidak perlu dimuat & diperkaya.
+# Dokumen lain tetap melewati pipeline + filter cakupan existing apa adanya (hasil & urutan identik). Modul cakupan gudang
+# (transfer/pinjam/penyesuaian/opname) tidak dipra-saring. Nonaktif: P7_SCOPE_PREFILTER=0.
+SCOPE_PREFILTER = {"mro", "ro", "po", "do", "mi"}
+
+
+async def scope_candidates(server, module, user):
+    """Daftar id kandidat (urutan bebas) atau None (tanpa pra-saring)."""
+    if module not in SCOPE_PREFILTER or server.is_global(user) or os.environ.get("P7_SCOPE_PREFILTER", "1") == "0":
+        return None
+    alw = {str(x) for x in (user.get("divisions") or []) if x}  # == access_control.allowed(user) untuk user non-global
+    hdr = await getattr(server.db, HEADER_COLL[module]).find({}, {"_id": 0, "id": 1, "division_id": 1}).to_list(None)
+    asg = set()
+    if module in ("mro", "ro", "po"):  # == access_control.assigned(mod, user)
+        asg = {r.get("document_id") for r in await server.db.approval_tasks.find(
+            {"module": module, "approver_email": str(user.get("email") or "").lower()}, {"_id": 0, "document_id": 1}).to_list(5000)}
+    def keep(h):
+        d = h.get("division_id")
+        if not d:
+            return True
+        try:
+            return d in alw or h["id"] in asg
+        except TypeError:  # nilai tak-hashable: tidak dipra-saring (tetap dinilai filter cakupan existing)
+            return True
+    return [h["id"] for h in hdr if h.get("id") and keep(h)]
+
+
+async def scope_prefilter(server, module, user):
+    """Pra-saring yang sama dengan `scope_candidates`, sebagai filter dokumen untuk query daftar paling dalam (tanpa query
+    header terpisah): division_id kosong/None/hilang/0/False, ATAU division_id dalam divisi user, ATAU id = penugasan approver.
+    Dievaluasi adapter dengan semantik Mongo (pushdown SQL + verifikasi Python). None = tanpa pra-saring."""
+    if module not in SCOPE_PREFILTER or server.is_global(user) or os.environ.get("P7_SCOPE_PREFILTER", "1") == "0":
+        return None
+    alw = sorted({str(x) for x in (user.get("divisions") or []) if x})
+    # nilai falsy (hilang/None/""/0/False/[]/{}) dan array (tak-hashable: tidak dipra-saring) selalu ikut -> superset aman
+    ors = [{"division_id": {"$exists": False}}, {"division_id": {"$in": [None, "", 0, False]}}, {"division_id": {"$size": 0}},
+           {"division_id": {}}, {"division_id.0": {"$exists": True}}]
+    if alw:
+        ors.append({"division_id": {"$in": alw}})
+    if module in ("mro", "ro", "po"):  # == access_control.assigned(mod, user)
+        asg = sorted({r.get("document_id") for r in await server.db.approval_tasks.find(
+            {"module": module, "approver_email": str(user.get("email") or "").lower()}, {"_id": 0, "document_id": 1}).to_list(5000)
+            if isinstance(r.get("document_id"), str)})
+        if asg:
+            ors.append({"id": {"$in": asg}})
+    return {"$or": ors}
 
 
 def install(server):
@@ -269,11 +340,16 @@ def install(server):
                 if "page" not in qp:  # respons array lama (batas muat existing) untuk pemanggil tanpa halaman
                     return await source_rows(module, user, qp)  # drill-down Dashboard (rf_*, predikat sama)
                 if fast_ok(server, module, qp, user):
-                    res = await fast_page(server, module, qp, lambda: sources[module](user=user))
+                    res = await fast_page(server, module, qp, lambda: sources[module](user=user), user)
                     if res is not None:
                         return res
                 with list_cap.raised(list_cap.ALL):  # P7: seluruh dokumen (tanpa batas 1.000) -> total & hasil cari/filter lengkap
-                    rows = await source_rows(module, user, qp)
+                    sflt = await scope_prefilter(server, module, user)
+                    if sflt is None:
+                        rows = await source_rows(module, user, qp)
+                    else:  # user terbatas divisi: dokumen yang PASTI di luar cakupan tidak dimuat/diperkaya (hasil identik)
+                        with list_cap.scoped(module, sflt):
+                            rows = await source_rows(module, user, qp)
                 return await paginate(module, rows, qp)
             listing.__name__ = f"list_{module}_paged"
             return listing

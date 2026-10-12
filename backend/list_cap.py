@@ -29,13 +29,32 @@ def raised(n: int):
         _CAP.reset(tok)
 
 
+_SCOPE: contextvars.ContextVar = contextvars.ContextVar("txn_list_scope_prefilter", default=None)
+
+
 def base_filter(module: str) -> dict:
     """Filter dokumen endpoint daftar paling dalam: {} (semua, perilaku lama) atau {"id": {"$in": ids}} saat jalur cepat
-    daftar ber-halaman P7 meminta baris halaman aktif saja (modul yang sama; query lain tidak terpengaruh)."""
+    daftar ber-halaman P7 meminta baris halaman aktif saja, dan/atau pra-saring cakupan P7 (`scoped`) untuk user terbatas
+    divisi (modul yang sama; query lain tidak terpengaruh)."""
+    parts = []
     cur = _ONLY.get()
-    if cur is None or cur[0] != module:
+    if cur is not None and cur[0] == module:
+        parts.append({"id": {"$in": list(cur[1])}})
+    sc = _SCOPE.get()
+    if sc is not None and sc[0] == module:
+        parts.append(sc[1])
+    if not parts:
         return {}
-    return {"id": {"$in": list(cur[1])}}
+    return parts[0] if len(parts) == 1 else {"$and": parts}
+
+
+@contextmanager
+def scoped(module: str, flt: dict):
+    tok = _SCOPE.set((module, flt))
+    try:
+        yield
+    finally:
+        _SCOPE.reset(tok)
 
 
 @contextmanager

@@ -8,10 +8,15 @@ import argparse
 import json
 import os
 import re
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+FINAL_DIR = os.path.join(REPO, "docs", "perf")  # laporan final (masuk Git)
+ARTIFACT_DIR = os.environ.get("PERF_ARTIFACT_DIR") or os.path.join(tempfile.gettempdir(), "procureflow-perf")  # sementara (tidak di-commit)
 
 
 def pct(xs, p):
@@ -138,7 +143,7 @@ def main():
                "peak_rss_mb": peak["mb"] or None}
         res.append(row)
         print(f"| {label} | {row['p50']} | {row['p95']} | {row['db_ms']} | {nq} | {tot} | {sc} | {row['peak_rss_mb']} |", flush=True)
-        json.dump({"label": a.label, "endpoints": res}, open(f"/app/docs/perf/p7-{a.label}.partial.json", "w"), indent=1)
+        json.dump({"label": a.label, "endpoints": res}, open(os.path.join(ARTIFACT_DIR, f"p7-{a.label}.partial.json"), "w"), indent=1)
 
     conc = {}
     if not only and not a.skip:
@@ -173,9 +178,9 @@ def main():
         conc["_errors"] = len(errs)
         for k, v in conc.items():
             print(f"| {k} | {v} |", flush=True)
-    os.makedirs("/app/docs/perf", exist_ok=True)
+    os.makedirs(FINAL_DIR, exist_ok=True)
     json.dump({"label": a.label, "endpoints": res, "concurrency": conc, "reps": a.reps, "conc": a.conc},
-              open(f"/app/docs/perf/p7-{a.label}{'-part' + str(a.skip) if a.skip else ''}.json", "w"), indent=1)
+              open(os.path.join(FINAL_DIR, f"p7-{a.label}{'-part' + str(a.skip) if a.skip else ''}.json"), "w"), indent=1)
 
 
 if __name__ == "__main__":
