@@ -36,6 +36,7 @@ TESTS=(
   report_spk_test.py
   report_ap_test.py
   report_txn_test.py
+  lead_time_report_test.py
   po_approval2_date_test.py
   po_print_mro_test.py
   vendor_invoice_access_test.py
