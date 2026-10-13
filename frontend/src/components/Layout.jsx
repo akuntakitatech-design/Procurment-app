@@ -3,7 +3,7 @@ import { useNavigate, useLocation, NavLink } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Warehouse, ShoppingCart, ClipboardCheck, Boxes, Database, Users, Bell, Search,
-  Sun, Moon, LogOut, BarChart3, Settings, Menu, ChevronRight, Clock3, TriangleAlert, UserRound
+  Sun, Moon, LogOut, BarChart3, Settings, Menu, ChevronRight, Clock3, TriangleAlert, UserRound, X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -26,7 +26,7 @@ const NAV = [
   { to: "/system", label: "Sistem", icon: Settings, match: ["/system", "/settings", "/users", "/activity-log", "/print-layouts", "/excel-import"] },
 ];
 
-function GlobalSearch() {
+function GlobalSearch({ autoFocus = false, onDone, testid = "global-search-input" }) {
   const [q, setQ] = useState("");
   const [res, setRes] = useState([]);
   const [open, setOpen] = useState(false);
@@ -38,7 +38,7 @@ function GlobalSearch() {
     setRes(r.data); setOpen(true);
   };
   const go = (item) => {
-    setOpen(false); setQ("");
+    setOpen(false); setQ(""); onDone?.();
     const routes = { mro: "/mro/", ro: "/ro/", po: "/po/", do: "/do/", mi: "/mi/" };
     if (routes[item.type]) nav(routes[item.type] + item.id);
     else nav("/master");
@@ -46,14 +46,14 @@ function GlobalSearch() {
   return (
     <div className="relative w-full max-w-md">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-      <Input data-testid="global-search-input" value={q} onChange={(e) => run(e.target.value)}
+      <Input data-testid={testid} value={q} onChange={(e) => run(e.target.value)} autoFocus={autoFocus} aria-label="Cari transaksi, barang, supplier"
         onFocus={() => q.length >= 2 && setOpen(true)}
-        placeholder="Cari transaksi, barang, supplier..." className="pl-9 h-10 bg-background/80 border-border/80 rounded-xl" />
+        placeholder="Cari transaksi, barang, supplier..." className="pl-9 h-11 sm:h-10 bg-background/80 border-border/80 rounded-xl" />
       {open && res.length > 0 && (
         <div className="absolute z-50 mt-2 w-full max-h-80 overflow-auto rounded-xl border bg-popover shadow-xl">
           {res.map((r) => (
             <button key={r.type + r.id} data-testid="search-result-item" onClick={() => go(r)}
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-accent transition-colors">
+              className="flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-accent transition-colors">
               <span className="font-mono text-xs uppercase text-muted-foreground w-10">{r.type}</span>
               <span className="font-mono text-xs font-semibold">{r.no}</span>
               <span className="truncate text-muted-foreground">{r.label}</span>
@@ -73,15 +73,15 @@ function NotifBell() {
   const unread = items.filter((i) => !i.read).length;
   return (
     <div className="relative">
-      <Button variant="ghost" size="icon" onClick={toggle} data-testid="notif-bell" className="rounded-xl">
+      <Button variant="ghost" size="icon" onClick={toggle} data-testid="notif-bell" aria-label="Notifikasi" className="h-11 w-11 sm:h-9 sm:w-9 rounded-xl">
         <Bell className="h-5 w-5" />
         {unread > 0 && <span className="absolute top-1 right-1 h-4 min-w-4 px-1 rounded-full bg-destructive text-[10px] text-white flex items-center justify-center">{unread}</span>}
       </Button>
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-80 max-h-96 overflow-auto rounded-xl border bg-popover shadow-xl">
+        <div className="fixed inset-x-3 top-[64px] sm:absolute sm:inset-x-auto sm:top-auto sm:right-0 z-50 sm:mt-2 sm:w-80 max-h-[min(24rem,calc(100dvh-5rem))] overflow-auto rounded-xl border bg-popover shadow-xl" data-testid="notif-panel">
           <div className="flex items-center justify-between border-b px-3 py-2.5">
             <span className="text-sm font-semibold">Notifikasi</span>
-            <button className="text-xs text-primary" onClick={async () => { await api.post("/notifications/read-all"); load(); }}>Tandai dibaca</button>
+            <button className="min-h-9 px-1 text-xs text-primary" onClick={async () => { await api.post("/notifications/read-all"); load(); }}>Tandai dibaca</button>
           </div>
           {items.length === 0 && <div className="p-4 text-sm text-muted-foreground">Tidak ada notifikasi</div>}
           {items.map((n) => (
@@ -126,6 +126,7 @@ export function Layout({ children }) {
   const navVisible = (n) => !NAV_MODULES[n.to] || NAV_MODULES[n.to].some((m) => can("view", m));
   const [dark, setDark] = useState(document.documentElement.classList.contains("dark"));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [brand, setBrand] = useState({ name: "App Proc", subtitle: "Procurement & Inventory", logo_available: false, logo_version: null });
   const [subscription, setSubscription] = useState(null);
   const location = useLocation();
@@ -138,15 +139,24 @@ export function Layout({ children }) {
     api.get("/subscription/status").then((r) => setSubscription(r.data || null)).catch(() => setSubscription(null));
   }, []);
 
+  // Drawer mobile: tutup saat pindah halaman & dengan tombol Escape.
+  useEffect(() => { setMobileOpen(false); setSearchOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setMobileOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileOpen]);
+
   const toggleDark = () => { document.documentElement.classList.toggle("dark"); setDark(!dark); };
   const logoSrc = brand.logo_available ? `${API}/company/logo?v=${encodeURIComponent(brand.logo_version || "1")}` : null;
   const initial = (brand.name || "A").trim().charAt(0).toUpperCase();
   const activeFor = (n) => n.exact ? location.pathname === n.to : (n.match || [n.to]).some((p) => location.pathname === p || location.pathname.startsWith(`${p}/`));
 
   return (
-    <div className="h-screen overflow-hidden flex bg-background">
-      <aside className={`${mobileOpen ? "flex" : "hidden"} lg:flex fixed lg:static inset-y-0 left-0 z-40 h-screen w-[268px] shrink-0 flex-col premium-sidebar text-slate-100`}>
-        <div className="flex shrink-0 items-center gap-3 px-5 h-[72px] border-b border-white/10 premium-sidebar z-10">
+    <div className="app-vh overflow-hidden flex bg-background">
+      <aside id="app-sidebar" aria-label="Navigasi utama" data-testid="app-sidebar" className={`${mobileOpen ? "flex" : "hidden"} lg:flex fixed lg:static inset-y-0 left-0 z-40 app-vh w-[min(268px,85vw)] lg:w-[268px] shrink-0 flex-col premium-sidebar text-slate-100 shadow-2xl lg:shadow-none`}>
+        <div className="flex shrink-0 items-center gap-3 px-5 h-[60px] sm:h-[72px] border-b border-white/10 premium-sidebar z-10">
           {logoSrc ? (
             <div className="h-10 w-10 overflow-hidden rounded-xl border border-white/10 bg-white p-1.5"><img src={logoSrc} alt="Logo perusahaan" className="h-full w-full object-contain" /></div>
           ) : (
@@ -156,6 +166,10 @@ export function Layout({ children }) {
             <div className="truncate font-head font-bold text-sm text-white" title={brand.name}>{brand.name || "App Proc"}</div>
             <div className="truncate text-[10px] text-slate-400 mt-1">{brand.subtitle || "Procurement & Inventory"}</div>
           </div>
+          <button type="button" onClick={() => setMobileOpen(false)} aria-label="Tutup menu" data-testid="sidebar-close"
+            className="lg:hidden ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-300 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -165,7 +179,7 @@ export function Layout({ children }) {
               const active = activeFor(n);
               return <NavLink key={n.to} to={n.to} end={n.exact} onClick={() => setMobileOpen(false)}
                 data-testid={`nav-${n.to.replace("/", "") || "dashboard"}`}
-                className={`group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all ${active ? "bg-white/10 text-white shadow-[inset_3px_0_0_0_rgba(96,165,250,0.95)]" : "text-slate-300 hover:bg-white/[0.06] hover:text-white"}`}>
+                className={`group flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors ${active ? "bg-white/10 text-white shadow-[inset_3px_0_0_0_rgba(96,165,250,0.95)]" : "text-slate-300 hover:bg-white/[0.06] hover:text-white"}`}>
                 <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${active ? "bg-white/10 text-sky-300" : "text-slate-400 group-hover:text-slate-200"}`}>
                   <n.icon className="h-4 w-4 shrink-0" />
                 </div>
@@ -176,27 +190,29 @@ export function Layout({ children }) {
           </nav>
         </div>
 
-        <div className="shrink-0 mx-4 mb-5 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-[11px] leading-5 text-slate-400">
+        <div className="hidden sm:block shrink-0 mx-4 mb-5 rounded-xl border border-white/10 bg-white/[0.04] p-3 text-[11px] leading-5 text-slate-400">
           <div className="font-semibold text-slate-300">Procurement Control</div>
           <div>Gudang · Pembelian · Persediaan · Reporting</div>
         </div>
       </aside>
-      {mobileOpen && <div className="fixed inset-0 z-30 bg-slate-950/55 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} />}
+      {/* Overlay mulai tepat di tepi kanan drawer: seluruh area gelap yang terlihat bisa di-tap untuk menutup (tidak tertimpa sidebar). */}
+      {mobileOpen && <div className="fixed inset-y-0 right-0 left-[min(268px,85vw)] z-30 bg-slate-950/55 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} data-testid="sidebar-overlay" aria-hidden="true" />}
 
-      <div className="h-screen min-w-0 flex-1 overflow-hidden flex flex-col">
-        <header className="shrink-0 z-20 flex items-center gap-3 h-[72px] border-b bg-card/85 backdrop-blur-xl px-4 sm:px-6 no-print">
-          <Button variant="ghost" size="icon" className="lg:hidden rounded-xl" onClick={() => setMobileOpen(true)}><Menu className="h-5 w-5" /></Button>
-          <GlobalSearch />
+      <div className="app-vh min-w-0 flex-1 overflow-hidden flex flex-col">
+        <header className="relative shrink-0 z-20 flex items-center gap-1 sm:gap-3 h-[60px] sm:h-[72px] border-b bg-card/85 backdrop-blur-xl px-2 sm:px-6 no-print">
+          <Button variant="ghost" size="icon" className="lg:hidden h-11 w-11 rounded-xl" onClick={() => setMobileOpen(true)} aria-label="Buka menu" aria-expanded={mobileOpen} aria-controls="app-sidebar" data-testid="mobile-menu-btn"><Menu className="h-5 w-5" /></Button>
+          <div className="hidden sm:block w-full max-w-md"><GlobalSearch /></div>
           <div className="flex-1" />
+          <Button variant="ghost" size="icon" className="sm:hidden h-11 w-11 rounded-xl" onClick={() => setSearchOpen((v) => !v)} aria-label="Cari" aria-expanded={searchOpen} data-testid="mobile-search-toggle">{searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}</Button>
           <NotifBell />
-          <Button variant="ghost" size="icon" onClick={toggleDark} data-testid="theme-toggle" className="rounded-xl">
+          <Button variant="ghost" size="icon" onClick={toggleDark} data-testid="theme-toggle" aria-label={dark ? "Mode terang" : "Mode gelap"} className="h-11 w-11 sm:h-9 sm:w-9 rounded-xl">
             {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </Button>
-          <div className="flex items-center gap-2.5 pl-3 border-l">
+          <div className="flex items-center gap-1 sm:gap-2.5 pl-1 sm:pl-3 border-l">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button type="button" data-testid="user-menu-trigger" aria-label="Menu pengguna"
-                  className="flex items-center gap-2 rounded-xl px-2 py-1 text-right leading-tight transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  className="flex min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-1 text-right leading-tight transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <span className="hidden sm:block">
                     <span className="block text-sm font-semibold">{user?.name}</span>
                     <span className="mt-0.5 block text-[11px] capitalize text-muted-foreground">{user?.role}</span>
@@ -210,12 +226,13 @@ export function Layout({ children }) {
                 <DropdownMenuItem onSelect={logout} data-testid="user-menu-logout"><LogOut className="mr-2 h-4 w-4" />Keluar</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button variant="ghost" size="icon" onClick={logout} data-testid="logout-btn" className="rounded-xl"><LogOut className="h-5 w-5" /></Button>
+            <Button variant="ghost" size="icon" onClick={logout} data-testid="logout-btn" aria-label="Keluar" className="hidden sm:inline-flex rounded-xl"><LogOut className="h-5 w-5" /></Button>
           </div>
         </header>
+        {searchOpen && <div className="sm:hidden shrink-0 z-20 border-b bg-card px-3 py-2 no-print" data-testid="mobile-search-panel"><GlobalSearch autoFocus onDone={() => setSearchOpen(false)} testid="mobile-global-search-input" /></div>}
 
         <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <div className="p-4 sm:p-6 lg:p-7 max-w-[1680px] w-full mx-auto">
+          <div className="px-3 pt-3 pb-28 sm:p-6 lg:p-7 max-w-[1680px] w-full mx-auto">
             <SubscriptionBanner status={subscription} />
             {children}
           </div>

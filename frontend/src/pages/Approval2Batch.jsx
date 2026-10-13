@@ -118,18 +118,18 @@ export default function Approval2Batch() {
         {isDraft && <div className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200" data-testid="approval2-draft-hint">Export JPEG terlebih dahulu agar pengajuan berstatus Diajukan.</div>}
         {!isDraft && evidenceCount === 0 && <div className="border-b bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200" data-testid="approval2-evidence-hint">Upload Bukti Persetujuan Pimpinan sebelum Approve Terpilih.</div>}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-sm zebra">
+          <table className="m-stack w-full min-w-[1000px] text-sm zebra">
             <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
               <th className="w-10 p-3"><Checkbox checked={allChecked} disabled={!approvable.length} onCheckedChange={() => setSel(allChecked ? [] : approvable.map((i) => i.id))} aria-label="Pilih semua" data-testid="approval2-items-select-all" /></th>
               <th className="p-3">No PO</th><th className="p-3">Supplier</th><th className="p-3">Keterangan Transaksi</th><th className="p-3">Project</th><th className="p-3 text-right">DPP</th><th className="p-3 text-right">PPN</th><th className="p-3 text-right">Total</th><th className="p-3">PIC</th><th className="p-3">Status</th>
             </tr></thead>
             <tbody>{items.map((i) => <tr key={i.id} className="border-t align-top" data-testid={`approval2-item-${i.po_no}`}>
-              <td className="p-3"><Checkbox checked={sel.includes(i.id)} disabled={!i.can_approve} onCheckedChange={() => setSel((s) => toggleId(s, i.id))} aria-label={`Pilih ${i.po_no}`} data-testid={`approval2-item-check-${i.po_no}`} /></td>
-              <td className="p-3"><button onClick={() => nav(`/po/${i.po_id}`)} className="font-mono text-xs font-semibold text-primary hover:underline">{i.po_no}</button></td>
-              <td className="p-3 whitespace-nowrap">{i.supplier_name}</td><td className="p-3 max-w-[320px] break-words">{i.transaction_description}</td><td className="p-3">{i.project_text}</td>
-              <td className="p-3 text-right tabular-nums whitespace-nowrap">{fmtRp(i.dpp)}</td><td className="p-3 text-right tabular-nums whitespace-nowrap">{fmtPpn(i.ppn)}</td><td className="p-3 text-right tabular-nums whitespace-nowrap font-semibold">{fmtRp(i.grand_total)}</td>
-              <td className="p-3">{i.pic_name}</td>
-              <td className="p-3"><StatusBadge status={i.display_status} />{i.approved_at && <div className="mt-1 text-xs text-muted-foreground">{i.approved_by} · {fmtDateTimeSafe(i.approved_at)}</div>}</td>
+              <td data-label="Pilih" className="m-full p-3"><Checkbox checked={sel.includes(i.id)} disabled={!i.can_approve} onCheckedChange={() => setSel((s) => toggleId(s, i.id))} aria-label={`Pilih ${i.po_no}`} data-testid={`approval2-item-check-${i.po_no}`} /></td>
+              <td data-label="No PO" className="m-full p-3"><button onClick={() => nav(`/po/${i.po_id}`)} className="font-mono text-xs font-semibold text-primary hover:underline">{i.po_no}</button></td>
+              <td data-label="Supplier" className="p-3 whitespace-nowrap">{i.supplier_name}</td><td data-label="Keterangan Transaksi" className="m-full p-3 max-w-[320px] break-words">{i.transaction_description}</td><td data-label="Project" className="p-3">{i.project_text}</td>
+              <td data-label="DPP" className="p-3 text-right tabular-nums whitespace-nowrap">{fmtRp(i.dpp)}</td><td data-label="PPN" className="p-3 text-right tabular-nums whitespace-nowrap">{fmtPpn(i.ppn)}</td><td data-label="Total" className="p-3 text-right tabular-nums whitespace-nowrap font-semibold">{fmtRp(i.grand_total)}</td>
+              <td data-label="PIC" className="p-3">{i.pic_name}</td>
+              <td data-label="Status" className="p-3"><StatusBadge status={i.display_status} />{i.approved_at && <div className="mt-1 text-xs text-muted-foreground">{i.approved_by} · {fmtDateTimeSafe(i.approved_at)}</div>}</td>
             </tr>)}</tbody>
           </table>
         </div>

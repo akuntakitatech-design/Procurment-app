@@ -39,15 +39,15 @@ export function TxnHoverPreview({ row, onOpen }) {
     <span className="inline-flex items-center gap-1">
       <HoverCard openDelay={300} closeDelay={80}>
         <HoverCardTrigger asChild>
-          <button type="button" onClick={open} data-testid={`txn-no-${row.no || row.id}`} className="font-mono text-xs font-semibold text-primary underline decoration-dotted underline-offset-4 transition-colors hover:text-primary/80">{row.no || "-"}</button>
+          <button type="button" onClick={open} data-testid={`txn-no-${row.no || row.id}`} className="inline-flex min-h-11 items-center sm:min-h-0 font-mono text-xs font-semibold text-primary underline decoration-dotted underline-offset-4 transition-colors hover:text-primary/80">{row.no || "-"}</button>
         </HoverCardTrigger>
         <HoverCardContent align="start" className="w-[640px] max-w-[90vw] p-3" onClick={(e) => e.stopPropagation()}><PreviewTable row={row} /></HoverCardContent>
       </HoverCard>
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" onClick={(e) => e.stopPropagation()} className="text-muted-foreground md:hidden" aria-label="Lihat item" data-testid={`txn-preview-tap-${row.no || row.id}`}><Eye className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={(e) => e.stopPropagation()} className="-my-2 inline-flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-accent md:hidden" aria-label="Lihat item" data-testid={`txn-preview-tap-${row.no || row.id}`}><Eye className="h-3.5 w-3.5" /></button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-[92vw] p-3" onClick={(e) => e.stopPropagation()}><PreviewTable row={row} /></PopoverContent>
+        <PopoverContent align="start" className="w-[calc(100vw-1.5rem)] max-w-[640px] p-3" onClick={(e) => e.stopPropagation()}><PreviewTable row={row} /></PopoverContent>
       </Popover>
     </span>
   );

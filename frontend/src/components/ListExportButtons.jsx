@@ -42,11 +42,11 @@ export function ListExportButtons({ reportKey, query, total, testidPrefix = "lis
   const reason = states.pdf.ok ? "" : states.xlsx.ok ? states.pdf.reason.replace("Persempit filter.", "Gunakan Export Excel atau persempit filter.") : states.xlsx.reason;
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid={`${testidPrefix}-export`}>
-      <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => run("xlsx")} disabled={!!busy || !states.xlsx.ok}
+      <Button type="button" variant="outline" size="sm" className="h-11 sm:h-9" onClick={() => run("xlsx")} disabled={!!busy || !states.xlsx.ok}
         title={states.xlsx.reason || "Export seluruh hasil filter ke Excel"} data-testid={`${testidPrefix}-export-xlsx`}>
         <FileSpreadsheet className="mr-1.5 h-4 w-4" />{busy === "xlsx" ? "Menyiapkan..." : "Export Excel"}
       </Button>
-      <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => run("pdf")} disabled={!!busy || !states.pdf.ok}
+      <Button type="button" variant="outline" size="sm" className="h-11 sm:h-9" onClick={() => run("pdf")} disabled={!!busy || !states.pdf.ok}
         title={states.pdf.reason || "Export seluruh hasil filter ke PDF"} data-testid={`${testidPrefix}-export-pdf`}>
         <FileText className="mr-1.5 h-4 w-4" />{busy === "pdf" ? "Menyiapkan..." : "Export PDF"}
       </Button>

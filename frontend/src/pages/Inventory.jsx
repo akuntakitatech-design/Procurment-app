@@ -29,15 +29,15 @@ function SummaryCard({ title, value, subtitle, icon: Icon, active, onClick, test
       onClick={onClick}
       data-testid={testid}
       aria-pressed={active}
-      className={`rounded-2xl border bg-card p-4 text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md ${active ? "border-primary ring-2 ring-primary/10" : "hover:border-primary/30"}`}
+      className={`min-w-0 rounded-2xl border bg-card p-3 sm:p-4 text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md ${active ? "border-primary ring-2 ring-primary/10" : "hover:border-primary/30"}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-          <div className="mt-2 text-3xl font-bold tabular-nums" data-testid={testid ? `${testid}-value` : undefined}>{num(value)}</div>
+        <div className="min-w-0">
+          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+          <div className="mt-1 sm:mt-2 text-2xl sm:text-3xl font-bold tabular-nums" data-testid={testid ? `${testid}-value` : undefined}>{num(value)}</div>
           <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
         </div>
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <div className="hidden min-[400px]:flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -100,7 +100,7 @@ export default function Inventory() {
       <Tabs defaultValue="position">
         <TabsList><TabsTrigger value="position" data-testid="inv-tab-position">Posisi Stok</TabsTrigger><TabsTrigger value="ledger" data-testid="inv-tab-ledger">Kartu Stok (Ledger)</TabsTrigger></TabsList>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
           <SummaryCard testid="inv-summary-total" title="Jumlah Item" value={summary.total} subtitle="Barang aktif pada filter" icon={Package} active={statusFilter === ALL} onClick={() => setStatusFilter(ALL)} />
           <SummaryCard testid="inv-summary-out" title="Stok Habis" value={summary.out_of_stock} subtitle={summary.no_stock ? `Total stok = 0 · ${num(summary.no_stock)} belum ada stok` : "Total stok = 0"} icon={PackageX} active={statusFilter === "Out of Stock"} onClick={() => toggle("Out of Stock")} />
           <SummaryCard testid="inv-summary-low" title="Stok Menipis" value={summary.low_stock} subtitle="Sudah mencapai batas minimum" icon={TriangleAlert} active={statusFilter === "Low Stock"} onClick={() => toggle("Low Stock")} />
@@ -135,7 +135,7 @@ export default function Inventory() {
 
         <TabsContent value="position" className="mt-4">
           <div className="border rounded-xl overflow-x-auto bg-card shadow-sm">
-            <table className="w-full text-sm zebra min-w-[820px]">
+            <table className="m-stack w-full text-sm zebra min-w-[820px]">
               <thead className="bg-muted">
                 <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
                   <th className="p-3 whitespace-nowrap">Kode</th>
@@ -153,21 +153,21 @@ export default function Inventory() {
                 {!list.loading && !list.error && rows.length === 0 && <tr><td colSpan={6 + visibleWarehouses.length} className="p-8 text-center text-muted-foreground" data-testid="inventory-empty">Tidak ada data stok sesuai filter</td></tr>}
                 {rows.map((g) => (
                   <tr key={g.id} className="border-t" data-testid={`inventory-row-${g.code}`}>
-                    <td className="p-3 font-mono text-xs font-semibold">{g.code}</td>
-                    <td className="p-3 font-medium">{g.name}</td>
-                    <td className="p-3">{g.category_label || "Tanpa Kategori"}</td>
-                    <td className="p-3">{g.unit_label || "-"}</td>
+                    <td data-label="Kode" className="p-3 font-mono text-xs font-semibold">{g.code}</td>
+                    <td data-label="Barang" className="p-3 font-medium m-full">{g.name}</td>
+                    <td data-label="Kategori" className="p-3">{g.category_label || "Tanpa Kategori"}</td>
+                    <td data-label="Satuan" className="p-3">{g.unit_label || "-"}</td>
                     {visibleWarehouses.map((w) => {
                       const c = g.stock?.[w.id];
                       return (
-                        <td key={w.id} className="p-3 text-right">
+                        <td key={w.id} data-label={w.name} className="p-3 text-right">
                           <div className="font-semibold tabular-nums">{num(c?.qty || 0)}</div>
                           <div className="mt-0.5 text-[10px] text-muted-foreground">{c ? statusLabel(c.status) : "Belum ada stok"}</div>
                         </td>
                       );
                     })}
-                    {visibleWarehouses.length > 1 && <td className="p-3 text-right font-bold tabular-nums">{num(g.total_stock)}</td>}
-                    <td className="p-3"><StatusBadge status={g.stock_status} /></td>
+                    {visibleWarehouses.length > 1 && <td data-label="Total Stok" className="p-3 text-right font-bold tabular-nums">{num(g.total_stock)}</td>}
+                    <td data-label="Status" className="p-3"><StatusBadge status={g.stock_status} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -178,9 +178,9 @@ export default function Inventory() {
         </TabsContent>
 
         <TabsContent value="ledger" className="mt-4">
-          <div className="border rounded-xl overflow-x-auto bg-card shadow-sm"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground"><th className="p-3">Waktu</th><th className="p-3">Dokumen</th><th className="p-3">Barang</th><th className="p-3">Gudang</th><th className="p-3 text-right">Masuk</th><th className="p-3 text-right">Keluar</th><th className="p-3 text-right">Saldo</th></tr></thead>
+          <div className="border rounded-xl overflow-x-auto bg-card shadow-sm"><table className="m-stack w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground"><th className="p-3">Waktu</th><th className="p-3">Dokumen</th><th className="p-3">Barang</th><th className="p-3">Gudang</th><th className="p-3 text-right">Masuk</th><th className="p-3 text-right">Keluar</th><th className="p-3 text-right">Saldo</th></tr></thead>
             <tbody>{filteredLedger.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Belum ada pergerakan stok sesuai filter</td></tr>}
-              {filteredLedger.map((l) => (<tr key={l.id} className="border-t"><td className="p-3 text-xs">{fmtDateTime(l.at)}</td><td className="p-3"><span className="font-mono text-xs">{l.doc_type}</span> · {l.doc_no}</td><td className="p-3">{l.item_code} — {l.item_name}</td><td className="p-3">{l.warehouse_name}</td><td className="p-3 text-right tabular-nums text-emerald-600">{l.qty_in ? "+" + num(l.qty_in) : "-"}</td><td className="p-3 text-right tabular-nums text-destructive">{l.qty_out ? "-" + num(l.qty_out) : "-"}</td><td className="p-3 text-right tabular-nums font-semibold">{num(l.running_balance)}</td></tr>))}</tbody></table></div>
+              {filteredLedger.map((l) => (<tr key={l.id} className="border-t"><td data-label="Waktu" className="m-full p-3 text-xs">{fmtDateTime(l.at)}</td><td data-label="Dokumen" className="p-3"><span className="font-mono text-xs">{l.doc_type}</span> · {l.doc_no}</td><td data-label="Barang" className="p-3">{l.item_code} — {l.item_name}</td><td data-label="Gudang" className="p-3">{l.warehouse_name}</td><td data-label="Masuk" className="p-3 text-right tabular-nums text-emerald-600">{l.qty_in ? "+" + num(l.qty_in) : "-"}</td><td data-label="Keluar" className="p-3 text-right tabular-nums text-destructive">{l.qty_out ? "-" + num(l.qty_out) : "-"}</td><td data-label="Saldo" className="p-3 text-right tabular-nums font-semibold">{num(l.running_balance)}</td></tr>))}</tbody></table></div>
         </TabsContent>
       </Tabs>
     </div>

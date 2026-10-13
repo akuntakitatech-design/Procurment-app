@@ -93,8 +93,8 @@ export default function ActivityLog() {
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/8 text-primary"><Filter className="h-4 w-4" /></div>
             <div><div className="font-head text-sm font-semibold">Filter Aktivitas</div><div className="text-xs text-muted-foreground">Cari berdasarkan dokumen, aktivitas, user, atau periode.</div></div>
           </div>
-          <div className="grid gap-3 lg:grid-cols-[minmax(240px,1.7fr)_1fr_1fr_1fr_1fr]">
-            <div className="relative">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1.7fr)_1fr_1fr_1fr_1fr] [&>*]:min-w-0">
+            <div className="relative sm:col-span-2 xl:col-span-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} placeholder="Cari no. dokumen, user, aktivitas..." className="h-10 rounded-xl pl-9" />
             </div>

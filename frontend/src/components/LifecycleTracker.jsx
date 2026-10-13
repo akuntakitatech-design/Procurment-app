@@ -40,7 +40,7 @@ function StageCard({ stage, current }) {
           <div className="text-xs text-muted-foreground">Belum ada dokumen</div>
         ) : (
           <>
-            <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between gap-2 text-left text-xs font-medium hover:text-primary">
+            <button type="button" onClick={() => setOpen(!open)} className="flex min-h-11 sm:min-h-0 w-full items-center justify-between gap-2 text-left text-xs font-medium hover:text-primary">
               <span>{docs.length} dokumen</span>
               {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </button>

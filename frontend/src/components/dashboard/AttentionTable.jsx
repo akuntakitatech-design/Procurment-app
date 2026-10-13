@@ -23,7 +23,7 @@ export function AttentionTable({ attention, finance, filters, delay }) {
       <div className="mb-3 flex flex-wrap gap-1.5" role="tablist">
         {tabs.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} data-testid={`dash-attention-tab-${t.key}`}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${tab === t.key ? "bg-[#2C4A6E] text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100 dark:bg-slate-800/60 dark:text-slate-300"}`}>
+            className={`min-h-11 sm:min-h-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${tab === t.key ? "bg-[#2C4A6E] text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100 dark:bg-slate-800/60 dark:text-slate-300"}`}>
             {t.label} <span className="tabular-nums opacity-80">({counts[t.key] ?? 0})</span>
           </button>
         ))}
@@ -39,7 +39,7 @@ export function AttentionTable({ attention, finance, filters, delay }) {
               {rows.slice(0, SHOW).map((r, i) => (
                 <tr key={r.key} onClick={() => nav(r.path)} className="cursor-pointer border-b border-slate-50 transition-colors duration-150 hover:bg-slate-50/70 dark:border-slate-800/60 dark:hover:bg-slate-800/30" data-testid={`dash-attention-row-${i}`}>
                   <td className="px-1.5 py-2.5 text-slate-400 tabular-nums"><span className="flex items-center gap-2"><i className={`h-1.5 w-1.5 rounded-full ${PRIO_DOT[r.priority] || "bg-slate-300"}`} title={r.reason} />{i + 1}</span></td>
-                  <td className="px-1.5 py-2.5"><button type="button" onClick={(e) => { e.stopPropagation(); nav(r.path); }} className="text-left font-medium text-[#3F6E9C] hover:underline" data-testid={`dash-attention-doc-${i}`}>{r.no || "-"}</button><div className="text-[11px] text-slate-400">{r.doc_type} · {r.reason}</div></td>
+                  <td className="px-1.5 py-2.5"><button type="button" onClick={(e) => { e.stopPropagation(); nav(r.path); }} className="inline-flex min-h-11 sm:min-h-0 items-center text-left font-medium text-[#3F6E9C] hover:underline" data-testid={`dash-attention-doc-${i}`}>{r.no || "-"}</button><div className="text-[11px] text-slate-400">{r.doc_type} · {r.reason}</div></td>
                   <td className="max-w-[180px] px-1.5 py-2.5"><div className="truncate text-slate-700" title={r.supplier_name}>{r.supplier_name || "-"}</div>
                     <div className="truncate text-[11px] text-slate-400" title={[r.project, r.division].filter(Boolean).join(" · ")}>{[r.project, r.division].filter(Boolean).join(" · ") || "-"}</div></td>
                   <td className="whitespace-nowrap px-1.5 py-2.5 text-right tabular-nums text-slate-800">{r.value == null ? "***" : rupiah(r.value)}</td>

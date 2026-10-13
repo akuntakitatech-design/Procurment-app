@@ -18,7 +18,7 @@ export function ControlSection({ title, subtitle, icon: Icon, band = "navy", onD
         {subtitle && <span className="mt-0.5 block truncate text-[11.5px] text-white/75">{subtitle}</span>}
       </span>
       {onDetail && <button type="button" onClick={onDetail} data-testid={testid && `${testid}-detail`}
-        className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-white/90 transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60">
+        className="flex min-h-11 sm:min-h-0 shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-white/90 transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60">
         Lihat Detail<ArrowRight className="h-3.5 w-3.5" /></button>}
     </header>
     <div className="flex flex-1 flex-col p-2 pt-3">{children}</div>

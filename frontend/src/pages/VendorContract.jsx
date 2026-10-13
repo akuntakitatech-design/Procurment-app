@@ -228,7 +228,7 @@ function PriceCheckDialog({ open, onOpenChange, suppliers }) {
         {result && (result.found ? (
           <div className="rounded-xl border bg-emerald-50/50 dark:bg-emerald-950/20 p-4 text-sm space-y-1" data-testid="vc-check-result">
             <div className="font-semibold text-emerald-700 dark:text-emerald-300">Harga ditemukan — Kontrak {result.contract_number}</div>
-            <div className="grid grid-cols-2 gap-2 mt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
               <div><span className="text-muted-foreground">Base Price:</span> {rupiah(result.base_price)}</div>
               <div><span className="text-muted-foreground">Net Contract Price:</span> <b>{rupiah(result.net_contract_price)}</b></div>
               <div><span className="text-muted-foreground">Tolerance:</span> {result.tolerance_pct}%</div>

@@ -75,21 +75,21 @@ export default function SupplierDp() {
         <Stat label="DP Tersedia (belum dialokasikan ke Invoice)" value={paid.reduce((s, r) => s + r.dp_available, 0)} tid="supplier-dp-stat-available" />
       </div>
       <Card><CardContent className="space-y-3 pt-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <Tabs value={tab} onValueChange={setTab}>
-            <TabsList data-testid="supplier-dp-tabs">
+            <TabsList data-testid="supplier-dp-tabs" className="h-auto w-full sm:w-auto flex-wrap justify-start">
               <TabsTrigger value="pending" data-testid="supplier-dp-tab-pending">Menunggu Verifikasi ({pend.length})</TabsTrigger>
               <TabsTrigger value="paid" data-testid="supplier-dp-tab-paid">Sudah Dibayar ({paid.length})</TabsTrigger>
               <TabsTrigger value="all" data-testid="supplier-dp-tab-all">Semua</TabsTrigger>
             </TabsList>
           </Tabs>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <ListExportButtons reportKey="txn-supplier-dp" query={{ tab, q: q.trim() }} total={list.length} testidPrefix="supplier-dp" />
-          <div className="relative md:w-80"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input className="pl-8" placeholder="Cari No. DP, PO, supplier, divisi" value={q} onChange={(e) => setQ(e.target.value)} data-testid="supplier-dp-search" /></div></div>
+          <div className="relative sm:w-80"><Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input className="pl-8 h-11 sm:h-9" placeholder="Cari No. DP, PO, supplier, divisi" value={q} onChange={(e) => setQ(e.target.value)} data-testid="supplier-dp-search" /></div></div>
         </div>
         <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[1200px] text-sm" data-testid="supplier-dp-table">
+          <table className="w-full min-w-[1200px] text-sm m-stack" data-testid="supplier-dp-table">
             <thead className="bg-muted"><tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {HEAD.map((h, i) => <th key={i} className={`p-2.5 ${RIGHT.has(i) ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
             <tbody>
@@ -99,17 +99,17 @@ export default function SupplierDp() {
                 <HandCoins className="mx-auto mb-2 h-8 w-8 opacity-40" />Belum ada DP pada kategori ini. DP muncul otomatis saat PO yang menggunakan DP sudah Approved.</td></tr>}
               {list.map((r) => (
                 <tr key={r.po_id} className="border-t transition-colors hover:bg-muted/40" data-testid={`supplier-dp-row-${r.po_no}`}>
-                  <td className="p-2.5 font-mono text-xs font-semibold">{r.dp_no || "-"}</td>
-                  <td className="p-2.5 font-mono text-xs">{r.po_no}</td>
-                  <td className="p-2.5 text-xs">{fmtD(r.po_date)}</td>
-                  <td className="p-2.5">{r.supplier_name || "-"}</td>
-                  <td className="p-2.5 text-xs">{r.division_name || "-"}</td>
-                  <td className="p-2.5 text-right tabular-nums">{rupiah(r.po_value)}</td>
-                  <td className="p-2.5 text-xs">{r.dp_terms}</td>
-                  <td className="p-2.5 text-right font-semibold tabular-nums" data-testid={`supplier-dp-amount-${r.po_no}`}>{rupiah(r.dp_amount)}</td>
-                  <td className="p-2.5 text-right tabular-nums">{rupiah(r.paid_amount)}</td>
-                  <td className="p-2.5"><StatusBadge status={r.status_label} /></td>
-                  <td className="p-2.5 text-right">
+                  <td data-label={HEAD[0]} className="p-2.5 m-full font-mono text-xs font-semibold">{r.dp_no || "-"}</td>
+                  <td data-label={HEAD[1]} className="p-2.5 font-mono text-xs">{r.po_no}</td>
+                  <td data-label={HEAD[2]} className="p-2.5 text-xs">{fmtD(r.po_date)}</td>
+                  <td data-label={HEAD[3]} className="p-2.5">{r.supplier_name || "-"}</td>
+                  <td data-label={HEAD[4]} className="p-2.5 text-xs">{r.division_name || "-"}</td>
+                  <td data-label={HEAD[5]} className="p-2.5 text-right tabular-nums">{rupiah(r.po_value)}</td>
+                  <td data-label={HEAD[6]} className="p-2.5 text-xs">{r.dp_terms}</td>
+                  <td data-label={HEAD[7]} className="p-2.5 text-right font-semibold tabular-nums" data-testid={`supplier-dp-amount-${r.po_no}`}>{rupiah(r.dp_amount)}</td>
+                  <td data-label={HEAD[8]} className="p-2.5 text-right tabular-nums">{rupiah(r.paid_amount)}</td>
+                  <td data-label={HEAD[9]} className="p-2.5"><StatusBadge status={r.status_label} /></td>
+                  <td data-label={HEAD[10]} className="p-2.5 m-end text-right">
                     {r.status_label === DP_STATUS.pending && canApprove
                       ? <Button size="sm" onClick={() => open(r)} disabled={busy === r.po_id} data-testid={`supplier-dp-process-${r.po_no}`}><Play className="mr-1 h-3.5 w-3.5" />{busy === r.po_id ? "Memproses..." : "Proses"}</Button>
                       : <Button size="sm" variant="outline" onClick={() => open(r)} data-testid={`supplier-dp-open-${r.po_no}`}><FolderOpen className="mr-1 h-3.5 w-3.5" />Buka</Button>}

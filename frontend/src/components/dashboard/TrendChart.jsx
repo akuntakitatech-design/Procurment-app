@@ -28,8 +28,8 @@ export function TrendChart({ trend, delay }) {
   return (
     <Panel title="Tren Pembelian & Invoice" icon={BarChart3} testid="dash-trend" delay={delay}
       action={<ToggleGroup type="single" value={n} onValueChange={(v) => v && setN(v)} className="rounded-lg border border-slate-200 p-0.5">
-        <ToggleGroupItem value="6" className="h-7 rounded-md px-2.5 text-xs data-[state=on]:bg-slate-100 data-[state=on]:text-slate-900" data-testid="dash-trend-6">6 Bulan</ToggleGroupItem>
-        <ToggleGroupItem value="12" className="h-7 rounded-md px-2.5 text-xs data-[state=on]:bg-slate-100 data-[state=on]:text-slate-900" data-testid="dash-trend-12">12 Bulan</ToggleGroupItem>
+        <ToggleGroupItem value="6" className="h-11 sm:h-7 rounded-md px-2.5 text-xs data-[state=on]:bg-slate-100 data-[state=on]:text-slate-900" data-testid="dash-trend-6">6 Bulan</ToggleGroupItem>
+        <ToggleGroupItem value="12" className="h-11 sm:h-7 rounded-md px-2.5 text-xs data-[state=on]:bg-slate-100 data-[state=on]:text-slate-900" data-testid="dash-trend-12">12 Bulan</ToggleGroupItem>
       </ToggleGroup>}>
       {!hasPo && !hasInv ? <div className="py-16 text-center text-sm text-slate-400">Nilai tidak ditampilkan sesuai hak akses Anda.</div> :
         <div className="h-[240px] w-full">

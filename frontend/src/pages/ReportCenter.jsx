@@ -89,7 +89,7 @@ function GroupNav({ catalog, activeKey }) {
           {g.reports.length === 0 && <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">Segera tersedia</div>}
           {g.reports.map((r) => (
             <Link key={r.key} to={reportPath(r.key)} data-testid={`report-link-${r.key}`}
-              className={`block rounded-md px-3 py-2 text-sm transition-colors ${activeKey === r.key ? "bg-primary/10 font-semibold text-primary" : "hover:bg-muted"}`}>
+              className={`block rounded-md px-3 py-3 sm:py-2 text-sm transition-colors ${activeKey === r.key ? "bg-primary/10 font-semibold text-primary" : "hover:bg-muted"}`}>
               {r.title}
             </Link>
           ))}
@@ -154,7 +154,7 @@ function ReportTable({ res }) {
                 const drill = ci === drillIdx && r._drill?.to;
                 return (
                   <td key={c.key} className={`p-3 align-top ${NUMERIC_TYPES.has(c.type) ? "whitespace-nowrap text-right tabular-nums" : ""}`}>
-                    {drill ? <Link to={r._drill.to} className="font-mono text-xs font-semibold text-primary hover:underline" data-testid={`report-drill-${i}`}>{v}</Link> : v}
+                    {drill ? <Link to={r._drill.to} className="inline-flex min-h-11 sm:min-h-0 items-center font-mono text-xs font-semibold text-primary hover:underline" data-testid={`report-drill-${i}`}>{v}</Link> : v}
                   </td>
                 );
               })}
@@ -267,7 +267,7 @@ export default function ReportCenter() {
                   <p className="text-sm text-muted-foreground">{res.meta.description}</p>
                   {res.meta.date_basis && <p className="mt-1 text-xs text-muted-foreground">Dasar tanggal: {res.meta.date_basis}</p>}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => doExport("xlsx")} disabled={!!busy || !catalog?.can_export} data-testid="report-center-export-xlsx"><FileSpreadsheet className="mr-1.5 h-4 w-4" />{busy === "xlsx" ? "Menyiapkan..." : "Export Excel"}</Button>
                   <Button variant="outline" onClick={() => doExport("pdf")} disabled={!!busy || !catalog?.can_export} data-testid="report-center-export-pdf"><FileText className="mr-1.5 h-4 w-4" />{busy === "pdf" ? "Menyiapkan..." : "Export PDF"}</Button>
                 </div>

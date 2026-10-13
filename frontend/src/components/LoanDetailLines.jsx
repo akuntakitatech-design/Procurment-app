@@ -23,7 +23,7 @@ export function LoanDetailLines({ doc }) {
       </div>
       {legacy && <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800" data-testid="loan-detail-legacy"><Info className="h-3.5 w-3.5" />Pinjaman lama: gudang per baris dibaca dari gudang header (data asli tidak diubah).</div>}
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[1100px] text-sm" data-testid="loan-detail-lines">
+        <table className="m-stack w-full min-w-[1100px] text-sm" data-testid="loan-detail-lines">
           <thead className="bg-muted"><tr className="text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             <th className="p-2">#</th><th className="p-2">Barang</th><th className="p-2 text-right">Qty Pinjam</th><th className="p-2">Satuan</th>
             <th className="p-2">Gudang Pemberi</th><th className="p-2"></th><th className="p-2">Gudang Peminjam</th><th className="p-2">Project</th><th className="p-2">Unit/Aset</th>
@@ -33,17 +33,17 @@ export function LoanDetailLines({ doc }) {
             {lines.length === 0 && <tr><td colSpan={11} className="p-4 text-center text-muted-foreground">Tidak ada baris</td></tr>}
             {lines.map((l, i) => (
               <tr key={l.id || i} className="border-t" data-testid={`loan-detail-line-${i}`}>
-                <td className="p-2 text-muted-foreground">{i + 1}</td>
-                <td className="p-2"><div className="font-medium">{l.item_name || "-"}</div>{l.item_code && <div className="font-mono text-[11px] text-muted-foreground">{l.item_code}</div>}{l.notes && <div className="text-[11px] text-muted-foreground">{l.notes}</div>}</td>
-                <td className="p-2 text-right tabular-nums" data-testid={`loan-detail-qty-${i}`}>{ownQty(l)}</td>
-                <td className="p-2">{l.display_unit || l.unit || "-"}</td>
-                <td className="p-2" data-testid={`loan-detail-from-${i}`}>{l.from_name || "-"}</td>
-                <td className="p-2 text-muted-foreground"><ArrowRight className="h-3.5 w-3.5" /></td>
-                <td className="p-2" data-testid={`loan-detail-to-${i}`}>{l.to_name || "-"}</td>
-                <td className="p-2" data-testid={`loan-detail-project-${i}`}>{l.project_name || "-"}</td>
-                <td className="p-2" data-testid={`loan-detail-unit-${i}`}>{l.unit_name || "-"}</td>
-                <td className="p-2 text-right tabular-nums" data-testid={`loan-detail-returned-${i}`}>{convQty(l, l.returned)}</td>
-                <td className="p-2 text-right font-semibold tabular-nums" data-testid={`loan-detail-outstanding-${i}`}>{convQty(l, l.outstanding)}</td>
+                <td data-label="#" className="m-hidden p-2 text-muted-foreground">{i + 1}</td>
+                <td data-label="Barang" className="m-full p-2"><div className="font-medium">{l.item_name || "-"}</div>{l.item_code && <div className="font-mono text-[11px] text-muted-foreground">{l.item_code}</div>}{l.notes && <div className="text-[11px] text-muted-foreground">{l.notes}</div>}</td>
+                <td data-label="Qty Pinjam" className="p-2 text-right tabular-nums" data-testid={`loan-detail-qty-${i}`}>{ownQty(l)}</td>
+                <td data-label="Satuan" className="p-2">{l.display_unit || l.unit || "-"}</td>
+                <td data-label="Gudang Pemberi" className="p-2" data-testid={`loan-detail-from-${i}`}>{l.from_name || "-"}</td>
+                <td data-label="" className="m-hidden p-2 text-muted-foreground"><ArrowRight className="h-3.5 w-3.5" /></td>
+                <td data-label="Gudang Peminjam" className="p-2" data-testid={`loan-detail-to-${i}`}>{l.to_name || "-"}</td>
+                <td data-label="Project" className="p-2" data-testid={`loan-detail-project-${i}`}>{l.project_name || "-"}</td>
+                <td data-label="Unit/Aset" className="p-2" data-testid={`loan-detail-unit-${i}`}>{l.unit_name || "-"}</td>
+                <td data-label="Kembali" className="p-2 text-right tabular-nums" data-testid={`loan-detail-returned-${i}`}>{convQty(l, l.returned)}</td>
+                <td data-label="Outstanding" className="p-2 text-right font-semibold tabular-nums" data-testid={`loan-detail-outstanding-${i}`}>{convQty(l, l.outstanding)}</td>
               </tr>
             ))}
           </tbody>
