@@ -123,6 +123,10 @@ PO_LINE_PRICE_KEYS = frozenset({
     "contract_price_snapshot", "price_variance", "price_variance_pct", "unit_price", "net_price", "line_total",
     "subtotal", "last_price", "contract_price",
 })
+# F2 PPN: nominal turunan harga dari Tax Engine v2 ikut diredaksi.
+import po_tax as _po_tax  # noqa: E402
+PO_LINE_PRICE_KEYS = PO_LINE_PRICE_KEYS | _po_tax.PRICE_LINE_KEYS
+PO_HEADER_PRICE_KEYS = PO_HEADER_PRICE_KEYS | _po_tax.PRICE_HEADER_KEYS
 # Nilai yang berarti nominal uang hanya bila tipenya BUKAN persen (bila persen, tetap tampil sebagai ketentuan).
 _PERCENT_TYPES = ("percent", "%", "persen", "pct", "percentage")
 _NOMINAL_WHEN = (("final_discount_value", "final_discount_type"), ("dp_value", "dp_type"))

@@ -153,7 +153,7 @@ def main():
           and near(dx.get("tax"), 0) and near(dx.get("total"), 7000) and near(dx.get("po_dpp"), 10000) and near(dx.get("pct"), 70), dx)
 
     # ------------------------------------------------------------------ T. PPN & diskon (DPP basis; PPN & total kolom terpisah)
-    supZ = call("POST", "master/suppliers", {"code": f"SZ{u}", "name": "Supplier Z", "supplier_category_id": M["scat"]["id"]}, 200)[1]
+    supZ = call("POST", "master/suppliers", {"code": f"SZ{u}", "name": "Supplier Z", "supplier_category_id": M["scat"]["id"], "pkp": True}, 200)[1]
     M["supZ"] = supZ
     sc, mroD = call("POST", "mro", {"no": f"MRO-D{u}", "division_id": M["div"]["id"], "requester": "Dewi", "submitted": True,
                                     "lines": [{"item_id": M["item"]["id"], "qty": 5, "warehouse_id": M["wh"]["id"], "project_id": M["pa"]["id"]}]}, 200)

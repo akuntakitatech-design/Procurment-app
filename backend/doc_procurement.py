@@ -561,6 +561,16 @@ def _po_final_discount_amount(subtotal_after_item, ftype, fvalue):
 
 
 def compute_po_totals(header, lines):
+    """Dispatcher versi engine PO (F2). PO v2 (`tax_engine_version` = 2) -> Tax Engine F1 via po_tax.compute_v2
+    (kontrak field legacy sama + field v2). Selain itu -> v1 legacy (`_compute_po_totals_v1`, TIDAK diubah) sehingga
+    PO lama tidak pernah dihitung ulang dengan aturan baru."""
+    import po_tax
+    if po_tax.is_v2(header):
+        return po_tax.compute_v2(header, lines)
+    return _compute_po_totals_v1(header, lines)
+
+
+def _compute_po_totals_v1(header, lines):
     """Canonical PO money engine (shared by create_po + transaction update + preview).
     Item discount (amount) is subtracted first, then the PO-level Final Discount is PRORATED
     across each line's net (taxable base) before tax, so per-line `total` (and therefore the
@@ -658,7 +668,9 @@ def po_dp_source(existing, body):
 @api.post("/po")
 async def create_po(body: dict, user=Depends(current_user)):
     require(user, "create")
+    import po_tax
     lines_in = body.get("lines", [])
+    await po_tax.prepare_po(db, body)  # PO baru = v2: resolve aturan Master Pajak + snapshot (400 bila tidak valid)
     await assert_line_unit_prices(lines_in)
     computed, totals = compute_po_totals(body, lines_in)
     dp = compute_po_dp(body, totals["grand_total"])  # validasi sebelum nomor/tulis apa pun
@@ -678,7 +690,7 @@ async def create_po(body: dict, user=Depends(current_user)):
         "gross_total": totals["gross_total"], "item_discount_total": totals["item_discount_total"],
         "subtotal_after_item_discount": totals["subtotal_after_item_discount"],
         "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
-        "grand_total": grand, **dp, "status": "Draft", "cancelled": False,
+        "grand_total": grand, **dp, **po_tax.header_outputs(totals), "status": "Draft", "cancelled": False,
         "created_by": user.get("email"), "created_by_name": user.get("name") or user.get("email"),
         "created_at": now_iso()})
     for l, c in zip(lines_in, computed):
@@ -697,7 +709,7 @@ async def create_po(body: dict, user=Depends(current_user)):
             "contract_number_snapshot": l.get("contract_number_snapshot"),
             "price_variance": l.get("price_variance"),
             "price_variance_pct": l.get("price_variance_pct"),
-            "price_status": l.get("price_status")})
+            "price_status": l.get("price_status"), **po_tax.line_inputs(l), **po_tax.line_outputs(c)})
         for src in l.get("sources", []):
             if not has_perm(user, "override_qty"):
                 rline = await db.ro_lines.find_one({"id": src["line_id"]})

@@ -154,7 +154,8 @@ async def _normalize_tax(body: dict) -> dict:
     if rate < 0:
         raise HTTPException(status_code=400, detail="Tarif pajak tidak boleh negatif")
     out["rate"] = rate
-    return out
+    import po_tax  # F2: faktor DPP Nilai Lain, kode transaksi faktur, fasilitas, masa berlaku
+    return po_tax.normalize_tax_master(out)
 
 
 def _clean_text(value):
@@ -344,6 +345,8 @@ def install(server):
 
         # Project/Unit: field wajib dicek pada hasil gabungan (PUT parsial existing, mis. ubah kode saja, tetap valid).
         validate_required(name, {**existing, **body} if name in PARTIAL_UPDATE_MASTERS else body, require_code=name in CODE_LABEL)
+        if name == "taxes":  # F2: PUT parsial divalidasi atas gabungan (tarif/konfigurasi PPN tidak ter-reset)
+            body = {**{k: v for k, v in existing.items() if k != "_id"}, **body}
         update = await _prepare_body(server, name, body)
         update.pop("id", None)
         update.pop("_id", None)

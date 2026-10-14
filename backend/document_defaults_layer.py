@@ -57,15 +57,20 @@ async def _save_header(server, collection, did, body):
 async def _recalc_po(server, did, inclusive):
     import doc_procurement as _dp
     head = await server.db.po.find_one({"id": did}, {"_id": 0}) or {}
+    import po_tax
     header = {"tax_inclusive": bool(inclusive),
               "final_discount_type": head.get("final_discount_type"),
               "final_discount_value": head.get("final_discount_value")}
+    if po_tax.is_v2(head):  # PO v2: versi + status PKP tersimpan ikut (per baris dari snapshot tersimpan)
+        header.update({"tax_engine_version": head.get("tax_engine_version"), "supplier_pkp": head.get("supplier_pkp"), "tax_inclusive": False})
+        inclusive = False
     lines = await server.db.po_lines.find({"po_id": did}, {"_id": 0}).to_list(2000)
     computed, totals = _dp.compute_po_totals(header, lines)
     for line, c in zip(lines, computed):
         await server.db.po_lines.update_one({"id": line["id"]}, {"$set": {
             "gross": c["gross"], "dpp": c["dpp"], "tax_amount": c["tax_amount"],
-            "total": c["total"], "tax_inclusive": bool(inclusive),
+            "total": c["total"], "tax_inclusive": bool(c.get("tax_inclusive")) if po_tax.is_v2(head) else bool(inclusive),
+            **po_tax.line_outputs(c),
         }})
     await server.db.po.update_one({"id": did}, {"$set": {
         "grand_total": totals["grand_total"], "gross_total": totals["gross_total"],
@@ -74,7 +79,8 @@ async def _recalc_po(server, did, inclusive):
         "final_discount_type": totals["final_discount_type"], "final_discount_value": totals["final_discount_value"],
         "final_discount_amount": totals["final_discount_amount"],
         "subtotal_after_discount": totals["subtotal_after_discount"], "tax_total": totals["tax_total"],
-        "tax_inclusive": bool(inclusive), **_dp.compute_po_dp(_dp.po_dp_source(head, {}), totals["grand_total"])}})
+        "tax_inclusive": bool(inclusive), **po_tax.header_outputs(totals),
+        **_dp.compute_po_dp(_dp.po_dp_source(head, {}), totals["grand_total"])}})
 
 
 def install(server):

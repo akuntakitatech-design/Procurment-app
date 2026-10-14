@@ -26,6 +26,8 @@ import { nextSort } from "@/lib/txnList";
 import { ListPager, SortTh } from "@/components/ListPager";
 import { toast } from "sonner";
 import { ItemStockTab } from "@/components/master/ItemStockTab";
+import { TaxReadinessPanel } from "@/components/master/TaxReadinessPanel";
+import { TRX_CODE_OPTIONS, FACILITY_OPTIONS, FACILITY_LABEL, taxMasterIssues } from "@/lib/taxMaster";
 
 const CONFIGS = {
   items: { label: "Barang", fields: [
@@ -47,8 +49,15 @@ const CONFIGS = {
     { k: "code", l: "Kode Satuan", req: true }, { k: "name", l: "Nama Satuan", req: true }, { k: "notes", l: "Keterangan" },
   ] },
   taxes: { label: "Pajak", fields: [
-    { k: "code", l: "Kode Pajak", auto: true }, { k: "name", l: "Nama Pajak", req: true },
-    { k: "rate", l: "Tarif (%)", req: true, type: "number", step: "any", suffix: "%" }, { k: "notes", l: "Keterangan" },
+    { k: "code", l: "Kode Pajak", auto: true },
+    { k: "name", l: "Nama Jenis PPN", req: true, display: (r) => <span className="inline-flex flex-wrap items-center gap-2">{r.name || "-"}{taxMasterIssues(r).length > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" title={`Belum lengkap: ${taxMasterIssues(r).join(", ")}`} data-testid={`tax-incomplete-${r.id}`}>Belum lengkap</span>}</span> },
+    { k: "rate", l: "Tarif (%)", req: true, type: "number", step: "any", suffix: "%" },
+    { k: "trx_code", l: "Kode Transaksi Faktur", opts: TRX_CODE_OPTIONS, hint: "Kode faktur ditentukan jenis transaksi, bukan tarif" },
+    { k: "facility", l: "Fasilitas", opts: FACILITY_OPTIONS, display: (r) => FACILITY_LABEL[r.facility || "NORMAL"] || r.facility },
+    { k: "dpp_factor_num", l: "Faktor DPP Nilai Lain — pembilang", type: "number", step: "1", hint: "Contoh 11 (DPP Nilai Lain 11/12) atau 1 (DPP penuh 1/1)" },
+    { k: "dpp_factor_den", l: "Faktor DPP Nilai Lain — penyebut", type: "number", step: "1", hint: "Contoh 12 (11/12) atau 1 (1/1)" },
+    { k: "valid_from", l: "Berlaku dari", type: "date" }, { k: "valid_to", l: "Berlaku sampai", type: "date", hint: "Kosongkan bila tanpa batas" },
+    { k: "notes", l: "Keterangan" },
   ] },
   supplier_categories: { label: "Kategori Supplier", fields: [
     { k: "code", l: "Kode Kategori", auto: true }, { k: "name", l: "Nama Kategori", req: true }, { k: "notes", l: "Keterangan" },
@@ -246,7 +255,7 @@ export const masterRefNames = (name) => {
 export async function newMasterForm(name) {
   let code = "";
   if (!MANUAL_CODE.has(name)) { try { const res = await api.get(`/master-code/${name}/preview`); code = res.data.code || ""; } catch {} }
-  const defaults = name === "items" ? { uoms: [] } : name === "taxes" ? { rate: 0 } : name === "suppliers" ? {
+  const defaults = name === "items" ? { uoms: [] } : name === "taxes" ? { rate: 0, facility: "NORMAL" } : name === "suppliers" ? {
     contacts: [], banks: [], supplied_category_ids: [], country: "Indonesia", currency: "IDR", supplier_type: "Lokal", lead_time_days: 0, min_order: 0,
   } : {};
   return { code, ...defaults };
@@ -285,12 +294,14 @@ export function MasterFormDialog({ name, open, onOpenChange, form, setForm, refs
         {name === "suppliers" ? <SupplierEditor form={form} setForm={setForm} refs={refs} invalid={invalid} /> : <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
             {cfg.fields.map((f) => { const bad = invalid.has(f.k); return <Field key={f.k} label={f.l + (f.auto ? " (Otomatis, bisa diedit)" : "") + (f.req ? " *" : "")}>
-              {f.ref ? <div data-testid={`master-${name}-field-${f.k}`} className={bad ? INVALID_WRAP : ""}><Combobox options={f.ref === "suppliers" ? [{ value: "", label: "Tanpa Supplier Utama" }, ...refOptions(f.ref)] : refOptions(f.ref)} value={form[f.k] || ""} onChange={(v) => setForm({ ...form, [f.k]: v })} /></div> :
+              {f.opts ? <div data-testid={`master-${name}-field-${f.k}`}><Combobox options={f.opts} value={form[f.k] ?? (f.k === "facility" ? "NORMAL" : "")} onChange={(v) => setForm({ ...form, [f.k]: v })} /></div> : f.ref ? <div data-testid={`master-${name}-field-${f.k}`} className={bad ? INVALID_WRAP : ""}><Combobox options={f.ref === "suppliers" ? [{ value: "", label: "Tanpa Supplier Utama" }, ...refOptions(f.ref)] : refOptions(f.ref)} value={form[f.k] || ""} onChange={(v) => setForm({ ...form, [f.k]: v })} /></div> :
                 <Input data-testid={`master-${name}-field-${f.k}`} aria-invalid={bad || undefined} type={f.type || "text"} step={f.step} min={f.type === "number" ? "0" : undefined} value={form[f.k] ?? ""} onChange={(e) => setForm({ ...form, [f.k]: e.target.value })} placeholder={f.auto ? "Kode otomatis" : f.k === "code" ? "Isi kode manual" : undefined} className={`${f.auto || f.k === "code" ? "font-mono font-semibold" : ""} ${bad ? INVALID_CLS : ""}`} />}
+              {f.hint && <p className="text-xs text-muted-foreground">{f.hint}</p>}
               {bad && <p className="text-xs text-destructive" data-testid={`master-${name}-error-${f.k}`}>Wajib diisi</p>}
             </Field>; })}
           </div>
 
+          {name === "taxes" && taxMasterIssues(form).length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" data-testid="tax-master-incomplete-note">Belum lengkap untuk PO: {taxMasterIssues(form).join(", ")}. Jenis PPN ini tidak dapat dipilih pada PO baru sampai dilengkapi Accounting.</div>}
           {name === "items" && <div className="mt-2 rounded-xl border bg-muted/20 p-4 space-y-3">
             <div className="flex items-start justify-between gap-3"><div><h3 className="font-head font-semibold">Multi Satuan Barang</h3><p className="text-xs text-muted-foreground mt-1">Satuan dasar selalu bernilai 1. Tambahkan satuan transaksi dan isi berapa satuan dasar di dalam 1 satuan tersebut.</p></div><Button type="button" variant="outline" size="sm" onClick={addUom}><Plus className="h-4 w-4 mr-2" />Tambah Satuan</Button></div>
             <div className="rounded-lg border bg-background p-3 text-sm"><span className="text-muted-foreground">Satuan dasar:</span> <span className="font-semibold">{refName("uoms", form.base_uom_id)}</span><span className="ml-2 text-xs text-muted-foreground">= 1</span></div>
@@ -330,6 +341,7 @@ const ITEM_REF_NAMES = masterRefNames("items");
 
 function MasterTab({ name }) {
   if (name === "items") return <ItemStockTab FormDialog={MasterFormDialog} newForm={newMasterForm} refNames={ITEM_REF_NAMES} />;
+  if (name === "taxes") return <><TaxReadinessPanel /><GenericMasterTab name={name} /></>;
   return <GenericMasterTab name={name} />;
 }
 
@@ -374,6 +386,8 @@ function GenericMasterTab({ name }) {
   const askDelete = (list) => setDelRows(list.map((r) => ({ id: r.id, label: labelOf(r) })));
   const refName = (rn, id) => (refs[rn] || []).find((x) => x.id === id)?.name || "-";
   const displayField = (f, r) => {
+    if (f.display) return f.display(r);
+    if (f.opts) return f.opts.find((o) => o.value === r[f.k])?.label?.split(" · ")[0] || r[f.k] || "-";
     if (f.ref) return r[sortKey(f)] || (r[f.k] ? refName(f.ref, r[f.k]) : "-");
     const value = r[f.k];
     if (value === undefined || value === null || value === "") return "-";

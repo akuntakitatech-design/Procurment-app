@@ -1,6 +1,7 @@
 import api, { API } from "@/lib/api";
 import { rupiah, num, fmtDate } from "@/lib/format";
 import { dpRows } from "@/lib/poDp";
+import { isPoV2, poTaxLineNote, poV2SummaryRows } from "@/lib/poTaxPrint";
 
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const SPK_DOC_TYPES = new Set(["mro", "ro", "po", "do", "mi"]);
@@ -210,6 +211,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
   const rates = [...new Set(lines.map(l => Number(l.tax || 0)).filter(x => x > 0))];
   const taxLabel = rates.length === 1 ? `PPN ${num(rates[0])}%` : (taxAmount ? "Pajak" : "PPN");
 
+  const v2 = isPoV2(doc); // F2: PO v2 -> ringkasan dari nilai tersimpan Tax Engine (PO lama v1 tidak berubah)
   const itemRows = lines.map((l,i) => {
     const factor = Number(l.conversion_factor) || 1;
     const q = l.display_qty ?? ((Number(l.qty)||0)/factor);
@@ -218,7 +220,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     const financialCells = showPrice ? `<td class="r price">${idrPrice(p)}</td><td class="r discount">${Number(l.discount||0) ? idrPlain(l.discount) : ""}</td><td class="r amount">${idrPlain(amount)}</td>` : "";
     return `<tr>
       <td class="c no">${i+1}</td>
-      <td class="desc">${poDescCell(l)}</td>
+      <td class="desc">${poDescCell(l)}${v2 && showPrice ? `<div class="tax-note">${esc(poTaxLineNote(l))}</div>` : ""}</td>
       <td class="ket">${esc(l.notes || "")}</td>
       <td class="c qty">${num(q)}</td>
       <td class="c unit">${esc(l.display_unit || l.unit || "")}</td>
@@ -253,7 +255,10 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
   const tableHead = showPrice
     ? `<thead><tr><th>No</th><th>Description</th><th>Keterangan</th><th colspan="2">Qty</th><th>Alokasi SPK</th><th>Price</th><th>Discount</th><th>Amount</th></tr></thead>`
     : `<thead><tr><th>No</th><th>Description</th><th>Keterangan</th><th colspan="2">Qty</th><th>Alokasi SPK</th></tr></thead>`;
-  const totals = showPrice ? `<tfoot>
+  const totals = showPrice && v2 ? `<tfoot>
+        ${poV2SummaryRows(doc).map((r) => `<tr${r.grand ? ' class="grand"' : ""} data-sum="${esc(r.key)}"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(r.label)}</td><td class="sum-value">${r.neg ? "- " : ""}${idrPlain(r.value)}</td></tr>`).join("")}
+        ${dpRows(doc).map((r) => `<tr class="dp-row" data-dp="${r.key}"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(r.label)}</td><td class="sum-value">${idrPlain(r.amount)}</td></tr>`).join("")}
+      </tfoot>` : showPrice ? `<tfoot>
         <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Total Harga Sebelum Diskon</td><td class="sum-value">${idrPlain(grossTotal)}</td></tr>
         ${itemDiscTotal ? `<tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Diskon Item</td><td class="sum-value">- ${idrPlain(itemDiscTotal)}</td></tr>` : ""}
         ${finalDiscAmt ? `<tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Diskon Final</td><td class="sum-value">- ${idrPlain(finalDiscAmt)}</td></tr>` : ""}
@@ -278,7 +283,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     .price-reason{margin-top:6mm}.price-reason-title{font-weight:800;margin-bottom:1.5mm}.reason-table{width:100%;border-collapse:collapse}.reason-table th,.reason-table td{border:.25mm solid ${primary};padding:1mm 1.5mm;font-size:${Math.max(8,fontSize-1)}px;vertical-align:top}.reason-table th{text-align:left;font-weight:700}.reason-table .r{text-align:right;white-space:nowrap}
     .bank-wrap{margin-top:4mm}.bank-title{font-weight:800;margin-bottom:1mm}.bank-table{width:100%;border-collapse:collapse;border-spacing:0;text-align:center}.bank-table th,.bank-table td{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1mm 1.5mm}.bank-table th{font-weight:700}
     .signatures{display:grid;grid-template-columns:1fr 1fr;gap:30mm;text-align:center;margin-top:6mm;page-break-inside:avoid}.sign-label{min-height:4mm}.sign-space{height:18mm;position:relative}.approved-signature{display:block;max-width:38mm;max-height:17mm;object-fit:contain;margin:0 auto}.sign-name{font-weight:800;text-decoration:underline}.sign-company{margin-top:.6mm}.verify{font-size:8px;text-align:right;margin-top:3mm;color:#64748b}
-    .items .desc .mro-ref{font-size:${Math.max(7,fontSize-3)}px;line-height:1.2;font-weight:400;margin-bottom:.5mm;overflow-wrap:anywhere}.items .desc .item-name{overflow-wrap:anywhere}
+    .items .desc .mro-ref{font-size:${Math.max(7,fontSize-3)}px;line-height:1.2;font-weight:400;margin-bottom:.5mm;overflow-wrap:anywhere}.items .desc .item-name{overflow-wrap:anywhere}.items .desc .tax-note{font-size:${Math.max(7,fontSize-3)}px;line-height:1.2;color:#475569;margin-top:.5mm}
     @media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}.items{break-inside:auto}.items tr{break-inside:avoid}}
   </style></head><body>
     ${!approved ? `<div class="draft-watermark">DRAFT</div>` : ""}
@@ -444,7 +449,10 @@ export async function printDoc(type, doc, opts = {}) {
     const rows = lines.map((l) => `<tr>${columns.map(c => `<td class="col-${c}">${lineValue(c,l)}</td>`).join("")}</tr>`).join("");
     const heads = columns.map(c => `<th>${esc(columnLabel(c))}</th>`).join("");
     const totalIndex = columns.indexOf("total");
-    const foot = showPrice && totalIndex >= 0 ? `<tfoot><tr>${columns.map((c,i)=> i === totalIndex ? `<td class="money grand">${rupiah(doc.grand_total)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">Grand Total</td>` : `<td></td>`).join("")}</tr>${dpRows(doc).map((r) => `<tr class="dp-row" data-dp="${r.key}">${columns.map((c,i)=> i === totalIndex ? `<td class="money">${rupiah(r.amount)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">${esc(r.label)}</td>` : `<td></td>`).join("")}</tr>`).join("")}</tfoot>` : "";
+    const sumRow = (label, value, cls = "money") => `<tr class="tax-sum">${columns.map((c,i)=> i === totalIndex ? `<td class="${cls}">${value}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">${esc(label)}</td>` : `<td></td>`).join("")}</tr>`;
+    // F2: PO v2 -> rincian DPP/PPN dari nilai tersimpan (urutan = Ringkasan PO di form). PO lama (v1) tidak berubah.
+    const v2Rows = key === "po" && isPoV2(doc) ? poV2SummaryRows(doc).filter((r) => !r.grand).map((r) => sumRow(r.label, `${r.neg ? "- " : ""}${rupiah(r.value)}`)).join("") : "";
+    const foot = showPrice && totalIndex >= 0 ? `<tfoot>${v2Rows}<tr>${columns.map((c,i)=> i === totalIndex ? `<td class="money grand">${rupiah(doc.grand_total)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">Grand Total</td>` : `<td></td>`).join("")}</tr>${dpRows(doc).map((r) => `<tr class="dp-row" data-dp="${r.key}">${columns.map((c,i)=> i === totalIndex ? `<td class="money">${rupiah(r.amount)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">${esc(r.label)}</td>` : `<td></td>`).join("")}</tr>`).join("")}</tfoot>` : "";
     return `<table><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody>${foot}</table>`;
   };
 

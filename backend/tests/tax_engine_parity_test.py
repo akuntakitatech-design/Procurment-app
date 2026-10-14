@@ -166,11 +166,11 @@ def gen_fixture(seed, n_po=250):
 def load_prod_v1():
     src = open(os.path.join(BACKEND, "doc_procurement.py")).read()
     mod = ast.parse(src)
-    want = {"_po_final_discount_amount", "compute_po_totals"}
+    want = {"_po_final_discount_amount", "_compute_po_totals_v1"}  # F2: compute_po_totals = dispatcher versi
     nodes = [n for n in mod.body if isinstance(n, ast.FunctionDef) and n.name in want]
     ns = {}
     exec(compile(ast.Module(body=nodes, type_ignores=[]), "doc_procurement.py", "exec"), ns)  # noqa: S102
-    return ns["compute_po_totals"]
+    return ns["_compute_po_totals_v1"]
 
 
 def v1_checks():
@@ -188,7 +188,7 @@ def v1_checks():
         if a != b:
             same, first = False, (hdr, lines)
             break
-    check("v1 legacy: compute_v1 identik dengan compute_po_totals produksi (400 kasus acak)", same, first)
+    check("v1 legacy: compute_v1 identik dengan _compute_po_totals_v1 produksi (400 kasus acak)", same, first)
     check("v1 legacy: compute_document tanpa versi -> v1 (dokumen historis stabil)",
           TE.compute_document({"tax_inclusive": False}, [{"qty": 1, "price": 100, "tax": 11}]) == prod({"tax_inclusive": False}, [{"qty": 1, "price": 100, "tax": 11}]))
     r = TE.compute_document({"tax_engine_version": 2}, [{"qty": "1", "price": "100", "tax_mode": "NONE"}])
