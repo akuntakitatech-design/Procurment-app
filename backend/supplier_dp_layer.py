@@ -606,6 +606,9 @@ def install(server):
                 po = await db().po.find_one({"id": did}, {"_id": 0})
                 if po and await paid_dp(did):
                     normalized, _m = await TM._normalize_qty_body(server, "po", body)
+                    import po_tax  # hitung signature komersial dengan aturan yang sama seperti saat simpan
+                    _old = await db().po_lines.find({"po_id": did}, {"_id": 0}).to_list(2000)
+                    await po_tax.prepare_po(db(), normalized, doc=po, old_lines=_old)
                     if not same(commercial(po), commercial(po, normalized)):
                         raise HTTPException(409, MSG_PO_EDIT)
                 return await orig_put(module=module, did=did, body=body, user=user)

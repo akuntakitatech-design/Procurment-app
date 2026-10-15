@@ -309,6 +309,10 @@ valuation_report_scope_layer.install(server)
 import reporting.report_center as report_center  # noqa: E402
 report_center.install(server)
 
+# F2 PPN: GET /api/po/tax-options + POST /api/po/tax-preview (engine resmi yang sama dengan simpan; tanpa tulis).
+import po_tax_layer  # noqa: E402
+po_tax_layer.install(server)
+
 # Redaksi harga server-side pada keluaran audit/feed dashboard (tanpa view_purchase_price). Paling luar route.
 import price_redaction_layer  # noqa: E402
 price_redaction_layer.install(server)

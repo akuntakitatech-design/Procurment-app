@@ -57,6 +57,8 @@ def install(server):
 
         stored = await server.db.po_lines.find({"po_id": result["id"]}, {"_id": 0}).to_list(1000)
         for row, snap in zip(stored, snapshots):
+            if row.get("tax_engine_version") == 2:
+                continue  # PO v2: snapshot aturan sudah disimpan po_tax (jangan ditimpa tarif master mentah)
             await server.db.po_lines.update_one({"id": row["id"]}, {"$set": snap})
 
         # Return the fully refreshed PO so tax metadata is immediately available.

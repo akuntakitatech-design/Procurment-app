@@ -76,7 +76,8 @@ def main():
     pcs = create_master(s, "uoms", {"code": f"PCS-{run}", "name": "Pieces", "symbol": "pcs"})
     box = create_master(s, "uoms", {"code": f"BOX-{run}", "name": "Box", "symbol": "box"})
     cat = create_master(s, "item_categories", {"code": f"CAT-{run}", "name": f"Sparepart {run}"})
-    tax = create_master(s, "taxes", {"code": f"VAT-{run}", "name": f"PPN Test {run}", "rate": 11})
+    tax = create_master(s, "taxes", {"code": f"VAT-{run}", "name": f"PPN Test {run}", "rate": 11,
+                                      "trx_code": "01", "dpp_factor_num": 1, "dpp_factor_den": 1})  # F2: master lengkap
     supcat = create_master(s, "supplier_categories", {"code": f"SC-{run}", "name": f"Vendor Parts {run}"})
     div = create_master(s, "divisions", {"code": f"DIV-{run}", "name": f"Divisi Test {run}"})
     wh = create_master(s, "warehouses", {"code": f"WH-{run}", "name": f"Gudang Test {run}", "division_id": div["id"]})
@@ -93,7 +94,7 @@ def main():
 
     supplier = create_master(s, "suppliers", {
         "code": f"SUP-{run}", "name": f"Supplier Test {run}",
-        "supplier_category_id": supcat["id"], "default_tax_id": tax["id"],
+        "supplier_category_id": supcat["id"], "default_tax_id": tax["id"], "pkp": True,
         "supplied_category_ids": [cat["id"]], "lead_time_days": 3, "min_order": 100000,
         "contacts": [
             {"name": "PIC Satu", "phone": "0800000001", "is_primary": True},

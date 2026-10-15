@@ -85,7 +85,7 @@ def main():
     V.M = M
     u = uuid.uuid4().hex[:5]
     supX, supY = M["supX"], M["supY"]
-    mk = lambda k, n: call("POST", "master/suppliers", {"code": f"{k}{u}", "name": n, "supplier_category_id": M["scat"]["id"]}, 200)[1]
+    mk = lambda k, n: call("POST", "master/suppliers", {"code": f"{k}{u}", "name": n, "supplier_category_id": M["scat"]["id"], "pkp": True}, 200)[1]  # F2: PO ber-PPN wajib supplier PKP
     supZ, supW, supV = mk("SZ", "Supplier Z"), mk("SW", "Supplier W"), mk("SV", "Supplier V")
     sc, dB = call("POST", "master/divisions", {"code": f"DB{u}", "name": "Divisi B"}, 200)
 

@@ -61,8 +61,8 @@ def setup():
     for key, coll, body in [
         ("item", "items", {"code": f"IT{u}", "name": "Baut M8", "unit": "PCS", "is_active": True, **item_ref}),
         ("item2", "items", {"code": f"IU{u}", "name": "Mur M8", "unit": "PCS", "is_active": True, **item_ref}),
-        ("supX", "suppliers", {"code": f"SX{u}", "name": "Supplier X", "email": "x@example.com", "supplier_category_id": M["scat"]["id"]}),
-        ("supY", "suppliers", {"code": f"SY{u}", "name": "Supplier Y", "supplier_category_id": M["scat"]["id"]}),
+        ("supX", "suppliers", {"code": f"SX{u}", "name": "Supplier X", "email": "x@example.com", "supplier_category_id": M["scat"]["id"], "pkp": True}),
+        ("supY", "suppliers", {"code": f"SY{u}", "name": "Supplier Y", "supplier_category_id": M["scat"]["id"], "pkp": True}),
         ("pa", "projects", {"code": f"PA{u}", "name": "Project A"}),
         ("pb", "projects", {"code": f"PB{u}", "name": "Project B"}),
     ]:
