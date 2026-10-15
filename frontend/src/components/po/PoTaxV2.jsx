@@ -10,11 +10,12 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Combobox } from "@/components/Combobox";
 import { buildTaxPreviewPayload, mapPreviewByIndex } from "@/lib/poTaxPayload";
+import { poV2SummaryRows, poTaxGroupRows, fmtIdr, LINE_AMOUNT_LABEL } from "@/lib/poTaxPrint";
 import { ChevronDown, RefreshCw, Lock } from "lucide-react";
 
 export const MODE_LABEL = { EXCLUDE: "Exclude", INCLUDE: "Include", NONE: "Tanpa PPN" };
 const MODE_HINT = "Exclude: PPN ditambahkan · Include: harga sudah termasuk PPN · Tanpa PPN: tidak dikenakan.";
-const FAC_SHORT = { TIDAK_DIPUNGUT: "Tidak dipungut", DTP: "DTP", DIBEBASKAN: "Dibebaskan" };
+const FAC_SHORT = { TIDAK_DIPUNGUT: "Tidak Dipungut", DTP: "DTP", DIBEBASKAN: "Dibebaskan" };
 export const rp2 = (n) => (n == null || n === "" ? "–" : Number(n).toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 /** Jenis PPN dari Master Pajak (label, kelengkapan, masa berlaku pada tanggal PO). */
@@ -137,38 +138,39 @@ export function PoTaxLineDetail({ v, line }) {
   const f = `${v.tax_dpp_factor_num || 1}/${v.tax_dpp_factor_den || 1}`;
   const Row = ({ k, val, note }) => <div className="flex justify-between gap-4"><span className="text-muted-foreground">{k}{note ? <span className="ml-1 italic">{note}</span> : null}</span><span className="tabular-nums font-medium">{val}</span></div>;
   return <div className="mb-2 grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2" data-testid="po-tax-line-detail">
-    <Row k="Nilai setelah diskon" val={rp2(v.net_amount)} />
-    <Row k="DPP" note={line.tax_mode === "INCLUDE" ? "(dikeluarkan dari harga Include)" : ""} val={rp2(v.dpp)} />
-    {v.taxable && <Row k="DPP Nilai Lain" note={`DPP × ${f}`} val={rp2(v.dpp_other)} />}
-    {v.taxable && <Row k="PPN" note={`DPP Nilai Lain × ${v.tax_rate}%${Number(v.tax_facility_amount) ? " — fasilitas, tidak ditagih" : ""}`} val={rp2(Number(v.tax_facility_amount) ? v.tax_facility_amount : v.tax_amount)} />}
-    <Row k="Total baris" val={rp2(v.total)} />
-    <Row k="Dasar biaya perolehan (DO)" note="= DPP; PPN tidak dikapitalisasi" val={rp2(v.dpp)} />
+    <Row k="Nilai setelah diskon" val={fmtIdr(v.net_amount)} />
+    <Row k={LINE_AMOUNT_LABEL} note={line.tax_mode === "INCLUDE" ? "(dikeluarkan dari harga Include)" : ""} val={fmtIdr(v.dpp)} />
+    {v.taxable && <Row k="DPP Nilai Lain" note={`DPP × ${f}`} val={fmtIdr(v.dpp_other)} />}
+    {v.taxable && <Row k="PPN" note={`DPP Nilai Lain × ${v.tax_rate}%${Number(v.tax_facility_amount) ? " — fasilitas, tidak ditagih" : ""}`} val={fmtIdr(Number(v.tax_facility_amount) ? v.tax_facility_amount : v.tax_amount)} />}
+    <Row k="Jumlah termasuk PPN" val={fmtIdr(v.total)} />
+    <Row k="Dasar biaya perolehan (DO)" note="= DPP; PPN tidak dikapitalisasi" val={fmtIdr(v.dpp)} />
   </div>;
 }
 
-/** Ringkasan PO dari nilai backend (preview draft atau nilai tersimpan). */
-export function PoTaxSummary({ totals, loading, error, onRetry, finalDiscount, children, stored }) {
+/** Ringkasan PO dari nilai backend (preview draft atau nilai tersimpan). Baris & istilah = cetak PO (poV2SummaryRows). */
+const SUM_TESTID = { gross: "po-sum-gross", item_disc: "po-sum-item-disc", final_disc: "po-sum-final-disc", after_disc: "po-sum-after-disc", before_ppn: "po-sum-before-ppn",
+  non_ppn: "po-sum-non-ppn", dpp_other: "po-sum-dpp-other", ppn: "po-sum-tax", ppn_facility: "po-sum-tax-facility", ppnbm: "po-sum-ppnbm", grand: "po-sum-grand" };
+export function PoTaxSummary({ totals, loading, error, onRetry, finalDiscount, stored }) {
   const t = totals || {};
-  const groups = t.tax_groups || [];
-  const Row = ({ label, value, neg, testid, strong }) => <div className={`flex items-center justify-between gap-3 ${strong ? "" : "text-muted-foreground"}`}><span className={strong ? "font-semibold text-foreground" : ""}>{label}</span><span className={`tabular-nums ${neg ? "text-destructive" : ""} ${strong ? "font-semibold text-foreground" : ""}`} data-testid={testid}>{loading && !totals ? <Skeleton className="h-4 w-24" /> : value == null ? "–" : `${neg && Number(value) ? "−" : ""}${rp2(value)}`}</span></div>;
-  return <div className="w-full max-w-md rounded-lg border bg-card p-4 text-sm shadow-sm space-y-1.5" data-testid="po-total-summary" aria-busy={loading}>
-    <div className="mb-1 flex items-center justify-between"><span className="font-head font-semibold">Ringkasan PO</span><span className="text-[11px] text-muted-foreground" data-testid="po-tax-source">{stored ? "Nilai tersimpan" : loading ? "Menghitung di server…" : "Dihitung server · Tax Engine v2"}</span></div>
+  const busy = loading && !totals;
+  const rows = poV2SummaryRows(t, { form: !!finalDiscount });
+  const groups = poTaxGroupRows(t);
+  const val = (r) => (busy ? <Skeleton className={r.grand ? "h-5 w-32" : "h-4 w-24"} /> : totals == null ? "–" : `${r.neg && r.value ? "−" : ""}${fmtIdr(r.value)}`);
+  return <div className="w-full rounded-lg border bg-card p-4 text-sm shadow-sm space-y-1.5" data-testid="po-total-summary" aria-busy={loading}>
+    <div className="mb-1 flex items-center justify-between gap-2"><span className="font-head font-semibold">Ringkasan PO</span><span className="text-[11px] text-muted-foreground" data-testid="po-tax-source">{stored ? "Nilai tersimpan · IDR" : loading ? "Menghitung di server…" : "Dihitung server · IDR"}</span></div>
     {error && <div className="flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive" role="alert" data-testid="po-tax-preview-error"><span>{error}</span>{onRetry && <Button type="button" size="sm" variant="ghost" className="h-7 px-2" onClick={onRetry} data-testid="po-tax-retry"><RefreshCw className="mr-1 h-3 w-3" />Ulangi</Button>}</div>}
-    <Row label="Total Harga Sebelum Diskon" value={t.gross_total} testid="po-sum-gross" />
-    <Row label="Diskon Item" value={t.item_discount_total} neg testid="po-sum-item-disc" />
-    {finalDiscount}
-    {finalDiscount ? <div className="flex items-center justify-between text-muted-foreground"><span className="pl-1 text-xs italic">= Diskon Final</span><span className="tabular-nums text-destructive" data-testid="po-sum-final-disc">{loading && !totals ? <Skeleton className="h-4 w-24" /> : t.final_discount_amount == null ? "–" : `${Number(t.final_discount_amount) ? "−" : ""}${rp2(t.final_discount_amount)}`}</span></div>
-      : <Row label="Diskon Final" value={t.final_discount_amount} neg testid="po-sum-final-disc" />}
-    <div className="border-t pt-1.5"><Row label="Total Setelah Diskon" value={t.subtotal_after_discount} testid="po-sum-after-disc" /></div>
-    <Row label="Total DPP (objek PPN)" value={t.dpp_total} testid="po-sum-dpp" />
-    <Row label="Nilai Tanpa PPN" value={t.non_ppn_total} testid="po-sum-non-ppn" />
-    <Row label="PPN" value={t.tax_total} testid="po-sum-tax" />
-    {Number(t.ppnbm_total) > 0 && <Row label="PPnBM" value={t.ppnbm_total} testid="po-sum-ppnbm" />}
-    <div className="border-t-2 border-foreground/70 pt-2 text-base"><div className="flex items-center justify-between"><span className="font-bold">GRAND TOTAL</span><span className="font-bold tabular-nums" data-testid="po-sum-grand">{loading && !totals ? <Skeleton className="h-5 w-32" /> : rp2(t.grand_total)}</span></div></div>
-    {groups.length > 0 && <Collapsible><CollapsibleTrigger className="mt-2 flex w-full items-center justify-between rounded-md border px-3 py-2 text-xs font-semibold hover:bg-accent" data-testid="po-tax-groups-toggle">Rincian pajak per kelompok<ChevronDown className="h-4 w-4" /></CollapsibleTrigger>
-      <CollapsibleContent className="mt-2 overflow-x-auto"><table className="w-full text-xs" data-testid="po-tax-groups"><thead><tr className="text-left text-muted-foreground"><th className="py-1 pr-2">Kelompok</th><th className="py-1 pr-2 text-right">DPP</th><th className="py-1 pr-2 text-right">DPP N. Lain</th><th className="py-1 text-right">PPN</th></tr></thead>
-        <tbody>{groups.map((g) => <tr key={g.group} className="border-t"><td className="py-1 pr-2">{g.trx_code} · {g.tax_name || g.tax_code}</td><td className="py-1 pr-2 text-right tabular-nums">{rp2(g.dpp)}</td><td className="py-1 pr-2 text-right tabular-nums">{rp2(g.dpp_other)}</td><td className="py-1 text-right tabular-nums">{Number(g.ppn_facility) ? <span title="Fasilitas — tidak ditagih">0,00 <span className="text-muted-foreground">({rp2(g.ppn_facility)})</span></span> : rp2(g.ppn)}</td></tr>)}</tbody></table>
+    {rows.map((r) => {
+      if (r.grand) return <div key={r.key} className="border-t-2 border-foreground/70 pt-2 text-base"><div className="flex items-center justify-between"><span className="font-bold">GRAND TOTAL</span><span className="font-bold tabular-nums" data-testid={SUM_TESTID.grand}>{val(r)}</span></div></div>;
+      if (r.key === "final_disc" && finalDiscount) return <div key={r.key} className="space-y-1">{finalDiscount}<div className="flex items-center justify-between text-muted-foreground"><span className="pl-1 text-xs italic">= Diskon Final</span><span className="tabular-nums text-destructive" data-testid={SUM_TESTID.final_disc}>{val(r)}</span></div></div>;
+      const sep = r.key === "after_disc" || (r.key === "before_ppn" && !rows.some((x) => x.key === "after_disc"));
+      return <div key={r.key} className={`flex items-center justify-between gap-3 ${sep ? "border-t pt-1.5" : ""} ${r.sub ? "pl-3 text-xs text-muted-foreground" : r.strong ? "" : "text-muted-foreground"}`}>
+        <span className={r.strong ? "font-semibold text-foreground" : ""}>{r.sub ? "↳ " : ""}{r.label}{r.hint && <span className="block text-[11px] font-normal text-muted-foreground">{r.hint}</span>}</span>
+        <span className={`tabular-nums ${r.neg && r.value ? "text-destructive" : ""} ${r.strong ? "font-semibold text-foreground" : ""}`} data-testid={SUM_TESTID[r.key]}>{r.sub && r.key === "ppn_facility" ? <>({val(r)})</> : val(r)}</span></div>;
+    })}
+    {groups.length > 0 && <Collapsible><CollapsibleTrigger className="mt-2 flex w-full items-center justify-between rounded-md border px-3 py-2 text-xs font-semibold transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="po-tax-groups-toggle">Rincian pajak per kelompok<ChevronDown className="h-4 w-4" /></CollapsibleTrigger>
+      <CollapsibleContent className="mt-2 overflow-x-auto"><table className="w-full text-xs" data-testid="po-tax-groups"><thead><tr className="text-left text-muted-foreground"><th className="py-1 pr-2">Kelompok</th><th className="py-1 pr-2 text-right">DPP</th><th className="py-1 pr-2 text-right">DPP Nilai Lain</th><th className="py-1 text-right">PPN</th></tr></thead>
+        <tbody>{groups.map((g) => <tr key={g.key} className="border-t"><td className="py-1 pr-2">{g.label}</td><td className="py-1 pr-2 text-right tabular-nums">{fmtIdr(g.dpp)}</td><td className="py-1 pr-2 text-right tabular-nums">{fmtIdr(g.dpp_other)}</td><td className="py-1 text-right tabular-nums">{g.facility ? <span title="Fasilitas — tidak ditagih">0 <span className="text-muted-foreground">({fmtIdr(g.facility)})</span></span> : fmtIdr(g.ppn)}</td></tr>)}
+          {Number(t.non_ppn_total) > 0 && <tr className="border-t text-muted-foreground"><td className="py-1 pr-2">Barang Tanpa PPN</td><td className="py-1 pr-2 text-right tabular-nums">{fmtIdr(t.non_ppn_total)}</td><td className="py-1 pr-2 text-right">–</td><td className="py-1 text-right">–</td></tr>}</tbody></table>
         <p className="mt-2 text-[11px] text-muted-foreground">PO dihitung presisi sen (HALF_UP). Pembulatan faktur pajak ke rupiah dilakukan pada tahap Invoice.</p></CollapsibleContent></Collapsible>}
-    {children}
   </div>;
 }

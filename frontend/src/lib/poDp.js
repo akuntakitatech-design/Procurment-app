@@ -31,13 +31,21 @@ export function computeDp(h, grand) {
   return { enabled: true, type, value: v, amount: amt / 100, remaining: (g - amt) / 100 };
 }
 
-export const dpLabel = (doc) => (doc?.dp_type === "percentage" ? `DP ${fmtPct(doc.dp_value)}%` : "DP");
+export const dpLabel = (doc) => (doc?.dp_type === "percentage" ? `Uang Muka (DP) ${fmtPct(doc.dp_value)}% dari Grand Total` : "Uang Muka (DP)");
 
-/** Baris ringkasan/print setelah Grand Total. Kosong bila PO tidak memakai DP. */
+/** Baris KETENTUAN PEMBAYARAN (syarat DP pada PO, BUKAN pembayaran aktual). Kosong bila PO tidak memakai DP. */
 export function dpRows(doc) {
   if (!doc || !doc.dp_enabled || doc.dp_amount == null) return [];
   return [
     { key: "dp", label: dpLabel(doc), amount: Number(doc.dp_amount) },
-    { key: "remaining", label: "Sisa Pembayaran", amount: Number(doc.dp_remaining) },
+    { key: "remaining", label: "Sisa setelah DP", amount: Number(doc.dp_remaining) },
   ];
+}
+
+/** Status pembayaran DP dari modul DP Supplier (null = tidak diketahui / tidak berizin -> jangan klaim dibayar). */
+export function dpPaymentStatus(info) {
+  if (!info) return null;
+  if (Number(info.paid_amount) > 0 && info.status === "Approved") return { key: "paid", label: `Sudah dibayar${info.dp_no ? ` · ${info.dp_no}` : ""}`, amount: Number(info.paid_amount) };
+  if (info.payment_id) return { key: "pending", label: "Pembayaran DP menunggu verifikasi" };
+  return { key: "unpaid", label: "Belum dibayar" };
 }

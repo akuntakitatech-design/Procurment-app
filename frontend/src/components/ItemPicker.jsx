@@ -21,7 +21,7 @@ const COLS = [["code", "Kode Barang"], ["name", "Nama Barang"], ["part_number", 
 const LIMIT = 100;
 
 /** Label barang untuk dokumen pembelian: Nama · Merk · Part Number (tanpa kode). */
-export const itemDisplayName = (it, fallback = "") => (it ? [it.name, it.brand, it.part_number].filter((x) => String(x || "").trim()).join(" · ") : fallback);
+export const itemDisplayName = (it, fallback = "") => (it ? [it.name, it.brand, it.part_number].filter((x) => String(x || "").trim()).join(" · ") : "") || fallback || "";
 
 export function ItemPicker({ items, uoms = {}, value, onChange, warehouseId, disabled, testid, onCreate, placeholder = "Pilih barang", formatLabel = null, fallbackLabel = "", lookup = null }) {
   const [open, setOpen] = useState(false);
@@ -41,7 +41,9 @@ export function ItemPicker({ items, uoms = {}, value, onChange, warehouseId, dis
     return f.sort((a, b) => String(a[sort.key] || "").localeCompare(String(b[sort.key] || ""), "id", { numeric: true }) * sort.dir);
   }, [items, q, sort, open]);
   const selected = useMemo(() => (value ? (items || []).find((it) => it.id === value) : null), [items, value]);
-  const text = selected ? (formatLabel ? formatLabel(selected) : `${selected.code ? selected.code + " — " : ""}${selected.name}`) : (value && fallbackLabel) || "";
+  // Label dari master; bila master tidak memuat nama (data lookup parsial) pakai snapshot nama di baris dokumen.
+  const own = selected ? (formatLabel ? formatLabel(selected) : selected.name ? `${selected.code ? selected.code + " — " : ""}${selected.name}` : "") : "";
+  const text = (String(own || "").trim() ? own : "") || (value && fallbackLabel) || "";
   const pick = (id) => { onChange(id); setOpen(false); setQ(""); };
   return (
     <Popover open={open} onOpenChange={setOpen}>

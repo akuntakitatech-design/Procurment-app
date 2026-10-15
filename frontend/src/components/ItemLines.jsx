@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { QtyStock } from "@/components/StockInfo";
 import { ItemPicker, itemDisplayName } from "@/components/ItemPicker";
 
-export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null, taxCell = null, lineTotal = null, taxDetail = null, stockWarehouse = null, itemCreate = null, testidPrefix = "line", itemLabel = null, division = null }) {
+export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = false, defaults = {}, taxInclusive = false, allocationColumn = null, priceAccessory = null, poControl = null, taxCell = null, lineTotal = null, lineTotalLabel = "Total", taxDetail = null, stockWarehouse = null, itemCreate = null, testidPrefix = "line", itemLabel = null, division = null }) {
   const unitPrefill = () => inlinePrefill("units", { division_id: division });
   const items = masters.map("items");
   const uoms = masters.map("uoms");
@@ -110,7 +110,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const footer = itemCreate ? (i) => ({ label: "Tambah Barang", testid: `${testidPrefix}-add-item-${i}`, onClick: () => itemCreate((id) => setPick({ i, id })) }) : () => null;
   // PO: label barang = Nama · Merk · Part Number (tanpa kode), boleh 2 baris agar terbaca jelas.
   const Picker = ({ l, i }) => <ItemPicker items={masters.data.items || []} lookup={masters.status?.("items")} uoms={uoms} value={l.item_id} onChange={(v) => update(i, { item_id: v })} warehouseId={whOf(l)} disabled={l._locked} onCreate={footer(i)} testid={`${testidPrefix}-item-${i}`}
-    formatLabel={itemLabel || (poControl ? itemDisplayName : null)} fallbackLabel={[l.item_name, l.item_brand, l.item_part_number].filter(Boolean).join(" · ")} />;
+    formatLabel={itemLabel || (poControl ? itemDisplayName : null)} fallbackLabel={[l.item_name, l.item_brand, l.item_part_number].filter(Boolean).join(" · ") || l.item_code || ""} />;
   const updateRef = useRef(update);
   updateRef.current = update;
   useEffect(() => { if (pick && items[pick.id] && linesRef.current[pick.i]) { setPick(null); updateRef.current(pick.i, { item_id: pick.id }); } }, [pick, items]);
@@ -124,7 +124,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   if (poControl) {
     const fmtPct = (p) => `${p >= 0 ? "+" : ""}${Number(p).toFixed(2).replace(".", ",")}%`;
     const fmtRp = (v) => `${v >= 0 ? "+" : "-"}${rupiah(Math.abs(v))}`;
-    const head = [["w-[36px]", ""], ["w-[340px]", "Barang"], ["w-[150px]", "Keterangan"], ["w-[80px]", "Qty"], ["w-[110px]", "Satuan"], ["w-[130px]", "Harga Kontrak"], ["w-[170px]", "Harga Satuan"], ["w-[175px]", "Diskon Item"], ["w-[115px]", "Selisih"], ["w-[140px]", "Total"], ["w-[105px]", "Status"], ["w-[40px]", "Aksi"]];
+    const head = [["w-[36px]", ""], ["w-[340px]", "Barang"], ["w-[150px]", "Keterangan"], ["w-[80px]", "Qty"], ["w-[110px]", "Satuan"], ["w-[130px]", "Harga Kontrak"], ["w-[170px]", "Harga Satuan"], ["w-[175px]", "Diskon Item"], ["w-[115px]", "Selisih"], ["w-[140px]", lineTotalLabel], ["w-[105px]", "Status"], ["w-[40px]", "Aksi"]];
     const lbl = "mb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground";
     return <div className="space-y-3">
       <div className="overflow-x-auto rounded-md border bg-card shadow-sm">
@@ -158,7 +158,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
                 <div className="w-[170px] shrink-0" data-label="Harga Satuan"><div className="flex items-center gap-1"><div className="min-w-0 flex-1"><NumericInput mode="money" value={l.price} onChange={(v) => update(i, { price: v, _priceTouched: true, _priceAuto: false })} className={`h-9 text-right ${poControl.priceInvalid?.(l) ? "border-destructive ring-1 ring-destructive/40 focus-visible:ring-destructive" : ""}`} aria-invalid={poControl.priceInvalid?.(l) ? true : undefined} data-testid={`po-price-input-${i}`} /></div>{poControl.history && <div className="shrink-0">{poControl.history(l, i)}</div>}</div>{poControl.priceInvalid?.(l) && <div className="mt-1 text-[11px] font-medium text-destructive" role="alert" data-testid={`po-price-error-${i}`}>Harga Satuan wajib diisi</div>}</div>
                 <div className="w-[175px] shrink-0" data-label="Diskon Item"><div className="flex items-center gap-1"><button type="button" onClick={() => update(i, { discount_type: discType(l) === "percent" ? "amount" : "percent", discount_value: discVal(l) })} className="h-9 w-10 shrink-0 rounded border text-xs font-semibold hover:bg-accent" data-testid={`po-discount-type-${i}`} title="Ubah metode diskon (% / Rp)">{discType(l) === "percent" ? "%" : "Rp"}</button><div className="min-w-0 flex-1"><NumericInput mode={discType(l) === "percent" ? "quantity" : "money"} value={discVal(l)} onChange={(v) => update(i, { discount_value: v, discount_type: discType(l) })} className="h-9 text-right" data-testid={`po-discount-${i}`} /></div></div></div>
                 <div className="w-[115px] shrink-0 text-xs tabular-nums" data-label="Selisih" data-testid={`po-variance-${i}`}>{showVar ? <span className={r.varRp > 0 ? "text-amber-700" : r.varRp < 0 ? "text-emerald-700" : "text-muted-foreground"}>{fmtRp(r.varRp)}<br />{fmtPct(r.varPct)}</span> : <span className="text-muted-foreground">—</span>}</div>
-                <div className="w-[140px] shrink-0 text-right text-sm font-semibold tabular-nums" data-label="Total" data-testid={`po-total-${i}`}>{lineTotal ? lineTotal(l, i) : rupiah(total(l))}</div>
+                <div className="w-[140px] shrink-0 text-right text-sm font-semibold tabular-nums" data-label={lineTotalLabel} data-testid={`po-total-${i}`}>{lineTotal ? lineTotal(l, i) : rupiah(total(l))}</div>
                 <div className="w-[105px] shrink-0" data-label="Status">{status === "Belum dihitung" ? <span data-testid={`po-status-${i}`} className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Belum dihitung</span> : <StatusBadgePrice status={status} testid={`po-status-${i}`} />}{reasonMissing && <div className="mt-0.5 text-[10px] font-semibold text-amber-700" data-testid={`po-reason-required-${i}`}>Alasan diperlukan</div>}</div>
                 <div className="w-[40px] shrink-0 m-end"><Button variant="ghost" size="icon" className="h-11 w-11 sm:h-9 sm:w-9" onClick={() => onChange(lines.filter((_, x) => x !== i))} aria-label="Hapus baris" data-testid={`po-remove-${i}`}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
               </div>
