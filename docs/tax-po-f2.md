@@ -71,3 +71,16 @@ non_ppn_total, ppnbm_total, tax_facility_total, tax_groups, tax_rules_snapshot`.
 ## Ditunda (di luar F2)
 Vendor Invoice & Supplier DP berbasis Tax Engine v2, PPnBM pada PO, kapitalisasi PPN tidak dapat dikreditkan,
 laporan berbasis snapshot v2.
+
+## Penyajian (form = detail = cetak)
+Satu sumber baris ringkasan: `frontend/src/lib/poTaxPrint.js` (`poV2SummaryRows`, `poTaxGroupRows`, `fmtIdr`) — murni
+presentasi nilai backend, tanpa rumus pajak baru.
+- Kolom baris PO v2: **Jumlah Sebelum PPN** (= DPP baris backend, setelah diskon item & bagian diskon final); jumlah kolom =
+  Nilai Pembelian Sebelum PPN.
+- Ringkasan PO: Total Harga Sebelum Diskon → Diskon Item → Diskon Final → (Total Setelah Diskon, hanya bila ada harga Include)
+  → **Nilai Pembelian Sebelum PPN** (= Total DPP + Nilai Tanpa PPN) → DPP Nilai Lain → PPN (keterangan fasilitas tidak
+  ditagih) → **Grand Total** (satu kali). Rincian pajak per kelompok dapat dibuka (layar) / tabel ringkas (cetak).
+- Uang Muka (DP) dipindah ke kartu **Ketentuan Pembayaran** (syarat pada PO, bukan pembayaran aktual). Status "Sudah dibayar"
+  hanya ditampilkan bila modul DP Supplier mencatat pembayaran Approved.
+- Format angka sama di form, detail, dan cetak (id-ID, sen hanya bila ada). Keterangan PPN baris dari snapshot baris.
+- Nama barang: fallback ke snapshot nama/kode baris bila master tidak memuat nama.

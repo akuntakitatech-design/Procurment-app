@@ -1,7 +1,7 @@
 import api, { API } from "@/lib/api";
 import { rupiah, num, fmtDate } from "@/lib/format";
 import { dpRows } from "@/lib/poDp";
-import { isPoV2, poTaxLineNote, poV2SummaryRows } from "@/lib/poTaxPrint";
+import { isPoV2, poTaxLineNote, poV2SummaryRows, poTaxGroupRows, fmtIdr, LINE_AMOUNT_LABEL } from "@/lib/poTaxPrint";
 
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const SPK_DOC_TYPES = new Set(["mro", "ro", "po", "do", "mi"]);
@@ -179,6 +179,24 @@ function renderTermsMessage(text, spk) {
   return html + (spk && !spkShown ? `<div class="term-line">SPK : ${esc(spk)}</div>` : "");
 }
 
+/** KETENTUAN PEMBAYARAN di cetak PO: syarat Uang Muka (DP) + keterangan. Bukan bukti/pencatatan pembayaran. */
+function paymentTermsHtml(doc, showPrice, money) {
+  const dp = showPrice ? dpRows(doc) : [];
+  if (!dp.length && !doc.payment_notes && !(doc.dp_enabled && !showPrice)) return "";
+  const rows = dp.map((r) => `<div class="term-row" data-dp="${r.key}"><span>${esc(r.label)}</span><span>${money(r.amount)}</span></div>`).join("");
+  const hidden = doc.dp_enabled && !showPrice ? `<div class="term-line">Uang Muka (DP) disyaratkan</div>` : "";
+  const note = doc.dp_enabled ? `<div class="term-note">Syarat pembayaran pada PO — bukan bukti pembayaran.</div>` : "";
+  return `<div class="terms payment-notes" data-section="payment-terms"><div class="term-heading">Ketentuan Pembayaran</div>${rows}${hidden}${note}${doc.payment_notes ? `<div class="term-line">${esc(doc.payment_notes)}</div>` : ""}</div>`;
+}
+
+/** Rincian pajak per kelompok kode faktur (nilai tersimpan), di bawah tabel barang PO v2. */
+function taxGroupsHtml(doc) {
+  const g = poTaxGroupRows(doc);
+  if (!g.length) return "";
+  const non = Number(doc.non_ppn_total || 0);
+  return `<div class="tax-groups" data-section="tax-groups"><div class="tax-groups-title">Rincian Pajak per Kelompok</div><table><thead><tr><th>Kelompok</th><th class="r">DPP</th><th class="r">DPP Nilai Lain</th><th class="r">PPN</th></tr></thead><tbody>${g.map((x) => `<tr><td>${esc(x.label)}${x.facility ? " — tidak ditagih" : ""}</td><td class="r">${fmtIdr(x.dpp)}</td><td class="r">${fmtIdr(x.dpp_other)}</td><td class="r">${x.facility ? `0 (${fmtIdr(x.facility)})` : fmtIdr(x.ppn)}</td></tr>`).join("")}${non ? `<tr><td>Barang Tanpa PPN</td><td class="r">${fmtIdr(non)}</td><td class="r">–</td><td class="r">–</td></tr>` : ""}</tbody></table></div>`;
+}
+
 export function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal }) {
   const primary = layout.primary_color || "#17396f";
   const font = layout.font_family || "Arial";
@@ -253,11 +271,10 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     ? `<colgroup><col style="width:4%"><col style="width:22%"><col style="width:14%"><col style="width:6%"><col style="width:7%"><col style="width:15%"><col style="width:12%"><col style="width:8%"><col style="width:12%"></colgroup>`
     : `<colgroup><col style="width:5%"><col style="width:28%"><col style="width:20%"><col style="width:8%"><col style="width:9%"><col style="width:30%"></colgroup>`;
   const tableHead = showPrice
-    ? `<thead><tr><th>No</th><th>Description</th><th>Keterangan</th><th colspan="2">Qty</th><th>Alokasi SPK</th><th>Price</th><th>Discount</th><th>Amount</th></tr></thead>`
+    ? `<thead><tr><th>No</th><th>Description</th><th>Keterangan</th><th colspan="2">Qty</th><th>Alokasi SPK</th><th>Price</th><th>Discount</th><th>${v2 ? esc(LINE_AMOUNT_LABEL) : "Amount"}</th></tr></thead>`
     : `<thead><tr><th>No</th><th>Description</th><th>Keterangan</th><th colspan="2">Qty</th><th>Alokasi SPK</th></tr></thead>`;
   const totals = showPrice && v2 ? `<tfoot>
-        ${poV2SummaryRows(doc).map((r) => `<tr${r.grand ? ' class="grand"' : ""} data-sum="${esc(r.key)}"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(r.label)}</td><td class="sum-value">${r.neg ? "- " : ""}${idrPlain(r.value)}</td></tr>`).join("")}
-        ${dpRows(doc).map((r) => `<tr class="dp-row" data-dp="${r.key}"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(r.label)}</td><td class="sum-value">${idrPlain(r.amount)}</td></tr>`).join("")}
+        ${poV2SummaryRows(doc).map((r) => `<tr class="${r.grand ? "grand" : r.sub ? "sum-sub" : r.strong ? "sum-strong" : ""}" data-sum="${esc(r.key)}"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${r.sub ? "&#8627; " : ""}${esc(r.label)}${r.hint ? `<div class="sum-hint">${esc(r.hint)}</div>` : ""}</td><td class="sum-value">${r.neg && r.value ? "- " : ""}${r.key === "ppn_facility" ? `(${fmtIdr(r.value)})` : fmtIdr(r.value)}</td></tr>`).join("")}
       </tfoot>` : showPrice ? `<tfoot>
         <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Total Harga Sebelum Diskon</td><td class="sum-value">${idrPlain(grossTotal)}</td></tr>
         ${itemDiscTotal ? `<tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Diskon Item</td><td class="sum-value">- ${idrPlain(itemDiscTotal)}</td></tr>` : ""}
@@ -265,9 +282,10 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
         <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Total Setelah Diskon</td><td class="sum-value">${idrPlain(afterDisc)}</td></tr>
         <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(taxLabel)}</td><td class="sum-value">${idrPlain(taxAmount)}</td></tr>
         <tr class="grand"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Grand Total</td><td class="sum-value">${idrPlain(grand)}</td></tr>
-        ${dpRows(doc).map((r) => `<tr class="dp-row" data-dp="${r.key}"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(r.label)}</td><td class="sum-value">${idrPlain(r.amount)}</td></tr>`).join("")}
       </tfoot>` : "";
-  const paymentNotes = doc.payment_notes ? `<div class="terms payment-notes"><div class="term-heading">Ketentuan Pembayaran</div><div class="term-line">${esc(doc.payment_notes)}</div></div>` : "";
+  const money = v2 ? fmtIdr : idrPlain;
+  const paymentNotes = paymentTermsHtml(doc, showPrice, money);
+  const taxGroups = showPrice && v2 ? taxGroupsHtml(doc) : "";
   const emptyColspan = showPrice ? 9 : 6;
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.no || "PO")}</title>
@@ -278,7 +296,8 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     .draft-watermark{position:fixed;left:50%;top:48%;transform:translate(-50%,-50%) rotate(-32deg);font-size:74px;font-weight:900;letter-spacing:8px;color:#6b7280;opacity:.14;z-index:9999;pointer-events:none;user-select:none}
     .top{position:relative;min-height:29mm}.brand{width:46mm}.real-logo{width:${logoWidth}mm;max-height:22mm;object-fit:contain;display:block}.brand-name{font-weight:700;font-size:${Math.max(9,fontSize)}px;margin-top:2mm}.po-title{position:absolute;top:2mm;left:50%;transform:translateX(-50%);font-size:${fontSize+7}px;font-weight:800;letter-spacing:.3px;white-space:nowrap}
     .info-grid{display:grid;grid-template-columns:46% 52%;gap:2%;align-items:start}.address-block{line-height:1.25}.address-block .label{font-weight:700;margin-top:0}.address-block .label.bill{margin-top:4mm}.address-block .line{min-height:3.5mm}.meta-box{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1.2mm 1.5mm}.meta-row{display:grid;grid-template-columns:38% 3% 59%;line-height:1.42}.meta-row .lab{white-space:nowrap}
-    .items{width:100%;border-collapse:collapse;border-spacing:0;margin-top:8mm;table-layout:fixed}.items th,.items td{border:.25mm solid ${primary};padding:1.3mm 1.7mm;vertical-align:middle}.items th{text-align:center;font-weight:700}.items .no{width:5%}.items .desc{width:39%}.items .qty{width:6%}.items .unit{width:7%}.items .price{width:16%}.items .discount{width:12%}.items .amount{width:15%}.c{text-align:center}.r{text-align:right}.items .ket{text-align:left;white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.items .alok{text-align:left;white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.items .price,.items .amount,.items .discount{white-space:nowrap}.items tfoot td{border:.25mm solid ${primary};padding:1.25mm 1.7mm}.items tfoot .sum-spacer{border:none!important;padding:0;background:transparent}.items tfoot .sum-label{font-weight:700;text-align:left}.items tfoot .sum-value{text-align:right;white-space:nowrap}.items tfoot .grand .sum-label,.items tfoot .grand .sum-value{font-weight:800}
+    .items{width:100%;border-collapse:collapse;border-spacing:0;margin-top:8mm;table-layout:fixed}.items th,.items td{border:.25mm solid ${primary};padding:1.3mm 1.7mm;vertical-align:middle}.items th{text-align:center;font-weight:700}.items .no{width:5%}.items .desc{width:39%}.items .qty{width:6%}.items .unit{width:7%}.items .price{width:16%}.items .discount{width:12%}.items .amount{width:15%}.c{text-align:center}.r{text-align:right}.items .ket{text-align:left;white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.items .alok{text-align:left;white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.items .price,.items .amount,.items .discount{white-space:nowrap}.items tfoot td{border:.25mm solid ${primary};padding:1.25mm 1.7mm}.items tfoot .sum-spacer{border:none!important;padding:0;background:transparent}.items tfoot .sum-label{font-weight:700;text-align:left}.items tfoot .sum-value{text-align:right;white-space:nowrap}.items tfoot .grand .sum-label,.items tfoot .grand .sum-value{font-weight:800}.items tfoot .sum-sub .sum-label,.items tfoot .sum-sub .sum-value{font-weight:400;font-size:${Math.max(7,fontSize-2)}px;color:#475569}.items tfoot .sum-sub .sum-label{padding-left:4mm}.items tfoot .sum-strong .sum-label,.items tfoot .sum-strong .sum-value{font-weight:800}.items tfoot .sum-hint{font-weight:400;font-size:${Math.max(7,fontSize-3)}px;color:#475569}
+    .tax-groups{margin-top:5mm;page-break-inside:avoid}.tax-groups-title{font-weight:800;margin-bottom:1.5mm}.tax-groups table{width:100%;border-collapse:collapse}.tax-groups th,.tax-groups td{border:.25mm solid ${primary};padding:1mm 1.5mm;font-size:${Math.max(8,fontSize-1)}px}.tax-groups th{text-align:left;font-weight:700}.tax-groups .r{text-align:right;white-space:nowrap}.terms .term-row{display:flex;justify-content:space-between;gap:6mm;max-width:120mm;margin-left:1.8mm}.terms .term-note{font-size:${Math.max(7,fontSize-3)}px;color:#475569;margin-left:1.8mm}
     .terms{margin-top:7mm;line-height:1.35}.term-heading{font-weight:800;margin-top:1.5mm}.term-line{white-space:pre-wrap;margin-left:1.8mm}.term-gap{height:1.5mm}
     .price-reason{margin-top:6mm}.price-reason-title{font-weight:800;margin-bottom:1.5mm}.reason-table{width:100%;border-collapse:collapse}.reason-table th,.reason-table td{border:.25mm solid ${primary};padding:1mm 1.5mm;font-size:${Math.max(8,fontSize-1)}px;vertical-align:top}.reason-table th{text-align:left;font-weight:700}.reason-table .r{text-align:right;white-space:nowrap}
     .bank-wrap{margin-top:4mm}.bank-title{font-weight:800;margin-bottom:1mm}.bank-table{width:100%;border-collapse:collapse;border-spacing:0;text-align:center}.bank-table th,.bank-table td{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1mm 1.5mm}.bank-table th{font-weight:700}
@@ -324,6 +343,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     </table>
     ${reasonSection}
     ${terms ? `<div class="terms">${terms}</div>` : ""}
+    ${taxGroups}
     ${paymentNotes}
     ${bankName || bankNo || bankAccountName ? `<div class="bank-wrap"><div class="bank-title">Pembayaran dilakukan ke Rekening :</div><table class="bank-table"><thead><tr><th>Nama Bank</th><th>No. Rekening</th><th>Atas Nama</th></tr></thead><tbody><tr><td>${esc(bankName)}</td><td>${esc(bankNo)}</td><td>${esc(bankAccountName)}</td></tr></tbody></table></div>` : ""}
     ${layout.show_signatures ? `<div class="signatures"><div><div class="sign-label">${esc(layout.signature_labels?.[0] || "Approved by,")}</div><div class="sign-space">${approvedSignature}</div><div class="sign-name">${esc(approvedName)}</div><div class="sign-company">${esc(approvedCompany)}</div></div><div><div class="sign-label">${esc(layout.signature_labels?.[1] || "Signed by,")}</div><div class="sign-space"></div><div class="sign-name">${esc(signedName)}</div><div class="sign-company">${esc(supplierCompany)}</div></div></div>` : ""}
@@ -451,12 +471,12 @@ export async function printDoc(type, doc, opts = {}) {
     const totalIndex = columns.indexOf("total");
     const sumRow = (label, value, cls = "money") => `<tr class="tax-sum">${columns.map((c,i)=> i === totalIndex ? `<td class="${cls}">${value}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">${esc(label)}</td>` : `<td></td>`).join("")}</tr>`;
     // F2: PO v2 -> rincian DPP/PPN dari nilai tersimpan (urutan = Ringkasan PO di form). PO lama (v1) tidak berubah.
-    const v2Rows = key === "po" && isPoV2(doc) ? poV2SummaryRows(doc).filter((r) => !r.grand).map((r) => sumRow(r.label, `${r.neg ? "- " : ""}${rupiah(r.value)}`)).join("") : "";
-    const foot = showPrice && totalIndex >= 0 ? `<tfoot>${v2Rows}<tr>${columns.map((c,i)=> i === totalIndex ? `<td class="money grand">${rupiah(doc.grand_total)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">Grand Total</td>` : `<td></td>`).join("")}</tr>${dpRows(doc).map((r) => `<tr class="dp-row" data-dp="${r.key}">${columns.map((c,i)=> i === totalIndex ? `<td class="money">${rupiah(r.amount)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">${esc(r.label)}</td>` : `<td></td>`).join("")}</tr>`).join("")}</tfoot>` : "";
+    const v2Rows = key === "po" && isPoV2(doc) ? poV2SummaryRows(doc).filter((r) => !r.grand).map((r) => sumRow(`${r.sub ? "↳ " : ""}${r.label}`, `${r.neg && r.value ? "- " : ""}${r.key === "ppn_facility" ? `(${fmtIdr(r.value)})` : fmtIdr(r.value)}`)).join("") : "";
+    const foot = showPrice && totalIndex >= 0 ? `<tfoot>${v2Rows}<tr>${columns.map((c,i)=> i === totalIndex ? `<td class="money grand">${key === "po" && isPoV2(doc) ? fmtIdr(doc.grand_total) : rupiah(doc.grand_total)}</td>` : i === Math.max(0,totalIndex-1) ? `<td class="grand-label">Grand Total</td>` : `<td></td>`).join("")}</tr></tfoot>` : "";
     return `<table><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody>${foot}</table>`;
   };
 
-  const messageHtml = () => `${layout.show_message && doc.document_message ? `<div class="terms"><div class="terms-title">Pesan / Ketentuan Dokumen</div><div class="terms-body">${esc(doc.document_message)}</div></div>` : ""}${key === "po" && doc.payment_notes ? `<div class="terms payment-notes"><div class="terms-title">Ketentuan Pembayaran</div><div class="terms-body">${esc(doc.payment_notes)}</div></div>` : ""}`;
+  const messageHtml = () => `${layout.show_message && doc.document_message ? `<div class="terms"><div class="terms-title">Pesan / Ketentuan Dokumen</div><div class="terms-body">${esc(doc.document_message)}</div></div>` : ""}${key === "po" ? paymentTermsHtml(doc, showPrice, isPoV2(doc) ? fmtIdr : rupiah).replace('class="term-heading"', 'class="terms-title"') : ""}`;
   const signaturesHtml = () => layout.show_signatures ? `<div class="sign">${layout.signature_labels.map((label,i)=>`<div><div>${esc(label)}</div>${key === "po" && i === 0 && poApproved(doc) && signatureImg ? `<img class="generic-signature" src="${signatureImg}"/>` : ""}<div class="line">${i===0 ? esc(doc.created_by || "") : "&nbsp;"}</div></div>`).join("")}</div>` : "";
   const footerHtml = () => `<div class="ft"><div class="footer-text">${esc(layout.footer_text || "")}</div>${layout.show_qr && qrImg ? `<div class="qr"><img src="${qrImg}" width="90" height="90"/><div>${esc(code)}</div></div>` : ""}</div>`;
 

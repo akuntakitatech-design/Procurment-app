@@ -49,24 +49,42 @@ const bl = P.budgetLinesV2(lines, { 0: { tax: 11, tax_inclusive: false }, 2: { t
 check("budget SPK: tarif dari backend (Exclude=efektif, Include=0, belum dihitung=0)", bl.map((l) => l.tax).join(",") === "11,0,0,0");
 // ---- cetak PO v2 (nilai tersimpan; tidak menghitung)
 check("print: v1 dikenali (tanpa versi)", !R.isPoV2({}) && !R.isPoV2({ tax_engine_version: 1 }) && R.isPoV2({ tax_engine_version: 2 }));
-check("print: catatan baris", R.poTaxLineNote({ tax_mode: "EXCLUDE", tax_code: "PPN12", tax_trx_code: "04", tax_facility: "NORMAL" }) === "Exclude · PPN 04"
+check("print: catatan baris", R.poTaxLineNote({ tax_mode: "EXCLUDE", tax_code: "PPN12", tax_trx_code: "04", tax_facility: "NORMAL" }) === "Exclude · PPN · 04"
   && R.poTaxLineNote({ tax_mode: "NONE" }) === "Tanpa PPN"
-  && R.poTaxLineNote({ tax_mode: "EXCLUDE", tax_code: "TD", tax_trx_code: "07", tax_facility: "TIDAK_DIPUNGUT" }) === "Exclude · Tidak Dipungut 07");
+  && R.poTaxLineNote({ tax_mode: "EXCLUDE", tax_code: "TD", tax_trx_code: "07", tax_facility: "TIDAK_DIPUNGUT" }) === "Exclude · Tidak Dipungut · 07"
+  && R.poTaxLineNote({ tax_mode: "INCLUDE", tax_code: "P04", tax_name: "PPN DPP Nilai Lain", tax_trx_code: "04", tax_facility: "NORMAL" }) === "Include · PPN DPP Nilai Lain · 04");
 const doc = { tax_engine_version: 2, gross_total: 5220000, item_discount_total: 10000, final_discount_amount: 260500, subtotal_after_discount: 4949500,
-  dpp_total: 4266441.44, non_ppn_total: 475000, tax_total: 469308.56, grand_total: 5210750,
+  dpp_total: 4266441.44, non_ppn_total: 475000, tax_total: 469308.56, tax_facility_total: 11, grand_total: 5210750,
   tax_groups: [{ group: "04|PPN12|12|11|12|NORMAL", trx_code: "04", tax_code: "PPN12", facility: "NORMAL", ppn: "469308.56", ppn_facility: "0.00" },
     { group: "07|TD|12|11|12|TIDAK_DIPUNGUT", trx_code: "07", tax_code: "TD", facility: "TIDAK_DIPUNGUT", ppn: "0.00", ppn_facility: "11.00" }],
   tax_rules_snapshot: [{ group: "04|PPN12|12|11|12|NORMAL", tax_rate: "12", tax_dpp_factor_num: 11, tax_dpp_factor_den: 12 }] };
 const rows = R.poV2SummaryRows(doc);
 const get = (k) => rows.find((r) => r.key === k);
-check("print: urutan ringkasan = form", rows.map((r) => r.key).slice(0, 6).join(",") === "gross,item_disc,final_disc,after_disc,dpp,non_ppn" && rows[rows.length - 1].key === "grand");
-check("print: grand = nilai tersimpan", get("grand").value === 5210750);
-check("print: label kelompok dari snapshot", get("ppn:04|PPN12|12|11|12|NORMAL").label === "PPN 12% × 11/12 (Kode 04)");
-check("print: fasilitas tidak ditagih = 0", get("ppn:07|TD|12|11|12|TIDAK_DIPUNGUT").value === 0 && /Tidak Dipungut.*tidak ditagih/.test(get("ppn:07|TD|12|11|12|TIDAK_DIPUNGUT").label));
-const sumParts = get("dpp").value + get("non_ppn").value + rows.filter((r) => r.key.startsWith("ppn:")).reduce((a, r) => a + r.value, 0);
-check("print: DPP + Tanpa PPN + PPN = Grand Total (rekonsiliasi nilai tersimpan)", Math.round(sumParts * 100) === Math.round(5210750 * 100), sumParts);
-check("print: tanpa diskon -> baris diskon tidak tampil", !R.poV2SummaryRows({ ...doc, item_discount_total: 0, final_discount_amount: 0 }).some((r) => r.key.endsWith("disc") && r.key !== "after_disc"));
-check("print: tanpa tax_groups -> satu baris PPN", R.poV2SummaryRows({ ...doc, tax_groups: [] }).filter((r) => r.key === "ppn").length === 1);
+const keys = rows.map((r) => r.key).join(",");
+check("ringkasan: urutan istilah Purchasing (form = detail = cetak)", keys === "gross,item_disc,final_disc,after_disc,before_ppn,non_ppn,ppn,ppn_facility,grand", keys);
+check("ringkasan: Nilai Pembelian Sebelum PPN = Total DPP + Tanpa PPN (sen)", get("before_ppn").value === 4741441.44 && get("before_ppn").label === "Nilai Pembelian Sebelum PPN");
+check("ringkasan: Include -> Total Setelah Diskon tampil dengan keterangan", get("after_disc").value === 4949500 && /Include/.test(get("after_disc").hint));
+check("ringkasan: tanpa Include -> Total Setelah Diskon tidak diulang", !R.poV2SummaryRows({ ...doc, subtotal_after_discount: 4741441.44 }).some((r) => r.key === "after_disc"));
+check("ringkasan: tepat satu Grand Total = nilai tersimpan, tanpa baris DP", rows.filter((r) => r.grand).length === 1 && get("grand").value === 5210750 && !rows.some((r) => /dp|DP|Sisa/.test(r.key + r.label)));
+const parts = rows.filter((r) => !r.sub && ["before_ppn", "ppn", "ppnbm"].includes(r.key)).reduce((a, r) => a + Math.round(r.value * 100), 0);
+check("ringkasan: Nilai Pembelian Sebelum PPN + PPN = Grand Total (rekonsiliasi)", parts === Math.round(5210750 * 100), parts);
+check("ringkasan: DPP Nilai Lain tampil bila ada", R.poV2SummaryRows({ ...doc, dpp_other_total: 3910904.65 }).find((r) => r.key === "dpp_other").value === 3910904.65 && !get("dpp_other"));
+check("ringkasan: fasilitas = keterangan (bukan penjumlah)", get("ppn_facility").sub === true && get("non_ppn").sub === true);
+check("ringkasan: tanpa diskon -> baris diskon tidak tampil (cetak/detail)", !R.poV2SummaryRows({ ...doc, item_discount_total: 0, final_discount_amount: 0 }).some((r) => r.key === "item_disc" || r.key === "final_disc"));
+check("ringkasan: form selalu tampil baris diskon", R.poV2SummaryRows({ ...doc, item_discount_total: 0, final_discount_amount: 0 }, { form: true }).filter((r) => r.key.endsWith("_disc") && r.key !== "after_disc").length === 2);
+const grp = R.poTaxGroupRows(doc);
+check("kelompok: label dari snapshot + fasilitas tidak ditagih = 0", grp[0].label === "PPN 12% × 11/12 (Kode 04)" && grp[1].ppn === 0 && grp[1].facility === 11 && /Tidak Dipungut/.test(grp[1].label));
+check("format: sama di semua tampilan (sen hanya bila ada)", R.fmtIdr(52520000) === "52.520.000" && R.fmtIdr(916666.67) === "916.666,67" && R.fmtIdr(null) === "–");
+check("baris: Jumlah Sebelum PPN = DPP baris backend", R.poLineAmount({ dpp: 190000, total: 210900 }) === 190000 && R.LINE_AMOUNT_LABEL === "Jumlah Sebelum PPN");
+
+// ---- DP = Ketentuan Pembayaran (syarat, bukan pembayaran aktual)
+const D = await load("poDp");
+const dr = D.dpRows({ dp_enabled: true, dp_type: "percentage", dp_value: 30, dp_amount: 300000, dp_remaining: 700000 });
+check("DP: label syarat (bukan 'dibayar')", dr[0].label === "Uang Muka (DP) 30% dari Grand Total" && dr[1].label === "Sisa setelah DP" && !dr.some((r) => /dibayar|Pembayaran/.test(r.label)));
+check("DP: status hanya 'Sudah dibayar' bila pembayaran Approved", D.dpPaymentStatus({ status: "Draft", payment_id: null, paid_amount: 0 }).key === "unpaid"
+  && D.dpPaymentStatus({ status: "Draft", payment_id: "p1", paid_amount: 0 }).key === "pending"
+  && D.dpPaymentStatus({ status: "Approved", payment_id: "p1", paid_amount: 300000, dp_no: "DP-1" }).label === "Sudah dibayar · DP-1"
+  && D.dpPaymentStatus(null) === null);
 
 console.log(fail ? `FAILED ${fail}` : "ALL PASSED");
 process.exit(fail ? 1 : 0);
