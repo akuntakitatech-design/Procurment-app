@@ -24,11 +24,12 @@ const v2 = { no: "PO/115/VII/OMSS/2026", date: "2026-07-23", status: "Approved",
 const H = (doc, o = {}) => realPoHtml({ doc, company: { name: "PT. Rajawali Emas Ancora Lestari", address: "Yard Balai Raja" }, layout: { ...layout, ...(o.layout || {}) },
   logoImg: "data:image/png;base64,LOGO", supplier: { name: "PT Supplier Uji", contacts: [{ name: "Marketing Uji", phone: "0822", is_primary: true }], banks: [{ bank_name: "Bank Mandiri", account_no: "172-000", account_name: "PT Supplier Uji", is_primary: true }] },
   project: { name: "WUR-MD" }, signatureImg: SIG, showPrice: o.showPrice ?? true, internal: !!o.internal, autoPrint: o.autoPrint ?? false });
-const sum = (h) => [...h.matchAll(/data-sum="([^"]+)"><td class="sum-spacer" colspan="5"><\/td><td class="sum-label" colspan="2">([\s\S]*?)<\/td><td class="sum-value">([^<]*)<\/td>/g)].map((m) => [m[1], m[2].replace(/<[^>]+>/g, "").trim(), m[3]]);
+const sum = (h) => [...h.matchAll(/data-sum="([^"]+)">[\s\S]*?<td class="sum-label" colspan="2">([\s\S]*?)<\/td><td class="sum-value">([^<]*)<\/td>/g)].map((m) => [m[1], m[2].replace(/<[^>]+>/g, "").trim(), m[3]]);
 
 // ---------------------------------------------------------------- struktur & desain manual
 const h = H(v2);
-check("A4 portrait + margin halaman dari layout", h.includes("@page{size:A4 portrait;margin:10mm}"));
+check("A4 portrait + margin aman printer (atas/bawah 12 mm, kiri/kanan 15 mm) walau layout 10 mm", h.includes("@page{size:A4 portrait;margin:12mm 15mm}") && h.includes("@media screen{body{padding:12mm 15mm}}"));
+check("margin layout lebih besar dari batas aman tetap dipakai", realPoHtml({ doc: v2, company: {}, layout: { ...layout, margin_mm: 18 }, showPrice: true, autoPrint: false }).includes("@page{size:A4 portrait;margin:18mm 18mm}"));
 check("teks & garis hitam formal (bukan warna tema)", /body\{color:#000;/.test(h) && h.includes(".25mm solid #000"));
 check("header: logo, nama perusahaan, judul PURCHASE ORDER", h.includes('class="real-logo" src="data:image/png;base64,LOGO"') && h.includes('<div class="brand-name">PT. Rajawali Emas Ancora Lestari</div>') && h.includes('<div class="po-title">PURCHASE ORDER</div>'));
 check("Delivery To + Project + Bill To", h.includes("Please Delivery to :") && h.includes("Project WUR-MD") && h.includes("Please Bill to :"));
@@ -38,7 +39,7 @@ check("kolom tabel = manual: No | Description | No. SPK | Qty(2) | Price | Disco
 check("header tabel berulang per halaman, garis penutup berulang, ringkasan TIDAK berulang (tabel terpisah)", h.includes(".items thead{display:table-header-group}.items tfoot.page-close{display:table-footer-group}") && h.includes('<tfoot class="page-close">') && h.includes('<table class="items sums keep" data-section="summary">') && !/<tfoot>[\s\S]*data-sum=/.test(h));
 check("penanda halaman lanjutan (hal. 2 dst.) memuat No. PO; halaman 1 bersih", h.includes('@top-right{content:"PO/115/VII/OMSS/2026  ·  Halaman " counter(page)') && h.includes("@page:first{@top-right{content:none}}"));
 check("No. PO berisi tanda kutip tidak merusak CSS halaman", !realPoHtml({ doc: { ...v2, no: 'PO"X\\Y' }, company: {}, layout, showPrice: true, autoPrint: false }).includes('content:"PO"X'));
-check("baris grup referensi MRO/RO (\"MRO 2248\")", h.includes('<td class="grp-label" colspan="2">MRO 2248  ·  RO/1</td>'));
+check("baris grup referensi hanya MRO (\"MRO 2248\"), nomor RO tidak dicetak", h.includes('<td class="grp-label" colspan="2">MRO 2248</td>') && !h.includes("RO/1"));
 check("harga tanpa 'Rp', diskon kosong '-', amount = DPP baris tersimpan", h.includes('<td class="r price">980.000</td><td class="r discount">-</td><td class="r amount">29.400.000</td>'));
 check("rekening, Approved by / Signed by, footer alamat multi-baris", h.includes("Pembayaran dilakukan ke Rekening :") && h.includes("172-000") && h.includes("Approved by,") && h.includes("Signed by,") && h.includes('<div class="page-footer">Gedung Uji, Lt. 20<br/>Phone: 021-000</div>'));
 check("syarat: heading tebal, nomor gantung, butir *", h.includes('<div class="term-heading">Term and Condition</div>') && h.includes('<span class="term-no">1</span><span class="term-text">Barang wajib dikirim 7 hari</span>') && h.includes('<div class="term-item bullet"><span class="term-no">*</span><span class="term-text">Faktur Pajak (Jika PKP)</span>'));
@@ -60,11 +61,11 @@ const inc = { ...v2, dp_enabled: false, gross_total: 1000000, subtotal_after_dis
 const hi = H(inc), si = sum(hi);
 check("PPN Include: 'Total Setelah Diskon' (harga termasuk PPN) + Nilai Sebelum PPN + PPN 12%", si.some((r) => r[0] === "after_disc" && /harga Include sudah termasuk PPN/.test(r[1])) && si.some((r) => r[0] === "before_ppn" && r[2] === "892.857,14") && si.some((r) => r[1] === "PPN 12%"), si);
 check("tanpa DP: tidak ada baris DP / Sisa Pembayaran", !hi.includes("Sisa Pembayaran") && !hi.includes('data-sum="dp"'));
-check("keterangan perlakuan PPN per baris (Include · PPN 12% · 01)", hi.includes('<div class="tax-note">Include · PPN 12% · 01</div>'));
+check("tidak ada keterangan Include/Exclude/Tanpa PPN per barang", !hi.includes("tax-note") && !/Include ·|Exclude ·|· PPN/.test(hi) && !h.includes("tax-note"));
 const none = { ...inc, dpp_total: 0, non_ppn_total: 500000, tax_total: 0, grand_total: 500000, gross_total: 500000, subtotal_after_discount: 500000, tax_groups: [], tax_rules_snapshot: [],
   lines: [{ id: "y", item_name: "Jasa", qty: 1, price: 500000, dpp: 500000, tax_mode: "NONE" }] };
 const sn = sum(H(none));
-check("Tanpa PPN: PPN 0, label 'PPN', tanpa rincian kelompok", sn.some((r) => r[0] === "ppn" && r[1] === "PPN" && r[2] === "0") && !H(none).includes("Rincian Pajak per Kelompok") && H(none).includes("Tanpa PPN"), sn);
+check("Tanpa PPN: PPN 0, label 'PPN', tanpa rincian kelompok", sn.some((r) => r[0] === "ppn" && r[1] === "PPN" && r[2] === "0") && !H(none).includes("Rincian Pajak per Kelompok") && !H(none).includes("tax-note"), sn);
 const combo = { ...v2, dp_type: "nominal", dp_value: 25000000, dp_amount: 25000000, dp_remaining: 2394920, item_discount_total: 200000, final_discount_amount: 545000, gross_total: 27450000, subtotal_after_discount: 26705000,
   dpp_total: 25056500, non_ppn_total: 735000, dpp_other_total: 23602833.33, tax_total: 1603420, tax_facility_total: 1228920, grand_total: 27394920, payment_notes: "DP 7 hari kerja",
   tax_groups: [{ group: grp, trx_code: "04", dpp: 6272000, dpp_other: 5749333.33, ppn: 689920 }, { group: "01|NORMAL|12|1|1", trx_code: "01", dpp: 7612500, dpp_other: 7612500, ppn: 913500 }, { group: "07|TIDAK_DIPUNGUT|12|11|12", trx_code: "07", facility: "TIDAK_DIPUNGUT", dpp: 11172000, dpp_other: 10241000, ppn: 0, ppn_facility: 1228920 }],
@@ -72,6 +73,7 @@ const combo = { ...v2, dp_type: "nominal", dp_value: 25000000, dp_amount: 250000
 const hc = H(combo), sc = sum(hc);
 check("kombinasi: diskon item/final, Tanpa PPN, fasilitas, PPN 12% (tarif tunggal)", ["gross", "item_disc", "final_disc", "after_disc", "before_ppn", "non_ppn", "dpp_other", "ppn", "ppn_facility", "grand", "dp", "remaining"].every((k) => sc.some((r) => r[0] === k)) && sc.find((r) => r[0] === "ppn")[1] === "PPN 12%", sc.map((r) => r[0]));
 check("kombinasi: rincian pajak per kelompok tampil (04, 01, 07 tidak ditagih, Barang Tanpa PPN)", hc.includes("Rincian Pajak per Kelompok") && hc.includes("(Kode 07) — tidak ditagih") && hc.includes("Barang Tanpa PPN"));
+check("kombinasi: rincian pajak di area kosong kiri ringkasan (sel spacer rowspan), bukan blok terpisah", /<td class="sum-spacer" colspan="5" rowspan="\d+"><div class="tax-groups keep" data-section="tax-groups">/.test(hc) && (hc.match(/data-section="tax-groups"/g) || []).length === 1);
 check("DP nominal: label 'DP' + nilai tersimpan + Ketentuan Pembayaran (catatan)", sc.find((r) => r[0] === "dp")[1] === "DP" && sc.find((r) => r[0] === "remaining")[2] === "2.394.920" && hc.includes("Ketentuan Pembayaran") && hc.includes("DP 7 hari kerja"));
 check("PPN tunggal 1 kelompok: rincian kelompok tidak diulang (sudah di ringkasan)", !h.includes("Rincian Pajak per Kelompok"));
 const v1 = { no: "PO-LAMA", status: "Approved", grand_total: 6660, subtotal_after_discount: 6000, lines: [{ item_name: "A", qty: 2, price: 3000, tax: 11, tax_amount: 660 }] };
