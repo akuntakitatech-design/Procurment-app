@@ -28,8 +28,8 @@ const sum = (h) => [...h.matchAll(/data-sum="([^"]+)">[\s\S]*?<td class="sum-lab
 
 // ---------------------------------------------------------------- struktur & desain manual
 const h = H(v2);
-check("A4 portrait + margin aman printer (atas/bawah 12 mm, kiri/kanan 15 mm) walau layout 10 mm", h.includes("@page{size:A4 portrait;margin:12mm 15mm}") && h.includes("@media screen{body{padding:12mm 15mm}}"));
-check("margin layout lebih besar dari batas aman tetap dipakai", realPoHtml({ doc: v2, company: {}, layout: { ...layout, margin_mm: 18 }, showPrice: true, autoPrint: false }).includes("@page{size:A4 portrait;margin:18mm 18mm}"));
+check("A4 portrait + margin dari layout (data lama margin_mm 10 -> 4 sisi 10 mm), tanpa margin tetap di template", h.includes("@page{size:A4 portrait;margin:10mm 10mm 10mm 10mm}") && h.includes("@media screen{body{padding:10mm 10mm 10mm 10mm}"));
+check("margin per sisi dari layout dipakai apa adanya (atas 25, kanan 10, bawah 15, kiri 20)", realPoHtml({ doc: v2, company: {}, layout: { ...layout, margin_top_mm: 25, margin_right_mm: 10, margin_bottom_mm: 15, margin_left_mm: 20 }, showPrice: true, autoPrint: false }).includes("@page{size:A4 portrait;margin:25mm 10mm 15mm 20mm}"));
 check("teks & garis hitam formal (bukan warna tema)", /body\{color:#000;/.test(h) && h.includes(".25mm solid #000"));
 check("header: logo, nama perusahaan, judul PURCHASE ORDER", h.includes('class="real-logo" src="data:image/png;base64,LOGO"') && h.includes('<div class="brand-name">PT. Rajawali Emas Ancora Lestari</div>') && h.includes('<div class="po-title">PURCHASE ORDER</div>'));
 check("Delivery To + Project + Bill To", h.includes("Please Delivery to :") && h.includes("Project WUR-MD") && h.includes("Please Bill to :"));

@@ -14,6 +14,9 @@ MODULES = {
 }
 
 SECTIONS = ["header", "meta", "items", "message", "signatures", "footer"]
+# Margin cetak per sisi (mm). Rentang validasi sama dengan margin_mm lama.
+MARGIN_SIDES = ("margin_top_mm", "margin_right_mm", "margin_bottom_mm", "margin_left_mm")
+MARGIN_MIN, MARGIN_MAX = 5, 30
 COLUMNS = ["item", "qty", "unit", "spk", "price", "discount", "tax", "total", "notes"]
 META = ["date", "status", "requester", "receiver", "supplier", "buyer", "payment_term", "delivery_term", "division", "warehouse", "project", "unit", "supplier_invoice", "notes"]
 
@@ -28,7 +31,12 @@ def default_layout(code, title):
         "font_family": "Arial",
         "font_size": 11,
         "primary_color": "#17396f" if is_po else "#1e3a8a",
-        "margin_mm": 10 if is_po else 12,
+        "margin_mm": 10 if is_po else 12,  # legacy (satu nilai); sumber kebenaran = 4 sisi di bawah
+        # Default rekomendasi (dapat diubah di Layout Dokumen): PO REAL atas/bawah 12, kiri/kanan 15.
+        "margin_top_mm": 12,
+        "margin_right_mm": 15 if is_po else 12,
+        "margin_bottom_mm": 12,
+        "margin_left_mm": 15 if is_po else 12,
         "logo_width_mm": 24 if is_po else 28,
         "header_style": "classic",
         "template_style": "real_reference" if is_po else "generic",
@@ -57,7 +65,7 @@ def _normalize_one(raw, code, title):
     src = raw if isinstance(raw, dict) else {}
     out = default_layout(code, title)
     allowed_scalar = {
-        "title", "paper_size", "orientation", "font_family", "font_size", "primary_color", "margin_mm", "logo_width_mm",
+        "title", "paper_size", "orientation", "font_family", "font_size", "primary_color", "margin_mm", "logo_width_mm", *MARGIN_SIDES,
         "header_style", "template_style", "show_logo", "show_company_address", "show_qr", "show_message", "show_signatures", "footer_text",
         "po_delivery_company_name", "po_bill_company_name", "po_bill_address", "po_bill_contact", "po_bill_phone", "po_approved_name", "po_approved_company",
     }
@@ -76,9 +84,15 @@ def _normalize_one(raw, code, title):
         out["meta_fields"] = meta
     if signatures:
         out["signature_labels"] = signatures
+    # Migrasi data lama: layout tersimpan hanya punya margin_mm -> keempat sisi memakai nilai itu.
+    if "margin_mm" in src and not any(k in src for k in MARGIN_SIDES):
+        for k in MARGIN_SIDES:
+            out[k] = src["margin_mm"]
     try:
         out["font_size"] = max(8, min(16, float(out["font_size"])))
-        out["margin_mm"] = max(5, min(30, float(out["margin_mm"])))
+        out["margin_mm"] = max(MARGIN_MIN, min(MARGIN_MAX, float(out["margin_mm"])))
+        for k in MARGIN_SIDES:
+            out[k] = float(max(MARGIN_MIN, min(MARGIN_MAX, float(out[k]))))
         out["logo_width_mm"] = max(10, min(60, float(out["logo_width_mm"])))
     except (TypeError, ValueError):
         raise HTTPException(400, "Ukuran font, margin, atau logo tidak valid")

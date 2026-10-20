@@ -4,6 +4,7 @@ import { dpRows } from "@/lib/poDp";
 import { isPoV2, poV2SummaryRows, fmtIdr } from "@/lib/poTaxPrint";
 import { buildPoPrintHtml, poApproved } from "@/lib/poPrintReal";
 import { printImage, companyLogoPath, poSignaturePath } from "@/lib/printAssets";
+import { layoutMargins, cssMargin, mergeLayout } from "@/lib/printMargins";
 
 export { realPoHtml, buildPoPrintHtml, poRefGroups, poRefLabel, poSpkCell, renderTermsMessage } from "@/lib/poPrintReal";
 
@@ -44,6 +45,7 @@ const defaultLayout = (type, title) => {
     font_size: 11,
     primary_color: po ? "#17396f" : "#1e3a8a",
     margin_mm: po ? 10 : 12,
+    margin_top_mm: 12, margin_right_mm: po ? 15 : 12, margin_bottom_mm: 12, margin_left_mm: po ? 15 : 12,
     logo_width_mm: po ? 24 : 28,
     header_style: "classic",
     template_style: po ? "real_reference" : "generic",
@@ -173,7 +175,7 @@ export async function printDoc(type, doc, opts = {}) {
   let savedLayouts = {};
   try { savedLayouts = (await api.get("/settings/print_layouts")).data?.modules || {}; } catch {}
   const key = moduleKey(type);
-  const layout = { ...defaultLayout(type, opts.title || type), ...(savedLayouts[key] || {}) };
+  const layout = mergeLayout(defaultLayout(type, opts.title || type), savedLayouts[key] || {});
   if (key === "po" && !layout.template_style) layout.template_style = "real_reference";
   layout.sections = layout.sections?.length ? layout.sections : [...DEFAULT_SECTIONS];
   layout.columns = layout.columns?.length ? layout.columns : [...DEFAULT_COLUMNS];
@@ -294,7 +296,7 @@ export async function printDoc(type, doc, opts = {}) {
 
   const primary = layout.primary_color || "#1e3a8a";
   const fontSize = Number(layout.font_size) || 11;
-  const margin = Number(layout.margin_mm) || 12;
+  const margins = layoutMargins(layout);
   const paper = layout.paper_size || "A4";
   const orientation = layout.orientation || "portrait";
   const font = layout.font_family || "Arial";
@@ -303,9 +305,10 @@ export async function printDoc(type, doc, opts = {}) {
 
   const html = `<!doctype html><html><head><title>${esc(doc.no)}</title>
   <style>
-    @page{size:${paper} ${orientation};margin:0}
+    @page{size:${paper} ${orientation};margin:${cssMargin(margins)}}
     *{box-sizing:border-box}
-    body{margin:0;padding:${margin}mm;color:#111;font-family:${font},sans-serif;font-size:${fontSize}px;-webkit-print-color-adjust:exact;print-color-adjust:exact;position:relative}
+    @media screen{body{padding:${cssMargin(margins)}!important}}
+    body{margin:0;padding:0;color:#111;font-family:${font},sans-serif;font-size:${fontSize}px;-webkit-print-color-adjust:exact;print-color-adjust:exact;position:relative}
     .draft-watermark{position:fixed;left:50%;top:48%;transform:translate(-50%,-50%) rotate(-32deg);font-size:74px;font-weight:900;letter-spacing:8px;color:#6b7280;opacity:.14;z-index:9999;pointer-events:none}
     .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding-bottom:10px;margin-bottom:13px;border-bottom:3px solid ${primary}}
     .hd.minimal{border-bottom:1px solid #cbd5e1}.hd.boxed{border:1px solid #cbd5e1;border-left:5px solid ${primary};padding:10px}
