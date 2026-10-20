@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import api, { API, apiError } from "@/lib/api";
-import { buildPoPrintHtml, PRINT_SAFE_MM } from "@/lib/poPrintReal";
+import { buildPoPrintHtml } from "@/lib/poPrintReal";
+import { MARGIN_SIDES, MARGIN_LABELS, MARGIN_RANGE, marginKey, layoutMargins, mergeLayout, PRINT_DIALOG_HINT } from "@/lib/printMargins";
 import { printImage, companyLogoPath, poSignaturePath } from "@/lib/printAssets";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
@@ -38,6 +39,8 @@ const defaultLayout = (code, name) => {
     font_size: 11,
     primary_color: po ? "#17396f" : "#1e3a8a",
     margin_mm: po ? 10 : 12,
+    // default rekomendasi (sama dengan backend); nilai tersimpan selalu menang
+    margin_top_mm: 12, margin_right_mm: po ? 15 : 12, margin_bottom_mm: 12, margin_left_mm: po ? 15 : 12,
     logo_width_mm: po ? 24 : 28,
     header_style: "classic",
     template_style: po ? "real_reference" : "generic",
@@ -62,13 +65,14 @@ const defaultLayout = (code, name) => {
   };
 };
 
-const normalize = (src, code, name) => ({
-  ...defaultLayout(code, name), ...(src || {}),
+const withMarginSides = (l) => { const m = layoutMargins(l); return { ...l, ...Object.fromEntries(MARGIN_SIDES.map((x) => [marginKey(x), m[x]])) }; };
+const normalize = (src, code, name) => withMarginSides({
+  ...mergeLayout(defaultLayout(code, name), src || {}),
   sections: src?.sections?.length ? src.sections : [...DEFAULT_SECTIONS],
   columns: src?.columns?.length ? src.columns : defaultLayout(code, name).columns,
   meta_fields: src?.meta_fields?.length ? src.meta_fields : META_FIELDS.map(([key]) => key),
   signature_labels: src?.signature_labels?.length ? src.signature_labels : defaultLayout(code, name).signature_labels,
-});
+}); // sisi kosong/di luar rentang -> nilai efektif (sama dengan yang dipakai cetak) sebelum disimpan
 
 function move(arr, idx, dir) {
   const out = [...arr]; const j = idx + dir;
@@ -95,6 +99,21 @@ const SAMPLE_ALLOC = [{ item_line_id: "c", allocations: [{ spk_number: "SPK/001"
 const SAMPLE_SUPPLIER = { name: "PT. Supplier Contoh", contacts: [{ name: "Marketing Supplier", phone: "+62 822-0000-0000", is_primary: true }], banks: [{ bank_name: "Bank Contoh", account_no: "000-000-000-000-0", account_name: "PT. Supplier Contoh", is_primary: true }] };
 const A4_PX = [794, 1123];
 
+function MarginFields({ layout, setLayout }) {
+  const m = layoutMargins(layout);
+  const setSide = (side, v) => setLayout({ [marginKey(side)]: v === "" ? "" : Number(v) });
+  const setAll = (v) => { const n = v === "" ? "" : Number(v); setLayout(Object.fromEntries([...MARGIN_SIDES.map((x) => [marginKey(x), n]), ["margin_mm", n]])); };
+  const same = MARGIN_SIDES.every((x) => m[x] === m.top);
+  const out = (v) => v !== "" && v !== undefined && (Number(v) < MARGIN_RANGE.min || Number(v) > MARGIN_RANGE.max);
+  return <div className="col-span-2 rounded-lg border p-3 space-y-2" data-testid="print-margin-fields">
+    <div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">Margin Cetak (mm)</span>
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">Semua sisi<Input type="number" min={MARGIN_RANGE.min} max={MARGIN_RANGE.max} step="0.5" className="h-8 w-20" value={same ? m.top : ""} placeholder="–" onChange={(e) => setAll(e.target.value)} data-testid="print-margin-all-input" aria-label="Margin semua sisi (mm)"/></label></div>
+    <div className="grid grid-cols-4 gap-2">{MARGIN_SIDES.map((side) => { const v = layout[marginKey(side)]; return <label key={side} className="text-xs text-muted-foreground space-y-1"><span>{MARGIN_LABELS[side]}</span>
+      <Input type="number" min={MARGIN_RANGE.min} max={MARGIN_RANGE.max} step="0.5" value={v ?? ""} onChange={(e) => setSide(side, e.target.value)} aria-invalid={out(v)} className={out(v) ? "border-destructive" : ""} data-testid={`print-margin-${side}-input`}/></label>; })}</div>
+    <p className="text-xs text-muted-foreground" data-testid="print-margin-help">Rentang {MARGIN_RANGE.min}–{MARGIN_RANGE.max} mm per sisi; nilai di luar rentang disesuaikan saat disimpan. Dipakai langsung oleh pratinjau, Print, dan Save as PDF. {PRINT_DIALOG_HINT}</p>
+  </div>;
+}
+
 function RealPoPreview({ layout, signature }) {
   const [company, setCompany] = useState({});
   const [logoImg, setLogoImg] = useState("");
@@ -116,14 +135,16 @@ function RealPoPreview({ layout, signature }) {
   }, []);
   const html = useMemo(() => buildPoPrintHtml({
     doc: { ...SAMPLE_PO, status: sampleStatus }, allocLines: SAMPLE_ALLOC, company, layout, supplier: SAMPLE_SUPPLIER, project: { name: "Contoh Proyek" }, showPrice: true, internal: false, autoPrint: false,
-    logoImg: layout.show_logo === false ? "" : logoImg, signatureImg,
+    logoImg: layout.show_logo === false ? "" : logoImg, signatureImg, marginGuides: true,
   }), [company, layout, logoImg, signatureImg, sampleStatus]);
+  const pm = layoutMargins(layout);
   const scale = Math.min(1, width / A4_PX[0]);
   return <div className="space-y-2">
     <div className="flex items-center gap-2 text-xs" data-testid="po-preview-status-toggle">
       <span className="text-muted-foreground">Contoh status:</span>
       {[["Approved", "Approved (TTD/stempel)"], ["Draft", "Draft (watermark)"]].map(([v, l]) => <Button key={v} type="button" size="sm" variant={sampleStatus === v ? "default" : "outline"} onClick={() => setSampleStatus(v)} data-testid={`po-preview-status-${v.toLowerCase()}`} aria-pressed={sampleStatus === v}>{l}</Button>)}
     </div>
+    <p className="text-xs text-muted-foreground" data-testid="po-preview-margin-summary">Garis putus-putus = batas area cetak. Margin: atas {pm.top} · kanan {pm.right} · bawah {pm.bottom} · kiri {pm.left} mm (pratinjau halaman 1, skala {Math.round(scale * 100)}%).</p>
     <div ref={boxRef} className="rounded-xl border bg-slate-100 p-0 overflow-hidden" data-testid="po-print-preview">
       <div style={{ width: A4_PX[0] * scale, height: A4_PX[1] * scale }} className="mx-auto">
         <iframe title="Pratinjau cetak PO" srcDoc={html} sandbox="allow-same-origin" data-testid="po-print-preview-frame"
@@ -147,7 +168,7 @@ function Preview({ layout, active, signature }) {
     if (key === "footer") return <div key={key} className="flex justify-between items-end text-[8px] text-slate-500"><span>{layout.footer_text}</span>{layout.show_qr && <div className="h-12 w-12 border grid place-items-center">QR</div>}</div>;
     return null;
   };
-  return <div className="rounded-xl border bg-slate-100 p-4 overflow-auto"><div className="mx-auto bg-white shadow-sm space-y-4" style={{ width: layout.orientation === "landscape" ? 560 : 400, minHeight: layout.orientation === "landscape" ? 400 : 560, padding: `${Math.max(8, Number(layout.margin_mm)||12)}px`, fontFamily: layout.font_family, fontSize: `${layout.font_size || 11}px` }}>{sections.map(section)}</div></div>;
+  return <div className="rounded-xl border bg-slate-100 p-4 overflow-auto"><div className="mx-auto bg-white shadow-sm space-y-4" style={{ width: layout.orientation === "landscape" ? 560 : 400, minHeight: layout.orientation === "landscape" ? 400 : 560, padding: (() => { const m = layoutMargins(layout); const k = (layout.orientation === "landscape" ? 560 / 297 : 400 / 210); return `${m.top * k}px ${m.right * k}px ${m.bottom * k}px ${m.left * k}px`; })(), fontFamily: layout.font_family, fontSize: `${layout.font_size || 11}px` }}>{sections.map(section)}</div></div>;
 }
 
 export default function PrintLayouts() {
@@ -173,7 +194,7 @@ export default function PrintLayouts() {
     <PageHeader title="Layout Dokumen" subtitle="Atur desain print-out setiap transaksi secara independen."><Button variant="outline" onClick={reset}><RotateCcw className="h-4 w-4 mr-2"/>Reset Modul</Button><Button onClick={save} disabled={saving}><Save className="h-4 w-4 mr-2"/>{saving?"Menyimpan...":"Simpan Layout"}</Button></PageHeader>
     <div className="grid grid-cols-1 xl:grid-cols-[460px_minmax(0,1fr)] gap-5">
       <div className="space-y-4">
-        <Card><CardContent className="pt-6 space-y-4"><Field label="Jenis Dokumen"><Combobox options={moduleOptions} value={active} onChange={setActive}/></Field>{active === "po" && <Field label="Template Visual PO"><Combobox options={[{value:"real_reference",label:"REAL — Referensi PO Existing"},{value:"generic",label:"Generic / Builder"}]} value={layout.template_style||"real_reference"} onChange={v=>setLayout({template_style:v})}/></Field>}<div className="grid grid-cols-2 gap-3"><Field label="Judul Dokumen"><Input value={layout.title} onChange={e=>setLayout({title:e.target.value})}/></Field><Field label="Ukuran Kertas"><Combobox options={[{value:"A4",label:"A4"},{value:"A5",label:"A5"},{value:"Letter",label:"Letter"}]} value={layout.paper_size} onChange={v=>setLayout({paper_size:v})}/></Field><Field label="Orientasi"><Combobox options={[{value:"portrait",label:"Portrait"},{value:"landscape",label:"Landscape"}]} value={layout.orientation} onChange={v=>setLayout({orientation:v})}/></Field><Field label="Gaya Header"><Combobox options={[{value:"classic",label:"Classic"},{value:"minimal",label:"Minimal"},{value:"boxed",label:"Boxed"}]} value={layout.header_style} onChange={v=>setLayout({header_style:v})}/></Field><Field label="Font"><Combobox options={["Arial","Inter","Helvetica","Georgia","Times New Roman"].map(v=>({value:v,label:v}))} value={layout.font_family} onChange={v=>setLayout({font_family:v})}/></Field><Field label="Ukuran Font"><Input type="number" min="8" max="16" value={layout.font_size} onChange={e=>setLayout({font_size:Number(e.target.value)})}/></Field><Field label="Margin (mm)"><Input type="number" min="5" max="30" value={layout.margin_mm} onChange={e=>setLayout({margin_mm:Number(e.target.value)})} data-testid="print-margin-input"/>{active === "po" && (layout.template_style||"real_reference") === "real_reference" && <p className="mt-1 text-xs text-muted-foreground" data-testid="po-safe-margin-hint">Cetak PO REAL memakai margin aman minimal {PRINT_SAFE_MM.x} mm kiri/kanan dan {PRINT_SAFE_MM.y} mm atas/bawah.</p>}</Field><Field label="Warna Utama"><Input type="color" value={layout.primary_color} onChange={e=>setLayout({primary_color:e.target.value})}/></Field></div><div className="grid grid-cols-2 gap-2 text-sm">{[["show_logo","Tampilkan Logo"],["show_company_address","Alamat Perusahaan"],["show_qr","QR Verifikasi"],["show_message","Pesan/Ketentuan"],["show_signatures","Tanda Tangan"]].map(([k,l])=><label key={k} className="flex items-center gap-2 rounded-lg border px-3 py-2"><input type="checkbox" checked={!!layout[k]} onChange={e=>setLayout({[k]:e.target.checked})}/>{l}</label>)}</div></CardContent></Card>
+        <Card><CardContent className="pt-6 space-y-4"><Field label="Jenis Dokumen"><Combobox options={moduleOptions} value={active} onChange={setActive}/></Field>{active === "po" && <Field label="Template Visual PO"><Combobox options={[{value:"real_reference",label:"REAL — Referensi PO Existing"},{value:"generic",label:"Generic / Builder"}]} value={layout.template_style||"real_reference"} onChange={v=>setLayout({template_style:v})}/></Field>}<div className="grid grid-cols-2 gap-3"><Field label="Judul Dokumen"><Input value={layout.title} onChange={e=>setLayout({title:e.target.value})}/></Field><Field label="Ukuran Kertas"><Combobox options={[{value:"A4",label:"A4"},{value:"A5",label:"A5"},{value:"Letter",label:"Letter"}]} value={layout.paper_size} onChange={v=>setLayout({paper_size:v})}/></Field><Field label="Orientasi"><Combobox options={[{value:"portrait",label:"Portrait"},{value:"landscape",label:"Landscape"}]} value={layout.orientation} onChange={v=>setLayout({orientation:v})}/></Field><Field label="Gaya Header"><Combobox options={[{value:"classic",label:"Classic"},{value:"minimal",label:"Minimal"},{value:"boxed",label:"Boxed"}]} value={layout.header_style} onChange={v=>setLayout({header_style:v})}/></Field><Field label="Font"><Combobox options={["Arial","Inter","Helvetica","Georgia","Times New Roman"].map(v=>({value:v,label:v}))} value={layout.font_family} onChange={v=>setLayout({font_family:v})}/></Field><Field label="Ukuran Font"><Input type="number" min="8" max="16" value={layout.font_size} onChange={e=>setLayout({font_size:Number(e.target.value)})}/></Field><MarginFields layout={layout} setLayout={setLayout}/><Field label="Warna Utama"><Input type="color" value={layout.primary_color} onChange={e=>setLayout({primary_color:e.target.value})}/></Field></div><div className="grid grid-cols-2 gap-2 text-sm">{[["show_logo","Tampilkan Logo"],["show_company_address","Alamat Perusahaan"],["show_qr","QR Verifikasi"],["show_message","Pesan/Ketentuan"],["show_signatures","Tanda Tangan"]].map(([k,l])=><label key={k} className="flex items-center gap-2 rounded-lg border px-3 py-2"><input type="checkbox" checked={!!layout[k]} onChange={e=>setLayout({[k]:e.target.checked})}/>{l}</label>)}</div></CardContent></Card>
 
         {active === "po" && layout.template_style === "real_reference" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Detail Template REAL</div><div className="text-xs text-muted-foreground">Kosongkan field yang ingin mengambil data otomatis dari perusahaan/master supplier/proyek.</div></div><Field label="Nama Perusahaan - Delivery To"><Input value={layout.po_delivery_company_name||""} onChange={e=>setLayout({po_delivery_company_name:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field><Field label="Nama Perusahaan - Bill To"><Input value={layout.po_bill_company_name||""} onChange={e=>setLayout({po_bill_company_name:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field><Field label="Alamat Bill To"><Input value={layout.po_bill_address||""} onChange={e=>setLayout({po_bill_address:e.target.value})} placeholder="Otomatis dari alamat perusahaan"/></Field><div className="grid grid-cols-2 gap-3"><Field label="Up / PIC Bill To"><Input value={layout.po_bill_contact||""} onChange={e=>setLayout({po_bill_contact:e.target.value})}/></Field><Field label="HP Bill To"><Input value={layout.po_bill_phone||""} onChange={e=>setLayout({po_bill_phone:e.target.value})}/></Field></div><div className="grid grid-cols-2 gap-3"><Field label="Approved By"><Input value={layout.po_approved_name||""} onChange={e=>setLayout({po_approved_name:e.target.value})} placeholder="Bisa otomatis dari approval"/></Field><Field label="Perusahaan Approver"><Input value={layout.po_approved_company||""} onChange={e=>setLayout({po_approved_company:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field></div></CardContent></Card>}
 

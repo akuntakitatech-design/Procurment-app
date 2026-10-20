@@ -5,6 +5,7 @@
 import { num, fmtDate } from "@/lib/format";
 import { dpRows, fmtPct } from "@/lib/poDp";
 import { isPoV2, poV2SummaryRows, poTaxGroupRows, fmtIdr } from "@/lib/poTaxPrint";
+import { layoutMargins, cssMargin, PRINT_DIALOG_HINT } from "@/lib/printMargins";
 
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const nl2br = (v) => esc(v || "").replace(/\r?\n/g, "<br/>");
@@ -23,8 +24,6 @@ export const APPROVED_PO_STATUSES = new Set(["approved", "partially received", "
 export const poApproved = (doc) => APPROVED_PO_STATUSES.has(String(doc?.status || "").trim().toLowerCase());
 
 const PAGE_MM = { A4: [210, 297], A5: [148, 210], Letter: [215.9, 279.4] };
-/** Margin minimum aman printer biasa (mm): kiri/kanan 15, atas/bawah 12. */
-export const PRINT_SAFE_MM = { x: 15, y: 12 };
 const uniq = (xs) => [...new Set((xs || []).map((x) => String(x || "").trim()).filter(Boolean))];
 
 /** Referensi dokumen sumber baris PO: MRO (backend `mro_refs`, termasuk via RO) + RO (`ro_refs`). */
@@ -144,19 +143,20 @@ function dpSummaryRows(doc, money) {
     : { key: "remaining", cls: "dp-row sum-strong", label: "Sisa Pembayaran", value: money(r.amount) });
 }
 
-export function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal, autoPrint = true }) {
+export function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal, autoPrint = true, marginGuides = false }) {
   company = company || {};
   layout = layout || {};
   const font = layout.font_family || "Arial";
   const fs = Math.max(8, Number(layout.font_size) || 11);
   const small = Math.max(7, fs - 3);
-  const marginBase = Math.max(5, Number(layout.margin_mm) || 10);
-  const marginX = Math.max(PRINT_SAFE_MM.x, marginBase);
-  const marginY = Math.max(PRINT_SAFE_MM.y, marginBase);
+  // Margin = konfigurasi Layout Dokumen per sisi (tanpa nilai tetap di template). Hanya @page yang memberi margin saat cetak
+  // (body padding 0 di print) -> tidak ada margin ganda; di layar (pratinjau/popup) margin disimulasikan dengan padding.
+  const m = layoutMargins(layout);
   const logoWidth = Number(layout.logo_width_mm) || 24;
   const paper = PAGE_MM[layout.paper_size] ? layout.paper_size : "A4";
   const orientation = layout.orientation === "landscape" ? "landscape" : "portrait";
-  const pageH = (orientation === "landscape" ? PAGE_MM[paper][0] : PAGE_MM[paper][1]) - 2 * marginY - 0.6;
+  const pageH = (orientation === "landscape" ? PAGE_MM[paper][0] : PAGE_MM[paper][1]) - m.top - m.bottom - 0.6;
+  const pageMarkOn = m.top >= 8; // penanda halaman lanjutan butuh ruang di margin atas
   const lines = doc.lines || [];
   const approved = poApproved(doc);
   const v2 = isPoV2(doc);
@@ -242,14 +242,16 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.no || "PO")}</title>
   <style>
-    @page{size:${paper} ${orientation};margin:${marginY}mm ${marginX}mm}
-    @page{@top-right{content:"${pageMark}  ·  Halaman " counter(page);font-family:${font},Arial,sans-serif;font-size:${small}px;color:#4b5563;vertical-align:bottom;padding-bottom:2mm;padding-right:.6mm}}
-    @page:first{@top-right{content:none}}
+    @page{size:${paper} ${orientation};margin:${cssMargin(m)}}
+    ${pageMarkOn ? `@page{@top-right{content:"${pageMark}  ·  Halaman " counter(page);font-family:${font},Arial,sans-serif;font-size:${small}px;color:#4b5563;vertical-align:bottom;padding-bottom:${Math.min(2, m.top / 5).toFixed(1)}mm}}
+    @page:first{@top-right{content:none}}` : ""}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff}
-    @media screen{body{padding:${marginY}mm ${marginX}mm}}
+    @media screen{body{padding:${cssMargin(m)}}.print-hint{font:12px/1.4 Arial,sans-serif;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;border-radius:6px;padding:6px 10px;margin:0 0 4mm}}
+    @media print{.print-hint{display:none!important}}
+    ${marginGuides ? `@media screen{.sheet{outline:.3mm dashed #3b82f6;outline-offset:0}}` : ""}
     body{color:#000;font-family:${font},Arial,Helvetica,sans-serif;font-size:${fs}px;line-height:1.26;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .sheet{min-height:${pageH.toFixed(1)}mm;display:flex;flex-direction:column;padding:0 .5mm}
+    .sheet{min-height:${pageH.toFixed(1)}mm;display:flex;flex-direction:column;padding:0 .15mm}
     .draft-watermark{position:fixed;left:50%;top:48%;transform:translate(-50%,-50%) rotate(-32deg);font-size:74px;font-weight:900;letter-spacing:8px;color:#6b7280;opacity:.14;z-index:9999;pointer-events:none;user-select:none}
     .top{position:relative;min-height:15mm;margin-bottom:1.2mm}.real-logo{width:${logoWidth}mm;max-height:15mm;object-fit:contain;object-position:left center;display:block}.brand-name{font-weight:700;font-size:${fs + 1}px;margin-top:.5mm}
     .po-title{position:absolute;top:2mm;left:0;right:0;text-align:center;font-size:${fs + 7}px;font-weight:700;letter-spacing:.2px;pointer-events:none}
@@ -285,7 +287,8 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     .closing{flex:1 0 auto;display:flex;flex-direction:column;break-inside:avoid;page-break-inside:avoid}
     .page-footer{margin-top:auto;padding-top:1mm;border-top:.35mm solid #000;text-align:center;font-size:${Math.max(7, fs - 1)}px;line-height:1.35}
     
-  </style></head><body>
+  </style></head><body data-margins="${m.top} ${m.right} ${m.bottom} ${m.left}">
+    ${autoPrint ? `<div class="print-hint" data-testid="print-dialog-hint">${esc(PRINT_DIALOG_HINT)} Margin dokumen ini: atas ${m.top} mm, kanan ${m.right} mm, bawah ${m.bottom} mm, kiri ${m.left} mm.</div>` : ""}
     ${!approved ? `<div class="draft-watermark">DRAFT</div>` : ""}
     <div class="sheet">
     <div class="top">
