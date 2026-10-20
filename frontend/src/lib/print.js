@@ -1,7 +1,11 @@
 import api, { API } from "@/lib/api";
 import { rupiah, num, fmtDate } from "@/lib/format";
 import { dpRows } from "@/lib/poDp";
-import { isPoV2, poTaxLineNote, poV2SummaryRows, poTaxGroupRows, fmtIdr, LINE_AMOUNT_LABEL } from "@/lib/poTaxPrint";
+import { isPoV2, poV2SummaryRows, fmtIdr } from "@/lib/poTaxPrint";
+import { buildPoPrintHtml, poApproved } from "@/lib/poPrintReal";
+import { printImage, companyLogoPath, poSignaturePath } from "@/lib/printAssets";
+
+export { realPoHtml, buildPoPrintHtml, poRefGroups, poRefLabel, poSpkCell, renderTermsMessage } from "@/lib/poPrintReal";
 
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const SPK_DOC_TYPES = new Set(["mro", "ro", "po", "do", "mi"]);
@@ -24,8 +28,6 @@ const allocText = (summary) => {
 const DEFAULT_SECTIONS = ["header", "meta", "items", "message", "signatures", "footer"];
 const DEFAULT_COLUMNS = ["item", "qty", "unit", "spk", "price", "total"];
 const DEFAULT_META = ["date", "status", "requester", "receiver", "supplier", "buyer", "payment_term", "delivery_term", "division", "warehouse", "project", "unit", "supplier_invoice", "notes"];
-const APPROVED_PO_STATUSES = new Set(["approved", "partially received", "fully received"]);
-const poApproved = (doc) => APPROVED_PO_STATUSES.has(String(doc?.status || "").trim().toLowerCase());
 
 const moduleKey = (type) => {
   const t = String(type || "").toUpperCase();
@@ -143,40 +145,8 @@ const lineValue = (key, line) => {
   return "";
 };
 
-const idrPlain = (v) => new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(Number(v || 0));
-const idrPrice = (v) => `Rp ${idrPlain(v)}`;
-const MONTHS_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
-const longDateId = (v) => {
-  if (!v) return "";
-  const s = String(v).slice(0,10).split("-");
-  if (s.length !== 3) return fmtDate(v);
-  const y = Number(s[0]), m = Number(s[1]), d = Number(s[2]);
-  if (!y || !m || !d) return fmtDate(v);
-  return `${d} ${MONTHS_ID[m-1] || ""} ${y}`;
-};
-const nl2br = (v) => esc(v || "").replace(/\n/g, "<br/>");
-
 async function getMaster(name) {
   try { return (await api.get(`/lookup/${name}?active_only=false`)).data || []; } catch { return []; }
-}
-
-function renderTermsMessage(text, spk) {
-  const raw = String(text || "").trim();
-  if (!raw && !spk) return "";
-  const lines = raw ? raw.split(/\r?\n/) : [];
-  let spkShown = !spk;
-  const html = lines.map((line) => {
-    const t = String(line || "").trim();
-    const low = t.toLowerCase();
-    if (spk && !spkShown && low.startsWith("catatan")) {
-      spkShown = true;
-      return `<div class="term-line">SPK : ${esc(spk)}</div><div class="term-heading">${esc(t)}</div>`;
-    }
-    if (low === "term and condition" || low === "term & condition" || low.startsWith("catatan")) return `<div class="term-heading">${esc(t)}</div>`;
-    if (!t) return `<div class="term-gap"></div>`;
-    return `<div class="term-line">${esc(line)}</div>`;
-  }).join("");
-  return html + (spk && !spkShown ? `<div class="term-line">SPK : ${esc(spk)}</div>` : "");
 }
 
 /** KETENTUAN PEMBAYARAN di cetak PO: syarat Uang Muka (DP) + keterangan. Bukan bukti/pencatatan pembayaran. */
@@ -187,170 +157,6 @@ function paymentTermsHtml(doc, showPrice, money) {
   const hidden = doc.dp_enabled && !showPrice ? `<div class="term-line">Uang Muka (DP) disyaratkan</div>` : "";
   const note = doc.dp_enabled ? `<div class="term-note">Syarat pembayaran pada PO — bukan bukti pembayaran.</div>` : "";
   return `<div class="terms payment-notes" data-section="payment-terms"><div class="term-heading">Ketentuan Pembayaran</div>${rows}${hidden}${note}${doc.payment_notes ? `<div class="term-line">${esc(doc.payment_notes)}</div>` : ""}</div>`;
-}
-
-/** Rincian pajak per kelompok kode faktur (nilai tersimpan), di bawah tabel barang PO v2. */
-function taxGroupsHtml(doc) {
-  const g = poTaxGroupRows(doc);
-  if (!g.length) return "";
-  const non = Number(doc.non_ppn_total || 0);
-  return `<div class="tax-groups" data-section="tax-groups"><div class="tax-groups-title">Rincian Pajak per Kelompok</div><table><thead><tr><th>Kelompok</th><th class="r">DPP</th><th class="r">DPP Nilai Lain</th><th class="r">PPN</th></tr></thead><tbody>${g.map((x) => `<tr><td>${esc(x.label)}${x.facility ? " — tidak ditagih" : ""}</td><td class="r">${fmtIdr(x.dpp)}</td><td class="r">${fmtIdr(x.dpp_other)}</td><td class="r">${x.facility ? `0 (${fmtIdr(x.facility)})` : fmtIdr(x.ppn)}</td></tr>`).join("")}${non ? `<tr><td>Barang Tanpa PPN</td><td class="r">${fmtIdr(non)}</td><td class="r">–</td><td class="r">–</td></tr>` : ""}</tbody></table></div>`;
-}
-
-export function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal }) {
-  const primary = layout.primary_color || "#17396f";
-  const font = layout.font_family || "Arial";
-  const fontSize = Math.max(8, Number(layout.font_size) || 11);
-  const margin = Math.max(5, Number(layout.margin_mm) || 10);
-  const logoWidth = Number(layout.logo_width_mm) || 24;
-  const lines = doc.lines || [];
-  const approved = poApproved(doc);
-
-  const contacts = supplier?.contacts || [];
-  const marketing = contacts.find(x => x.is_primary) || contacts[0] || {};
-  const banks = supplier?.banks || [];
-  const bank = banks.find(x => x.id === doc.supplier_bank_id) || banks.find(x => x.is_primary) || banks[0] || {};
-  const bankName = doc.supplier_bank_name || bank.bank_name || "";
-  const bankNo = doc.supplier_bank_account_no || bank.account_no || "";
-  const bankAccountName = doc.supplier_bank_account_name || bank.account_name || supplier?.legal_name || supplier?.name || doc.supplier_name || "";
-
-  const deliveryCompany = layout.po_delivery_company_name || company.name || "";
-  const billCompany = layout.po_bill_company_name || company.name || "";
-  const billAddress = layout.po_bill_address || company.address || "";
-  const deliveryProject = project?.name ? `Project ${project.name}` : "";
-  const deliveryAddress = company.address || "";
-
-  const taxAmount = lines.reduce((a,l) => a + Number(l.tax_amount || 0), 0);
-  const grand = Number(doc.grand_total ?? taxAmount);
-  const grossTotal = lines.reduce((a,l) => { const f = Number(l.conversion_factor)||1; const q = l.display_qty ?? ((Number(l.qty)||0)/f); const p = l.display_price ?? ((Number(l.price)||0)*f); return a + Number(q||0)*Number(p||0); }, 0);
-  const itemDiscTotal = lines.reduce((a,l) => a + Number(l.discount||0), 0);
-  const finalDiscAmt = Number(doc.final_discount_amount || 0);
-  const afterDisc = Number(doc.subtotal_after_discount ?? (grossTotal - itemDiscTotal - finalDiscAmt));
-  const rates = [...new Set(lines.map(l => Number(l.tax || 0)).filter(x => x > 0))];
-  const taxLabel = rates.length === 1 ? `PPN ${num(rates[0])}%` : (taxAmount ? "Pajak" : "PPN");
-
-  const v2 = isPoV2(doc); // F2: PO v2 -> ringkasan dari nilai tersimpan Tax Engine (PO lama v1 tidak berubah)
-  const itemRows = lines.map((l,i) => {
-    const factor = Number(l.conversion_factor) || 1;
-    const q = l.display_qty ?? ((Number(l.qty)||0)/factor);
-    const p = l.display_price ?? ((Number(l.price)||0)*factor);
-    const amount = Number(l.dpp ?? (Number(q||0)*Number(p||0)-Number(l.discount||0)));
-    const financialCells = showPrice ? `<td class="r price">${idrPrice(p)}</td><td class="r discount">${Number(l.discount||0) ? idrPlain(l.discount) : ""}</td><td class="r amount">${idrPlain(amount)}</td>` : "";
-    return `<tr>
-      <td class="c no">${i+1}</td>
-      <td class="desc">${poDescCell(l)}${v2 && showPrice ? `<div class="tax-note">${esc(poTaxLineNote(l))}</div>` : ""}</td>
-      <td class="ket">${esc(l.notes || "")}</td>
-      <td class="c qty">${num(q)}</td>
-      <td class="c unit">${esc(l.display_unit || l.unit || "")}</td>
-      <td class="alok">${esc(l._spk_alloc || "Non-SPK")}</td>
-      ${financialCells}
-    </tr>`;
-  }).join("");
-
-  const approvedTask = [...(doc.approvals || [])].reverse().find(a => String(a.status || "").toLowerCase() === "approved" && a.acted_by);
-  const approvedName = layout.po_approved_name || approvedTask?.acted_by || "";
-  const approvedCompany = layout.po_approved_company || company.name || "";
-  const signedName = marketing.name || "";
-  const supplierCompany = supplier?.legal_name || supplier?.name || doc.supplier_name || "";
-
-  const terms = layout.show_message ? renderTermsMessage(doc.document_message, doc.spk) : "";
-
-  // Reason Audit Trail (INTERNAL ONLY): list price-change-override reasons per line. Never
-  // rendered on the external/supplier copy so internal pricing control stays confidential.
-  const overrideLines = internal ? (lines || []).filter((l) => String(l.price_status || "") === "Price Override" || String(l.price_change_reason || "").trim()) : [];
-  const reasonSection = overrideLines.length ? `<div class="price-reason"><div class="price-reason-title">Catatan Perubahan Harga (Internal)</div><table class="reason-table"><thead><tr><th>Barang</th><th>No. Kontrak</th><th class="r">Harga Kontrak</th><th class="r">Harga PO</th><th class="r">Selisih</th><th>Alasan</th></tr></thead><tbody>${overrideLines.map((l) => {
-    const cp = Number(l.contract_price_snapshot || 0);
-    const pp = Number(l.display_price ?? ((Number(l.price) || 0) * (Number(l.conversion_factor) || 1)));
-    const varRp = pp - cp;
-    const varPct = cp ? ` (${varRp >= 0 ? "+" : ""}${(varRp / cp * 100).toFixed(2)}%)` : "";
-    return `<tr><td>${esc(l.item_name || l.item_code || "")}</td><td>${esc(l.contract_number_snapshot || "-")}</td><td class="r">${cp ? idrPlain(cp) : "-"}</td><td class="r">${idrPlain(pp)}</td><td class="r">${varRp >= 0 ? "+" : "-"}${idrPlain(Math.abs(varRp))}${esc(varPct)}</td><td>${esc(l.price_change_reason || "-")}</td></tr>`;
-  }).join("")}</tbody></table></div>` : "";
-  const qrHtml = layout.show_qr && code ? `<div class="verify">Verification Code: ${esc(code)}</div>` : "";
-  const approvedSignature = approved && signatureImg ? `<img class="approved-signature" src="${signatureImg}"/>` : "";
-  const colgroup = showPrice
-    ? `<colgroup><col style="width:4%"><col style="width:22%"><col style="width:14%"><col style="width:6%"><col style="width:7%"><col style="width:15%"><col style="width:12%"><col style="width:8%"><col style="width:12%"></colgroup>`
-    : `<colgroup><col style="width:5%"><col style="width:28%"><col style="width:20%"><col style="width:8%"><col style="width:9%"><col style="width:30%"></colgroup>`;
-  const tableHead = showPrice
-    ? `<thead><tr><th>No</th><th>Description</th><th>Keterangan</th><th colspan="2">Qty</th><th>Alokasi SPK</th><th>Price</th><th>Discount</th><th>${v2 ? esc(LINE_AMOUNT_LABEL) : "Amount"}</th></tr></thead>`
-    : `<thead><tr><th>No</th><th>Description</th><th>Keterangan</th><th colspan="2">Qty</th><th>Alokasi SPK</th></tr></thead>`;
-  const totals = showPrice && v2 ? `<tfoot>
-        ${poV2SummaryRows(doc).map((r) => `<tr class="${r.grand ? "grand" : r.sub ? "sum-sub" : r.strong ? "sum-strong" : ""}" data-sum="${esc(r.key)}"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${r.sub ? "&#8627; " : ""}${esc(r.label)}${r.hint ? `<div class="sum-hint">${esc(r.hint)}</div>` : ""}</td><td class="sum-value">${r.neg && r.value ? "- " : ""}${r.key === "ppn_facility" ? `(${fmtIdr(r.value)})` : fmtIdr(r.value)}</td></tr>`).join("")}
-      </tfoot>` : showPrice ? `<tfoot>
-        <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Total Harga Sebelum Diskon</td><td class="sum-value">${idrPlain(grossTotal)}</td></tr>
-        ${itemDiscTotal ? `<tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Diskon Item</td><td class="sum-value">- ${idrPlain(itemDiscTotal)}</td></tr>` : ""}
-        ${finalDiscAmt ? `<tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Diskon Final</td><td class="sum-value">- ${idrPlain(finalDiscAmt)}</td></tr>` : ""}
-        <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Total Setelah Diskon</td><td class="sum-value">${idrPlain(afterDisc)}</td></tr>
-        <tr><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">${esc(taxLabel)}</td><td class="sum-value">${idrPlain(taxAmount)}</td></tr>
-        <tr class="grand"><td class="sum-spacer" colspan="6"></td><td class="sum-label" colspan="2">Grand Total</td><td class="sum-value">${idrPlain(grand)}</td></tr>
-      </tfoot>` : "";
-  const money = v2 ? fmtIdr : idrPlain;
-  const paymentNotes = paymentTermsHtml(doc, showPrice, money);
-  const taxGroups = showPrice && v2 ? taxGroupsHtml(doc) : "";
-  const emptyColspan = showPrice ? 9 : 6;
-
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.no || "PO")}</title>
-  <style>
-    @page{size:${layout.paper_size || "A4"} ${layout.orientation || "portrait"};margin:0}
-    *{box-sizing:border-box}
-    body{margin:0;padding:${margin}mm;color:${primary};font-family:${font},Arial,sans-serif;font-size:${fontSize}px;-webkit-print-color-adjust:exact;print-color-adjust:exact;background:white;position:relative}
-    .draft-watermark{position:fixed;left:50%;top:48%;transform:translate(-50%,-50%) rotate(-32deg);font-size:74px;font-weight:900;letter-spacing:8px;color:#6b7280;opacity:.14;z-index:9999;pointer-events:none;user-select:none}
-    .top{position:relative;min-height:29mm}.brand{width:46mm}.real-logo{width:${logoWidth}mm;max-height:22mm;object-fit:contain;display:block}.brand-name{font-weight:700;font-size:${Math.max(9,fontSize)}px;margin-top:2mm}.po-title{position:absolute;top:2mm;left:50%;transform:translateX(-50%);font-size:${fontSize+7}px;font-weight:800;letter-spacing:.3px;white-space:nowrap}
-    .info-grid{display:grid;grid-template-columns:46% 52%;gap:2%;align-items:start}.address-block{line-height:1.25}.address-block .label{font-weight:700;margin-top:0}.address-block .label.bill{margin-top:4mm}.address-block .line{min-height:3.5mm}.meta-box{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1.2mm 1.5mm}.meta-row{display:grid;grid-template-columns:38% 3% 59%;line-height:1.42}.meta-row .lab{white-space:nowrap}
-    .items{width:100%;border-collapse:collapse;border-spacing:0;margin-top:8mm;table-layout:fixed}.items th,.items td{border:.25mm solid ${primary};padding:1.3mm 1.7mm;vertical-align:middle}.items th{text-align:center;font-weight:700}.items .no{width:5%}.items .desc{width:39%}.items .qty{width:6%}.items .unit{width:7%}.items .price{width:16%}.items .discount{width:12%}.items .amount{width:15%}.c{text-align:center}.r{text-align:right}.items .ket{text-align:left;white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.items .alok{text-align:left;white-space:normal;word-break:normal;font-size:${Math.max(8,fontSize-2)}px}.items .price,.items .amount,.items .discount{white-space:nowrap}.items tfoot td{border:.25mm solid ${primary};padding:1.25mm 1.7mm}.items tfoot .sum-spacer{border:none!important;padding:0;background:transparent}.items tfoot .sum-label{font-weight:700;text-align:left}.items tfoot .sum-value{text-align:right;white-space:nowrap}.items tfoot .grand .sum-label,.items tfoot .grand .sum-value{font-weight:800}.items tfoot .sum-sub .sum-label,.items tfoot .sum-sub .sum-value{font-weight:400;font-size:${Math.max(7,fontSize-2)}px;color:#475569}.items tfoot .sum-sub .sum-label{padding-left:4mm}.items tfoot .sum-strong .sum-label,.items tfoot .sum-strong .sum-value{font-weight:800}.items tfoot .sum-hint{font-weight:400;font-size:${Math.max(7,fontSize-3)}px;color:#475569}
-    .tax-groups{margin-top:5mm;page-break-inside:avoid}.tax-groups-title{font-weight:800;margin-bottom:1.5mm}.tax-groups table{width:100%;border-collapse:collapse}.tax-groups th,.tax-groups td{border:.25mm solid ${primary};padding:1mm 1.5mm;font-size:${Math.max(8,fontSize-1)}px}.tax-groups th{text-align:left;font-weight:700}.tax-groups .r{text-align:right;white-space:nowrap}.terms .term-row{display:flex;justify-content:space-between;gap:6mm;max-width:120mm;margin-left:1.8mm}.terms .term-note{font-size:${Math.max(7,fontSize-3)}px;color:#475569;margin-left:1.8mm}
-    .terms{margin-top:7mm;line-height:1.35}.term-heading{font-weight:800;margin-top:1.5mm}.term-line{white-space:pre-wrap;margin-left:1.8mm}.term-gap{height:1.5mm}
-    .price-reason{margin-top:6mm}.price-reason-title{font-weight:800;margin-bottom:1.5mm}.reason-table{width:100%;border-collapse:collapse}.reason-table th,.reason-table td{border:.25mm solid ${primary};padding:1mm 1.5mm;font-size:${Math.max(8,fontSize-1)}px;vertical-align:top}.reason-table th{text-align:left;font-weight:700}.reason-table .r{text-align:right;white-space:nowrap}
-    .bank-wrap{margin-top:4mm}.bank-title{font-weight:800;margin-bottom:1mm}.bank-table{width:100%;border-collapse:collapse;border-spacing:0;text-align:center}.bank-table th,.bank-table td{border-top:.25mm solid ${primary};border-bottom:.25mm solid ${primary};padding:1mm 1.5mm}.bank-table th{font-weight:700}
-    .signatures{display:grid;grid-template-columns:1fr 1fr;gap:30mm;text-align:center;margin-top:6mm;page-break-inside:avoid}.sign-label{min-height:4mm}.sign-space{height:18mm;position:relative}.approved-signature{display:block;max-width:38mm;max-height:17mm;object-fit:contain;margin:0 auto}.sign-name{font-weight:800;text-decoration:underline}.sign-company{margin-top:.6mm}.verify{font-size:8px;text-align:right;margin-top:3mm;color:#64748b}
-    .items .desc .mro-ref{font-size:${Math.max(7,fontSize-3)}px;line-height:1.2;font-weight:400;margin-bottom:.5mm;overflow-wrap:anywhere}.items .desc .item-name{overflow-wrap:anywhere}.items .desc .tax-note{font-size:${Math.max(7,fontSize-3)}px;line-height:1.2;color:#475569;margin-top:.5mm}
-    @media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}.items{break-inside:auto}.items tr{break-inside:avoid}}
-  </style></head><body>
-    ${!approved ? `<div class="draft-watermark">DRAFT</div>` : ""}
-    <div class="top">
-      <div class="brand">${layout.show_logo && logoImg ? `<img class="real-logo" src="${logoImg}"/>` : ""}<div class="brand-name">${esc(deliveryCompany)}</div></div>
-      <div class="po-title">${esc(layout.title || "PURCHASE ORDER")}</div>
-    </div>
-    <div class="info-grid">
-      <div class="address-block">
-        <div class="label">Please Delivery to :</div>
-        ${deliveryCompany ? `<div class="line">${esc(deliveryCompany)}</div>` : ""}
-        ${deliveryProject ? `<div class="line">${esc(deliveryProject)}</div>` : ""}
-        ${deliveryAddress ? `<div class="line">${nl2br(deliveryAddress)}</div>` : ""}
-        <div class="label bill">Please Bill to :</div>
-        ${billCompany ? `<div class="line">${esc(billCompany)}</div>` : ""}
-        ${billAddress ? `<div class="line">${nl2br(billAddress)}</div>` : ""}
-        ${layout.po_bill_contact ? `<div class="line">Up : ${esc(layout.po_bill_contact)}</div>` : ""}
-        ${layout.po_bill_phone ? `<div class="line">Hp : ${esc(layout.po_bill_phone)}</div>` : ""}
-      </div>
-      <div class="meta-box">
-        <div class="meta-row"><span class="lab">PO No.</span><span>:</span><span>${esc(doc.no || "")}</span></div>
-        <div class="meta-row"><span class="lab">PO Date</span><span>:</span><span>${esc(longDateId(doc.date))}</span></div>
-        <div class="meta-row"><span class="lab">Supplier</span><span>:</span><span>${esc(doc.supplier_name || supplier?.name || "")}</span></div>
-        <div class="meta-row"><span class="lab">Supplier ref</span><span>:</span><span>${esc(doc.supplier_ref || doc.supplier_notes || "")}</span></div>
-        <div class="meta-row"><span class="lab">Buyer's Contact</span><span>:</span><span>${esc(doc.buyer_contact_name || "")}</span></div>
-        <div class="meta-row"><span class="lab">Phone</span><span>:</span><span>${esc(doc.buyer_contact_phone || "")}</span></div>
-        <div class="meta-row"><span class="lab">Marketing Contact</span><span>:</span><span>${esc(marketing.name || "")}</span></div>
-        <div class="meta-row"><span class="lab">Phone</span><span>:</span><span>${esc(marketing.phone || "")}</span></div>
-        <div class="meta-row"><span class="lab">Payment terms</span><span>:</span><span>${esc(doc.payment_term || "")}</span></div>
-        <div class="meta-row"><span class="lab">Delivery terms</span><span>:</span><span>${esc(doc.delivery_term || "")}</span></div>
-      </div>
-    </div>
-    <table class="items">
-      ${colgroup}
-      ${tableHead}
-      <tbody>${itemRows || `<tr><td colspan="${emptyColspan}" class="c">Tidak ada item</td></tr>`}</tbody>
-      ${totals}
-    </table>
-    ${reasonSection}
-    ${terms ? `<div class="terms">${terms}</div>` : ""}
-    ${taxGroups}
-    ${paymentNotes}
-    ${bankName || bankNo || bankAccountName ? `<div class="bank-wrap"><div class="bank-title">Pembayaran dilakukan ke Rekening :</div><table class="bank-table"><thead><tr><th>Nama Bank</th><th>No. Rekening</th><th>Atas Nama</th></tr></thead><tbody><tr><td>${esc(bankName)}</td><td>${esc(bankNo)}</td><td>${esc(bankAccountName)}</td></tr></tbody></table></div>` : ""}
-    ${layout.show_signatures ? `<div class="signatures"><div><div class="sign-label">${esc(layout.signature_labels?.[0] || "Approved by,")}</div><div class="sign-space">${approvedSignature}</div><div class="sign-name">${esc(approvedName)}</div><div class="sign-company">${esc(approvedCompany)}</div></div><div><div class="sign-label">${esc(layout.signature_labels?.[1] || "Signed by,")}</div><div class="sign-space"></div><div class="sign-name">${esc(signedName)}</div><div class="sign-company">${esc(supplierCompany)}</div></div></div>` : ""}
-    ${qrHtml}
-    <script>window.onload=function(){setTimeout(function(){window.print()},550)}</script>
-  </body></html>`;
-  return html;
 }
 
 export async function printDoc(type, doc, opts = {}) {
@@ -376,23 +182,26 @@ export async function printDoc(type, doc, opts = {}) {
 
   const verifyUrl = `${window.location.origin}/verify/${code}`;
   const qrImg = code ? `https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(verifyUrl)}` : "";
-  const logoImg = company.logo_path ? `${API}/company/logo?v=${encodeURIComponent(company.logo_version || "1")}` : "";
+  // Logo & TTD/stempel di-embed (data URL) agar pasti termuat di jendela cetak & PDF.
+  const logoImg = layout.show_logo === false ? "" : await printImage(companyLogoPath(company));
   let signatureImg = "";
-  if (key === "po") {
+  if (key === "po" && poApproved(doc)) { // TTD/stempel hanya untuk PO Approved (logika existing)
     try {
       const s = (await api.get("/settings/print_layouts/po/signature-status")).data || {};
-      if (s.available) signatureImg = `${API}/settings/print_layouts/po/signature?v=${encodeURIComponent(s.version || "1")}`;
+      signatureImg = await printImage(poSignaturePath(s));
     } catch {}
   }
   const showPrice = !!opts.showPrice;
   const internal = !!opts.internal;
   const lines = doc.lines || [];
+  let allocLines = [];
   // Phase C: attach this document's OWN stage SPK allocation to each line (horizontal text)
   if (SPK_DOC_TYPES.has(key) && doc.id) {
     try {
       const ar = await api.get(`/spk-allocations/${key}/doc/${doc.id}`);
       const amap = {};
-      (ar.data.lines || []).forEach((l) => { amap[l.item_line_id] = allocText(l); });
+      allocLines = ar.data.lines || [];
+      allocLines.forEach((l) => { amap[l.item_line_id] = allocText(l); });
       lines.forEach((l) => { l._spk_alloc = amap[l.id] || "Non-SPK"; });
     } catch { /* backward-compatible: no allocation -> Non-SPK */ }
   }
@@ -402,7 +211,7 @@ export async function printDoc(type, doc, opts = {}) {
     const [suppliers, projects] = await Promise.all([getMaster("suppliers"), getMaster("projects")]);
     const supplier = suppliers.find(x => x.id === doc.supplier_id) || {};
     const project = projects.find(x => x.id === doc.default_project_id) || {};
-    const html = realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal });
+    const html = buildPoPrintHtml({ doc, allocLines, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal });
     const w = window.open("", "_blank");
     w.document.write(html); w.document.close();
     return;
