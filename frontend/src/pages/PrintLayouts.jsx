@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import api, { apiError } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import api, { API, apiError } from "@/lib/api";
+import { buildPoPrintHtml } from "@/lib/poPrintReal";
+import { printImage, companyLogoPath, poSignaturePath } from "@/lib/printAssets";
+import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -74,20 +77,58 @@ function move(arr, idx, dir) {
   return out;
 }
 
+// Pratinjau = fungsi cetak PO yang sama (buildPoPrintHtml) dengan data transaksi CONTOH; identitas perusahaan/logo/TTD dari pengaturan.
+const SAMPLE_GROUP = "04|NORMAL|12|11|12";
+const SAMPLE_PO = {
+  no: "PO/2026/07/00115", date: "2026-07-23", status: "Approved", tax_engine_version: 2, supplier_name: "PT. Supplier Contoh", supplier_ref: "Penawaran 785/Q/VII/2026",
+  buyer_contact_name: "Nama Buyer", buyer_contact_phone: "+62 812-0000-0000", payment_term: "N-30", delivery_term: "H+30 Setelah PO",
+  gross_total: 267900000, item_discount_total: 0, final_discount_amount: 0, subtotal_after_discount: 267900000, dpp_total: 267900000, non_ppn_total: 0,
+  dpp_other_total: 245575000, tax_total: 29469000, tax_facility_total: 0, ppnbm_total: 0, grand_total: 297369000,
+  tax_groups: [{ group: SAMPLE_GROUP, trx_code: "04", dpp: 267900000, dpp_other: 245575000, ppn: 29469000 }], tax_rules_snapshot: [{ group: SAMPLE_GROUP, tax_rate: 12 }],
+  dp_enabled: true, dp_type: "percentage", dp_value: 40, dp_amount: 118947600, dp_remaining: 178421400,
+  approvals: [{ seq: 1, status: "Approved", acted_by: "Nama Approver" }],
+  document_message: "Term and Condition\n1 Apabila dalam waktu 7 hari setelah PO diterima material / barang tidak dikirim, maka PO otomatis dianggap batal\n2 Pengiriman dilakukan secara partial dari vendor\n\nCatatan\n1 Pesanan Pembelian ini harus memenuhi syarat dan ketentuan yang berlaku setelah pesanan pembelian diterima\n2 Invoice hanya dapat di proses apabila melampirkan dokumen sebagai berikut:\n* Invoice\n* Kwitansi (Harus Bermaterai)\n* Faktur Pajak (Jika PKP)",
+  lines: [["a", 'Smith Clamp 14"', 30, 980000], ["b", 'Smith Clamp 20"', 50, 1140000], ["c", 'Smith Clamp 24"', 150, 1210000]].map(([id, item_name, qty, price]) => ({
+    id, item_name, qty, price, discount: 0, dpp: qty * price, display_unit: "Ea", tax_mode: "EXCLUDE", tax_code: "PPN04", tax_name: "PPN DPP Nilai Lain", tax_trx_code: "04", mro_refs: ["MRO 2248"], ro_refs: [{ ro_no: "RO/2026/07/00031" }] })),
+};
+const SAMPLE_ALLOC = [{ item_line_id: "c", allocations: [{ spk_number: "SPK/001", allocated_qty: 150 }], non_spk_qty: 0 }];
+const SAMPLE_SUPPLIER = { name: "PT. Supplier Contoh", contacts: [{ name: "Marketing Supplier", phone: "+62 822-0000-0000", is_primary: true }], banks: [{ bank_name: "Bank Contoh", account_no: "000-000-000-000-0", account_name: "PT. Supplier Contoh", is_primary: true }] };
+const A4_PX = [794, 1123];
+
 function RealPoPreview({ layout, signature }) {
-  const c = layout.primary_color || "#17396f";
-  return <div className="rounded-xl border bg-slate-100 p-4 overflow-auto">
-    <div className="mx-auto bg-white shadow-sm" style={{ width: 470, minHeight: 665, padding: 18, fontFamily: layout.font_family || "Arial", color: c, fontSize: 8 }}>
-      <div className="relative min-h-[76px]"><div className="w-[90px]"><div className="h-12 w-12 rounded-full border grid place-items-center text-[7px] font-bold">LOGO</div><div className="mt-1 font-bold">Rajawali Emas Ancora Lestari</div></div><div className="absolute left-1/2 top-0 -translate-x-1/2 text-[15px] font-bold tracking-wide">PURCHASE ORDER</div></div>
-      <div className="grid grid-cols-[1fr_1.08fr] gap-8 mt-2">
-        <div className="leading-[1.35]"><b>Please Delivery to :</b><div>Rajawali Emas Ancora Lestari</div><div>Project EW PPPRE</div><div>Alamat perusahaan</div><div className="mt-3"><b>Please Bill to :</b></div><div>PT. Rajawali Emas Ancora Lestari</div><div>Komp. Ruko Citraland Blok SS 01/20-21</div><div>Up : Yogi</div><div>Hp : +62 813-7470-2403</div></div>
-        <div className="border-y pt-1 pb-1" style={{borderColor:c}}>{[["PO No.","PO/REAL/000235"],["PO Date","16 September 2026"],["Supplier","PT. Profita Abadi"],["Supplier ref","Penawaran by WA"],["Buyer's Contact","Fretty Hutabarat"],["Phone","0812 7622 3522"],["Marketing Contact","Ibu Lidya"],["Phone","085214080112"],["Payment terms","Net 120"],["Delivery terms","H+7 After PO"]].map(([a,b],i)=><div key={i} className="grid grid-cols-[42%_4%_54%]"><span>{a}</span><span>:</span><span>{b}</span></div>)}</div>
+  const [company, setCompany] = useState({});
+  const [logoImg, setLogoImg] = useState("");
+  const [signatureImg, setSignatureImg] = useState("");
+  const [sampleStatus, setSampleStatus] = useState("Approved");
+  const [width, setWidth] = useState(520);
+  const boxRef = useRef(null);
+  useEffect(() => { api.get("/settings/company").then((r) => setCompany(r.data || {})).catch(() => setCompany({})); }, []);
+  const logoPath = companyLogoPath(company);
+  const sigPath = poSignaturePath(signature);
+  useEffect(() => { let on = true; printImage(logoPath).then((u) => on && setLogoImg(u)); return () => { on = false; }; }, [logoPath]);
+  useEffect(() => { let on = true; printImage(sigPath).then((u) => on && setSignatureImg(u)); return () => { on = false; }; }, [sigPath]);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(([e]) => setWidth(Math.max(280, e.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const html = useMemo(() => buildPoPrintHtml({
+    doc: { ...SAMPLE_PO, status: sampleStatus }, allocLines: SAMPLE_ALLOC, company, layout, supplier: SAMPLE_SUPPLIER, project: { name: "Contoh Proyek" }, showPrice: true, internal: false, autoPrint: false,
+    logoImg: layout.show_logo === false ? "" : logoImg, signatureImg,
+  }), [company, layout, logoImg, signatureImg, sampleStatus]);
+  const scale = Math.min(1, width / A4_PX[0]);
+  return <div className="space-y-2">
+    <div className="flex items-center gap-2 text-xs" data-testid="po-preview-status-toggle">
+      <span className="text-muted-foreground">Contoh status:</span>
+      {[["Approved", "Approved (TTD/stempel)"], ["Draft", "Draft (watermark)"]].map(([v, l]) => <Button key={v} type="button" size="sm" variant={sampleStatus === v ? "default" : "outline"} onClick={() => setSampleStatus(v)} data-testid={`po-preview-status-${v.toLowerCase()}`} aria-pressed={sampleStatus === v}>{l}</Button>)}
+    </div>
+    <div ref={boxRef} className="rounded-xl border bg-slate-100 p-0 overflow-hidden" data-testid="po-print-preview">
+      <div style={{ width: A4_PX[0] * scale, height: A4_PX[1] * scale }} className="mx-auto">
+        <iframe title="Pratinjau cetak PO" srcDoc={html} sandbox="allow-same-origin" data-testid="po-print-preview-frame"
+          style={{ width: A4_PX[0], height: A4_PX[1], border: 0, background: "#fff", transform: `scale(${scale})`, transformOrigin: "0 0" }} />
       </div>
-      <table className="w-full border-collapse mt-5"><thead><tr>{["No","Description","Qty","","Price","Discount","Amount"].map((x,i)=><th key={i} className="border px-1 py-1 text-center" style={{borderColor:c}}>{x}</th>)}</tr></thead><tbody><tr><td className="border px-1 text-center" style={{borderColor:c}}>1</td><td className="border px-1" style={{borderColor:c}}>RANTAI BESI 5/8 PANJANG 8 M</td><td className="border px-1 text-center" style={{borderColor:c}}>2</td><td className="border px-1 text-center" style={{borderColor:c}}>Pcs</td><td className="border px-1 text-right" style={{borderColor:c}}>Rp 3.280.000</td><td className="border px-1" style={{borderColor:c}}></td><td className="border px-1 text-right" style={{borderColor:c}}>6.560.000</td></tr></tbody></table>
-      <div className="ml-auto w-[43%] text-[8px]">{[["Total","6.560.000"],["DPP","6.560.000"],["PPN 11%","721.600"],["Grand Total","7.281.600"]].map(([a,b],i)=><div key={i} className="grid grid-cols-[65%_35%] border-x border-b" style={{borderColor:c}}><b className="px-1 py-1 border-r" style={{borderColor:c}}>{a}</b><span className="px-1 py-1 text-right">{b}</span></div>)}</div>
-      <div className="mt-5 leading-[1.35]"><b>Term and Condition</b><div>1. Apabila dalam waktu 7 hari setelah PO diterima material / barang tidak dikirim, maka PO otomatis dianggap batal</div><div>2. Untuk Pengikat Unit dan Pipa</div><div className="mt-2"><b>Catatan :</b></div><div>1. Pesanan Pembelian ini harus memenuhi syarat dan ketentuan yang berlaku setelah pesanan pembelian diterima.</div><div>2. Invoice hanya dapat diproses apabila melampirkan dokumen pendukung.</div></div>
-      <div className="mt-4"><b>Pembayaran dilakukan ke Rekening :</b><div className="grid grid-cols-3 border-y mt-1 text-center py-1" style={{borderColor:c}}><b>Nama Bank</b><b>No. Rekening</b><b>Atas Nama</b></div><div className="grid grid-cols-3 border-b text-center py-1" style={{borderColor:c}}><span>BANK MANDIRI</span><span>108-001-023-364-2</span><span>PT. Profita Abadi</span></div></div>
-      <div className="grid grid-cols-2 text-center mt-5"><div><div>Approved by,</div><div className="h-11 flex items-end justify-center">{signature?.available&&<img src={`/api/settings/print_layouts/po/signature?v=${encodeURIComponent(signature.version||"1")}`} alt="Tanda tangan PO" className="max-h-10 max-w-[90px] object-contain"/>}</div><div className="font-bold underline">Nama Approver</div><div>PT. Rajawali Emas Anchora Lestari</div></div><div><div>Signed by,</div><div className="mt-11 font-bold underline">Ibu Lidya</div><div>PT. Profita Abadi</div></div></div>
     </div>
   </div>;
 }
@@ -136,7 +177,7 @@ export default function PrintLayouts() {
 
         {active === "po" && layout.template_style === "real_reference" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Detail Template REAL</div><div className="text-xs text-muted-foreground">Kosongkan field yang ingin mengambil data otomatis dari perusahaan/master supplier/proyek.</div></div><Field label="Nama Perusahaan - Delivery To"><Input value={layout.po_delivery_company_name||""} onChange={e=>setLayout({po_delivery_company_name:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field><Field label="Nama Perusahaan - Bill To"><Input value={layout.po_bill_company_name||""} onChange={e=>setLayout({po_bill_company_name:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field><Field label="Alamat Bill To"><Input value={layout.po_bill_address||""} onChange={e=>setLayout({po_bill_address:e.target.value})} placeholder="Otomatis dari alamat perusahaan"/></Field><div className="grid grid-cols-2 gap-3"><Field label="Up / PIC Bill To"><Input value={layout.po_bill_contact||""} onChange={e=>setLayout({po_bill_contact:e.target.value})}/></Field><Field label="HP Bill To"><Input value={layout.po_bill_phone||""} onChange={e=>setLayout({po_bill_phone:e.target.value})}/></Field></div><div className="grid grid-cols-2 gap-3"><Field label="Approved By"><Input value={layout.po_approved_name||""} onChange={e=>setLayout({po_approved_name:e.target.value})} placeholder="Bisa otomatis dari approval"/></Field><Field label="Perusahaan Approver"><Input value={layout.po_approved_company||""} onChange={e=>setLayout({po_approved_company:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field></div></CardContent></Card>}
 
-        {active === "po" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Tanda Tangan PO</div><div className="text-xs text-muted-foreground">Upload PNG/JPG/WEBP. Tanda tangan hanya dicetak pada PO yang sudah Approved; PO Draft tetap tanpa tanda tangan dan memakai watermark DRAFT.</div></div>{signature.available&&<div className="h-28 rounded-lg border bg-white p-2 flex items-center justify-center"><img src={`/api/settings/print_layouts/po/signature?v=${encodeURIComponent(signature.version||"1")}`} alt="Tanda tangan tersimpan" className="max-h-full max-w-full object-contain"/></div>}<Input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>setSignatureFile(e.target.files?.[0]||null)}/><div className="flex gap-2"><Button type="button" variant="outline" onClick={uploadSignature} disabled={!signatureFile}><Upload className="h-4 w-4 mr-2"/>Upload Tanda Tangan</Button>{signature.available&&<Button type="button" variant="ghost" onClick={deleteSignature}><Trash2 className="h-4 w-4 mr-2 text-destructive"/>Hapus</Button>}</div></CardContent></Card>}
+        {active === "po" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Tanda Tangan PO</div><div className="text-xs text-muted-foreground">Upload PNG/JPG/WEBP. Tanda tangan hanya dicetak pada PO yang sudah Approved; PO Draft tetap tanpa tanda tangan dan memakai watermark DRAFT.</div></div>{signature.available&&<div className="h-28 rounded-lg border bg-white p-2 flex items-center justify-center"><img src={`${API}/settings/print_layouts/po/signature?v=${encodeURIComponent(signature.version||"1")}`} alt="Tanda tangan tersimpan" data-testid="po-signature-saved-img" className="max-h-full max-w-full object-contain"/></div>}<Input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>setSignatureFile(e.target.files?.[0]||null)}/><div className="flex gap-2"><Button type="button" variant="outline" onClick={uploadSignature} disabled={!signatureFile}><Upload className="h-4 w-4 mr-2"/>Upload Tanda Tangan</Button>{signature.available&&<Button type="button" variant="ghost" onClick={deleteSignature}><Trash2 className="h-4 w-4 mr-2 text-destructive"/>Hapus</Button>}</div></CardContent></Card>}
 
         {!(active === "po" && layout.template_style === "real_reference") && <>
         <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Urutan Bagian</div><div className="text-xs text-muted-foreground">Atur posisi blok dari atas ke bawah.</div></div>{layout.sections.map((s,i)=><div key={s} className="flex items-center gap-2 rounded-lg border p-2"><FileText className="h-4 w-4 text-muted-foreground"/><span className="flex-1 text-sm">{SECTION_LABELS[s]||s}</span><Button size="icon" variant="outline" onClick={()=>setLayout({sections:move(layout.sections,i,-1)})} disabled={i===0}><ArrowUp className="h-4 w-4"/></Button><Button size="icon" variant="outline" onClick={()=>setLayout({sections:move(layout.sections,i,1)})} disabled={i===layout.sections.length-1}><ArrowDown className="h-4 w-4"/></Button></div>)}</CardContent></Card>
@@ -144,7 +185,7 @@ export default function PrintLayouts() {
         <Card><CardContent className="pt-6 space-y-3"><div className="font-semibold">Kolom Tabel Item</div><div className="grid grid-cols-2 gap-2 text-sm">{Object.entries(COLUMN_LABELS).map(([k,l])=><label key={k} className="flex items-center gap-2 rounded-lg border px-3 py-2"><input type="checkbox" checked={layout.columns.includes(k)} onChange={()=>toggleColumn(k)}/>{l}</label>)}</div><div className="space-y-2 pt-2">{layout.columns.map((c,i)=><div key={c} className="flex items-center gap-2 rounded-lg border p-2"><span className="flex-1 text-sm">{COLUMN_LABELS[c]||c}</span><Button size="icon" variant="outline" onClick={()=>setLayout({columns:move(layout.columns,i,-1)})} disabled={i===0}><ArrowUp className="h-4 w-4"/></Button><Button size="icon" variant="outline" onClick={()=>setLayout({columns:move(layout.columns,i,1)})} disabled={i===layout.columns.length-1}><ArrowDown className="h-4 w-4"/></Button></div>)}</div></CardContent></Card>
         </>}
 
-        <Card><CardContent className="pt-6 space-y-3"><div className="font-semibold">Tanda Tangan & Footer</div>{layout.signature_labels.map((v,i)=><Field key={i} label={`Kolom Tanda Tangan ${i+1}`}><Input value={v} onChange={e=>setLayout({signature_labels:layout.signature_labels.map((x,j)=>j===i?e.target.value:x)})}/></Field>)}<Field label="Teks Footer"><Input value={layout.footer_text} onChange={e=>setLayout({footer_text:e.target.value})}/></Field></CardContent></Card>
+        <Card><CardContent className="pt-6 space-y-3"><div className="font-semibold">Tanda Tangan & Footer</div>{layout.signature_labels.map((v,i)=><Field key={i} label={`Kolom Tanda Tangan ${i+1}`}><Input value={v} onChange={e=>setLayout({signature_labels:layout.signature_labels.map((x,j)=>j===i?e.target.value:x)})}/></Field>)}<Field label="Teks Footer"><Textarea rows={3} value={layout.footer_text||""} onChange={e=>setLayout({footer_text:e.target.value})} placeholder={active==="po"?"Alamat kantor pusat, telepon, fax (boleh beberapa baris)":""} data-testid="print-footer-text"/></Field></CardContent></Card>
       </div>
       <div className="xl:sticky xl:top-[86px] xl:self-start"><div className="mb-2"><div className="font-semibold">Preview Layout</div><div className="text-xs text-muted-foreground">Preview mengikuti struktur template. Data transaksi asli digunakan saat print.</div></div><Preview layout={layout} active={active} signature={signature}/></div>
     </div>
