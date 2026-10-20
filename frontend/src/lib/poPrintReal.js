@@ -4,7 +4,7 @@
 // - tidak ada request/tulis data. A4 formal hitam-putih, header tabel berulang per halaman, ringkasan tidak terulang.
 import { num, fmtDate } from "@/lib/format";
 import { dpRows, fmtPct } from "@/lib/poDp";
-import { isPoV2, poTaxLineNote, poV2SummaryRows, poTaxGroupRows, fmtIdr } from "@/lib/poTaxPrint";
+import { isPoV2, poV2SummaryRows, poTaxGroupRows, fmtIdr } from "@/lib/poTaxPrint";
 
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const nl2br = (v) => esc(v || "").replace(/\r?\n/g, "<br/>");
@@ -23,6 +23,8 @@ export const APPROVED_PO_STATUSES = new Set(["approved", "partially received", "
 export const poApproved = (doc) => APPROVED_PO_STATUSES.has(String(doc?.status || "").trim().toLowerCase());
 
 const PAGE_MM = { A4: [210, 297], A5: [148, 210], Letter: [215.9, 279.4] };
+/** Margin minimum aman printer biasa (mm): kiri/kanan 15, atas/bawah 12. */
+export const PRINT_SAFE_MM = { x: 15, y: 12 };
 const uniq = (xs) => [...new Set((xs || []).map((x) => String(x || "").trim()).filter(Boolean))];
 
 /** Referensi dokumen sumber baris PO: MRO (backend `mro_refs`, termasuk via RO) + RO (`ro_refs`). */
@@ -30,12 +32,12 @@ export function poLineRefs(l) {
   return { mro: uniq(l?.mro_refs), ro: uniq((l?.ro_refs || []).map((r) => r?.ro_no)) };
 }
 const withPrefix = (no, p) => (new RegExp(`^${p}\\b`, "i").test(no) ? no : `${p} ${no}`);
+/** Label referensi cetak: HANYA nomor MRO (unik, urut kemunculan). Nomor RO tidak dicetak. */
 export function poRefLabel(l) {
-  const { mro, ro } = poLineRefs(l);
-  return [mro.map((x) => withPrefix(x, "MRO")).join(", "), ro.map((x) => withPrefix(x, "RO")).join(", ")].filter(Boolean).join("  ·  ");
+  return uniq(poLineRefs(l).mro.map((x) => withPrefix(x, "MRO"))).join(", ");
 }
 
-/** Kelompok baris berurutan dengan referensi MRO/RO sama (seperti baris "MRO 2248" pada PO manual). */
+/** Kelompok baris berurutan dengan referensi MRO sama (seperti baris "MRO 2248" pada PO manual). */
 export function poRefGroups(lines) {
   const groups = [];
   (lines || []).forEach((l, i) => {
@@ -45,7 +47,7 @@ export function poRefGroups(lines) {
     else groups.push({ label, rows: [[l, i]] });
   });
   const anyRef = groups.some((g) => g.label);
-  return groups.map((g) => ({ ...g, label: g.label || (anyRef ? "Tanpa referensi MRO/RO" : "") }));
+  return groups.map((g) => ({ ...g, label: g.label || (anyRef ? "Tanpa referensi MRO" : "") }));
 }
 
 /** Teks kolom "No. SPK" dari alokasi SPK tahap PO (endpoint existing /spk-allocations/po/doc). */
@@ -76,20 +78,30 @@ export function renderTermsMessage(text, spk) {
   if (!raw && !spk) return "";
   const spkLine = spk ? `<div class="term-spk">SPK : ${esc(spk)}</div>` : "";
   let spkShown = !spk;
-  const html = (raw ? raw.split("\n") : []).map((line) => {
+  const parts = (raw ? raw.split("\n") : []).map((line) => {
     const t = line.trim();
     const low = t.toLowerCase().replace(/\s*:$/, "");
-    if (!t) return `<div class="term-gap"></div>`;
+    if (!t) return { html: `<div class="term-gap"></div>` };
     if (low === "term and condition" || low === "term & condition" || low === "terms and conditions" || low.startsWith("catatan") || low === "syarat dan ketentuan") {
       const pre = spk && !spkShown && low.startsWith("catatan") ? ((spkShown = true), spkLine) : "";
-      return `${pre}<div class="term-heading">${esc(t)}</div>`;
+      return { html: `${pre}<div class="term-heading">${esc(t)}</div>` };
     }
     const m = t.match(/^(\d{1,2})[.)]?(?:\s+(.*))?$/);
-    if (m) return `<div class="term-item"><span class="term-no">${esc(m[1])}</span><span class="term-text">${esc(m[2] || "")}</span></div>`;
+    if (m) return { html: `<div class="term-item"><span class="term-no">${esc(m[1])}</span><span class="term-text">${esc(m[2] || "")}</span></div>` };
     const b = t.match(/^[*•-]\s+(.*)$/);
-    if (b) return `<div class="term-item bullet"><span class="term-no">*</span><span class="term-text">${esc(b[1])}</span></div>`;
-    return `<div class="term-item"><span class="term-no"></span><span class="term-text">${esc(t)}</span></div>`;
-  }).join("");
+    if (b) return { bullet: true, html: `<div class="term-item bullet"><span class="term-no">*</span><span class="term-text">${esc(b[1])}</span></div>` };
+    return { html: `<div class="term-item"><span class="term-no"></span><span class="term-text">${esc(t)}</span></div>` };
+  });
+  // >= 4 butir "*" berurutan -> 2 kolom (urutan per kolom) agar hemat tinggi halaman; < 4 tetap 1 kolom.
+  let html = "";
+  for (let i = 0; i < parts.length;) {
+    if (!parts[i].bullet) { html += parts[i].html; i += 1; continue; }
+    let j = i;
+    while (j < parts.length && parts[j].bullet) j += 1;
+    const run = parts.slice(i, j).map((x) => x.html).join("");
+    html += j - i >= 4 ? `<div class="term-bullets">${run}</div>` : run;
+    i = j;
+  }
   return html + (spkShown ? "" : spkLine);
 }
 
@@ -138,11 +150,13 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
   const font = layout.font_family || "Arial";
   const fs = Math.max(8, Number(layout.font_size) || 11);
   const small = Math.max(7, fs - 3);
-  const margin = Math.max(5, Number(layout.margin_mm) || 10);
+  const marginBase = Math.max(5, Number(layout.margin_mm) || 10);
+  const marginX = Math.max(PRINT_SAFE_MM.x, marginBase);
+  const marginY = Math.max(PRINT_SAFE_MM.y, marginBase);
   const logoWidth = Number(layout.logo_width_mm) || 24;
   const paper = PAGE_MM[layout.paper_size] ? layout.paper_size : "A4";
   const orientation = layout.orientation === "landscape" ? "landscape" : "portrait";
-  const pageH = (orientation === "landscape" ? PAGE_MM[paper][0] : PAGE_MM[paper][1]) - 2 * margin - 0.6;
+  const pageH = (orientation === "landscape" ? PAGE_MM[paper][0] : PAGE_MM[paper][1]) - 2 * marginY - 0.6;
   const lines = doc.lines || [];
   const approved = poApproved(doc);
   const v2 = isPoV2(doc);
@@ -170,7 +184,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     const p = l.display_price ?? ((Number(l.price) || 0) * f);
     const amount = Number(l.dpp ?? (Number(q || 0) * Number(p || 0) - Number(l.discount || 0)));
     const disc = Number(l.discount || 0);
-    const sub = [v2 && showPrice ? `<div class="tax-note">${esc(poTaxLineNote(l))}</div>` : "", showPrice && l.notes ? `<div class="line-note">Ket: ${esc(l.notes)}</div>` : ""].join("");
+    const sub = showPrice && l.notes ? `<div class="line-note">Ket: ${esc(l.notes)}</div>` : "";
     const fin = showPrice ? `<td class="r price">${idrPlain(p)}</td><td class="r discount">${disc ? idrPlain(disc) : "-"}</td><td class="r amount">${money(amount)}</td>` : "";
     return `<tr class="item"><td class="c no">${i + 1}</td><td class="desc"><div class="item-name">${esc(l.item_name || l.item_code || "")}</div>${sub}</td><td class="c spk">${nl2br(l._spk_label || "")}</td><td class="r qty">${num(q)}</td><td class="c unit">${esc(l.display_unit || l.unit || "")}</td>${showPrice ? fin : `<td class="ket">${esc(l.notes || "")}</td>`}</tr>`;
   };
@@ -178,24 +192,24 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
   const body = lines.length ? poRefGroups(lines).map((g) => `${g.label ? `<tr class="grp"><td></td><td class="grp-label" colspan="2">${esc(g.label)}</td>${emptyCells(cols - 3)}</tr>` : ""}${g.rows.map(([l, i]) => itemRow(l, i)).join("")}`).join("") + `<tr class="filler">${emptyCells(cols)}</tr>`
     : `<tr><td colspan="${cols}" class="c">Tidak ada item</td></tr>`;
   const colgroup = showPrice
-    ? `<colgroup><col style="width:4.5%"><col style="width:30%"><col style="width:12.5%"><col style="width:6.5%"><col style="width:5.5%"><col style="width:13%"><col style="width:11%"><col style="width:17%"></colgroup>`
+    ? `<colgroup><col style="width:4.5%"><col style="width:28.5%"><col style="width:14%"><col style="width:6.5%"><col style="width:5.5%"><col style="width:13%"><col style="width:11%"><col style="width:17%"></colgroup>`
     : `<colgroup><col style="width:5%"><col style="width:39%"><col style="width:15%"><col style="width:8%"><col style="width:8%"><col style="width:25%"></colgroup>`;
   const head = showPrice
     ? `<thead><tr><th>No</th><th>Description</th><th>No. SPK</th><th colspan="2">Qty</th><th>Price</th><th>Discount</th><th>Amount${v2 ? `<div class="th-sub">sebelum PPN</div>` : ""}</th></tr></thead>`
     : `<thead><tr><th>No</th><th>Description</th><th>No. SPK</th><th colspan="2">Qty</th><th>Keterangan</th></tr></thead>`;
   const sums = showPrice ? [...summaryRows(doc, lines), ...dpSummaryRows(doc, money)] : [];
-  // Garis penutup tabel barang: <tfoot> kosong berulang di dasar SETIAP halaman (tabel tidak "terbuka" saat terpotong halaman).
-  const pageClose = `<tfoot class="page-close"><tr>${emptyCells(cols)}</tr></tfoot>`;
-  // Ringkasan = tabel terpisah (kolom sama) -> tidak ikut berulang per halaman & tidak terbelah.
-  const sumTable = sums.length ? `<table class="items sums keep" data-section="summary">${colgroup}<tbody>${sums.map((r) => `<tr class="sum ${r.cls || ""}" data-sum="${esc(r.key)}"><td class="sum-spacer" colspan="5"></td><td class="sum-label" colspan="2">${r.label}</td><td class="sum-value">${r.value}</td></tr>`).join("")}</tbody></table>` : "";
-  // Penanda halaman lanjutan (hal. 2 dst.): "PO No. · Halaman n" di margin atas; halaman 1 tetap bersih seperti PO manual.
-  const pageMark = String(doc.no || "PO").replace(/["\\\n\r]/g, "");
-
   // ---- rincian pajak per kelompok: hanya untuk kombinasi (lebih dari 1 kelompok / fasilitas / campur Tanpa PPN)
   const groups = showPrice && v2 ? poTaxGroupRows(doc) : [];
   const nonPpn = Number(doc.non_ppn_total || 0);
   const combo = groups.length > 1 || groups.some((g) => g.facility) || (groups.length && nonPpn);
   const taxGroups = combo ? `<div class="tax-groups keep" data-section="tax-groups"><div class="sec-title">Rincian Pajak per Kelompok</div><table><thead><tr><th>Kelompok</th><th class="r">DPP</th><th class="r">DPP Nilai Lain</th><th class="r">PPN</th></tr></thead><tbody>${groups.map((x) => `<tr><td>${esc(x.label)}${x.facility ? " — tidak ditagih" : ""}</td><td class="r">${fmtIdr(x.dpp)}</td><td class="r">${fmtIdr(x.dpp_other)}</td><td class="r">${x.facility ? `0 (${fmtIdr(x.facility)})` : fmtIdr(x.ppn)}</td></tr>`).join("")}${nonPpn ? `<tr><td>Barang Tanpa PPN</td><td class="r">${fmtIdr(nonPpn)}</td><td class="r">–</td><td class="r">–</td></tr>` : ""}</tbody></table></div>` : "";
+  // Garis penutup tabel barang: <tfoot> kosong berulang di dasar SETIAP halaman (tabel tidak "terbuka" saat terpotong halaman).
+  const pageClose = `<tfoot class="page-close"><tr>${emptyCells(cols)}</tr></tfoot>`;
+  // Ringkasan = tabel terpisah (kolom sama) -> tidak ikut berulang per halaman & tidak terbelah.
+  const sumTable = sums.length ? `<table class="items sums keep" data-section="summary">${colgroup}<tbody>${sums.map((r, i) => `<tr class="sum ${r.cls || ""}" data-sum="${esc(r.key)}">${i === 0 ? `<td class="sum-spacer" colspan="5" rowspan="${sums.length}">${taxGroups}</td>` : ""}<td class="sum-label" colspan="2">${r.label}</td><td class="sum-value">${r.value}</td></tr>`).join("")}</tbody></table>` : "";
+  // Penanda halaman lanjutan (hal. 2 dst.): "PO No. · Halaman n" di margin atas; halaman 1 tetap bersih seperti PO manual.
+  const pageMark = String(doc.no || "PO").replace(/["\\\n\r]/g, "");
+
 
   // ---- ketentuan pembayaran: catatan pembayaran (nilai DP sudah di ringkasan); tanpa izin harga -> hanya syarat DP
   const payLines = [doc.dp_enabled && !showPrice ? "Uang Muka (DP) disyaratkan" : "", doc.payment_notes || ""].filter(Boolean);
@@ -228,47 +242,48 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.no || "PO")}</title>
   <style>
-    @page{size:${paper} ${orientation};margin:${margin}mm}
-    @page{@top-right{content:"${pageMark}  ·  Halaman " counter(page);font-family:${font},Arial,sans-serif;font-size:${small}px;color:#4b5563;vertical-align:bottom;padding-bottom:2mm}}
+    @page{size:${paper} ${orientation};margin:${marginY}mm ${marginX}mm}
+    @page{@top-right{content:"${pageMark}  ·  Halaman " counter(page);font-family:${font},Arial,sans-serif;font-size:${small}px;color:#4b5563;vertical-align:bottom;padding-bottom:2mm;padding-right:.6mm}}
     @page:first{@top-right{content:none}}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff}
-    @media screen{body{padding:${margin}mm}}
+    @media screen{body{padding:${marginY}mm ${marginX}mm}}
     body{color:#000;font-family:${font},Arial,Helvetica,sans-serif;font-size:${fs}px;line-height:1.26;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .sheet{min-height:${pageH.toFixed(1)}mm;display:flex;flex-direction:column}
+    .sheet{min-height:${pageH.toFixed(1)}mm;display:flex;flex-direction:column;padding:0 .5mm}
     .draft-watermark{position:fixed;left:50%;top:48%;transform:translate(-50%,-50%) rotate(-32deg);font-size:74px;font-weight:900;letter-spacing:8px;color:#6b7280;opacity:.14;z-index:9999;pointer-events:none;user-select:none}
-    .top{position:relative;min-height:21mm;margin-bottom:1mm}.real-logo{width:${logoWidth}mm;max-height:20mm;object-fit:contain;display:block}.brand-name{font-weight:700;font-size:${fs + 1}px;margin-top:.8mm}
-    .po-title{position:absolute;top:3mm;left:0;right:0;text-align:center;font-size:${fs + 7}px;font-weight:700;letter-spacing:.2px;pointer-events:none}
-    .info-grid{display:grid;grid-template-columns:47% 50%;column-gap:3%;align-items:start}.address-block .label{font-weight:700}.address-block .label.bill{margin-top:3.5mm}.address-block .kv{display:grid;grid-template-columns:9mm 1fr}
-    .meta-box{border:.3mm solid #000;padding:.8mm 1.4mm}.meta-row{display:grid;grid-template-columns:30% 4% 66%;line-height:1.38}.meta-row .lab{white-space:nowrap}.meta-row .val{overflow-wrap:anywhere}.meta-note{line-height:1.38}
-    table.items{width:100%;border-collapse:collapse;margin-top:5mm;table-layout:fixed}
+    .top{position:relative;min-height:15mm;margin-bottom:1.2mm}.real-logo{width:${logoWidth}mm;max-height:15mm;object-fit:contain;object-position:left center;display:block}.brand-name{font-weight:700;font-size:${fs + 1}px;margin-top:.5mm}
+    .po-title{position:absolute;top:2mm;left:0;right:0;text-align:center;font-size:${fs + 7}px;font-weight:700;letter-spacing:.2px;pointer-events:none}
+    .info-grid{display:grid;grid-template-columns:47% 50%;column-gap:3%;align-items:start}.address-block .label{font-weight:700}.address-block{line-height:1.24}.address-block .label.bill{margin-top:2.2mm}.address-block .kv{display:grid;grid-template-columns:9mm 1fr}
+    .meta-box{border:.3mm solid #000;padding:.7mm 1.4mm}.meta-row{display:grid;grid-template-columns:30% 4% 66%;line-height:1.24}.meta-row .lab{white-space:nowrap}.meta-row .val{overflow-wrap:anywhere}.meta-note{line-height:1.24}
+    table.items{width:100%;border-collapse:collapse;margin-top:3mm;table-layout:fixed;line-height:1.2}
     .items thead{display:table-header-group}.items tfoot.page-close{display:table-footer-group}
     .items tfoot.page-close td{border:none;border-top:.25mm solid #000;padding:0;height:0;line-height:0;font-size:0}
     table.items.sums{margin-top:-.25mm}
-    .items th,.items td{border:.25mm solid #000;padding:.45mm 1.4mm;vertical-align:top}
+    .items th,.items td{border:.25mm solid #000;padding:.35mm 1.3mm;vertical-align:top}
     .items th{text-align:center;font-weight:700;vertical-align:middle}.items th .th-sub{font-weight:400;font-size:${small}px}
     .items .c{text-align:center}.items .r{text-align:right}.items td.price,.items td.amount,.items td.discount,.items td.qty{white-space:nowrap}
     .items td.spk{font-size:${Math.max(7, fs - 1)}px;overflow-wrap:anywhere}.items td.ket{font-size:${Math.max(7, fs - 1)}px}
     .items tr.grp td{border-top:.25mm solid #000;border-bottom:none}.items tr.grp + tr.item td{border-top:none}
     .items .grp-label{font-weight:700;font-style:italic}
-    .items tr.item td{border-top:none;border-bottom:none}.items tr.filler td{border-top:none;height:3.5mm}
-    .items .item-name{overflow-wrap:anywhere}.items .tax-note{font-size:${small}px;color:#374151;margin-top:.3mm}.items .line-note{font-size:${small}px;font-style:italic;color:#374151}
+    .items tr.item td{border-top:none;border-bottom:none}.items tr.filler td{border-top:none;height:1.6mm}
+    .items .item-name{overflow-wrap:anywhere}.items .line-note{font-size:${small}px;font-style:italic;color:#374151}
     .items tbody tr{break-inside:avoid}
-    .sums tr{break-inside:avoid}.sums td{padding:.35mm 1.4mm}
+    .sums tr{break-inside:avoid}.sums td{padding:.3mm 1.3mm}.sums .sum-label,.sums .sum-value{font-size:${Math.max(8, fs - 1)}px}
     .sums .sum-spacer{border:none!important;border-left:.25mm solid transparent!important;background:transparent}
-    .sums .sum-label{font-weight:700;text-align:left}.sums .sum-value{text-align:right;white-space:nowrap}
+    .sums .sum-label{font-weight:700;text-align:left;white-space:nowrap}.sums .sum-value{text-align:right;white-space:nowrap}
     .sums .grand .sum-label,.sums .grand .sum-value,.sums .sum-strong .sum-value{font-weight:700}
     .sums .sum-sub .sum-label,.sums .sum-sub .sum-value{font-weight:400;font-size:${Math.max(7, fs - 2)}px}.sums .sum-hint{font-weight:400;font-size:${small}px}
     .sec-title{font-weight:700;margin-bottom:1mm}
-    .tax-groups{margin-top:4mm}.tax-groups table,.reason-table{width:100%;border-collapse:collapse}.tax-groups th,.tax-groups td,.reason-table th,.reason-table td{border:.25mm solid #000;padding:.6mm 1.4mm;font-size:${Math.max(7, fs - 1)}px;vertical-align:top}.tax-groups th,.reason-table th{text-align:left}.tax-groups .r,.reason-table .r{text-align:right;white-space:nowrap}
-    .price-reason{margin-top:4mm}
-    .terms{margin-top:4mm;line-height:1.22;font-size:${Math.max(7, fs - 1)}px}.terms .term-heading{font-size:${fs}px}.term-heading{font-weight:700;margin-top:2mm}.term-heading:first-child{margin-top:0}.term-spk{margin-top:1.5mm}
-    .term-item{display:grid;grid-template-columns:9mm 1fr}.term-item .term-no{text-align:center}.term-item.bullet{grid-template-columns:9mm 1fr}.term-item.bullet .term-no{text-align:right;padding-right:1.2mm}.term-gap{height:1.2mm}
-    .bank-wrap{margin-top:3.5mm}.bank-title{font-weight:700;margin-bottom:.8mm}.bank-table{width:100%;border-collapse:collapse;text-align:center}.bank-table th,.bank-table td{border-top:.25mm solid #000;border-bottom:.25mm solid #000;padding:.5mm 1.5mm;font-weight:400}
-    .signatures{display:grid;grid-template-columns:1fr 1fr;column-gap:30mm;text-align:center;margin-top:3.5mm;margin-bottom:2mm}.sign-label{font-weight:700}.sign-space{height:14mm;display:flex;align-items:center;justify-content:center}.approved-signature{max-width:40mm;max-height:13.8mm;object-fit:contain}.sign-name{font-weight:700;text-decoration:underline}.sign-company{font-weight:700}
+    .tax-groups{margin:1.2mm 3.5mm 0 0}.tax-groups .sec-title{margin-bottom:.6mm}.tax-groups table,.reason-table{width:100%;border-collapse:collapse}.tax-groups th,.tax-groups td{padding:.3mm 1.2mm!important;border:.25mm solid #000!important}.tax-groups th,.tax-groups td,.reason-table th,.reason-table td{border:.25mm solid #000;padding:.6mm 1.4mm;font-size:${Math.max(7, fs - 1)}px;vertical-align:top}.tax-groups th,.reason-table th{text-align:left}.tax-groups .r,.reason-table .r{text-align:right;white-space:nowrap}
+    .price-reason{margin-top:3mm}
+    .terms{margin-top:3mm;line-height:1.2;font-size:${Math.max(7, fs - 1)}px}.terms .term-heading{font-size:${fs}px}.term-heading{font-weight:700;margin-top:1.2mm}.term-heading:first-child{margin-top:0}.term-spk{margin-top:1mm}
+    .term-item{display:grid;grid-template-columns:9mm 1fr}.term-item .term-no{text-align:center}.term-item.bullet{grid-template-columns:9mm 1fr}.term-item.bullet .term-no{text-align:right;padding-right:1.2mm}.term-gap{height:.6mm}.term-bullets{columns:2;column-gap:4mm}.term-bullets .term-item{break-inside:avoid}
+    .bank-wrap{margin-top:2.5mm}.bank-title{font-weight:700;margin-bottom:.8mm}.bank-table{width:100%;border-collapse:collapse;text-align:center}.bank-table th,.bank-table td{border-top:.25mm solid #000;border-bottom:.25mm solid #000;padding:.35mm 1.5mm;font-weight:400}
+    .signatures{display:grid;grid-template-columns:1fr 1fr;column-gap:30mm;text-align:center;margin-top:2.5mm;margin-bottom:1.5mm}.sign-label{font-weight:700}.sign-space{height:14mm;display:flex;align-items:center;justify-content:center}.approved-signature{max-width:40mm;max-height:13.8mm;object-fit:contain}.sign-name{font-weight:700;text-decoration:underline}.sign-company{font-weight:700}
     .keep{break-inside:avoid;page-break-inside:avoid}
     .verify{font-size:${small}px;text-align:right;margin-top:2mm;color:#4b5563}
-    .page-footer{margin-top:auto;padding-top:1.2mm;border-top:.35mm solid #000;text-align:center;font-size:${Math.max(7, fs - 1)}px;line-height:1.35}
+    .closing{flex:1 0 auto;display:flex;flex-direction:column;break-inside:avoid;page-break-inside:avoid}
+    .page-footer{margin-top:auto;padding-top:1mm;border-top:.35mm solid #000;text-align:center;font-size:${Math.max(7, fs - 1)}px;line-height:1.35}
     
   </style></head><body>
     ${!approved ? `<div class="draft-watermark">DRAFT</div>` : ""}
@@ -296,14 +311,11 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
       </div>
     </div>
     <table class="items main">${colgroup}${head}<tbody>${body}</tbody>${pageClose}</table>${sumTable}
-    ${taxGroups}
     ${reasonSection}
     ${terms ? `<div class="terms">${terms}</div>` : ""}
     ${payment}
     ${bankName || bankNo || bankAccountName ? `<div class="bank-wrap keep"><div class="bank-title">Pembayaran dilakukan ke Rekening :</div><table class="bank-table"><thead><tr><th>Nama Bank</th><th>No. Rekening</th><th>Atas Nama</th></tr></thead><tbody><tr><td>${esc(bankName)}</td><td>${esc(bankNo)}</td><td>${esc(bankAccountName)}</td></tr></tbody></table></div>` : ""}
-    ${signatures}
-    ${qrHtml}
-    ${footer}
+    <div class="closing" data-section="closing">${signatures}${qrHtml}${footer}</div>
     </div>
     ${autoPrint ? `<script>window.onload=function(){setTimeout(function(){window.print()},550)}</script>` : ""}
   </body></html>`;
