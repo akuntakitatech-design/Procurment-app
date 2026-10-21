@@ -343,6 +343,7 @@ function AddendumPanel({ spk, onChanged }) {
   const list = spk.addendums || [];
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const blank = { addendum_number: "", addendum_date: "", addendum_type: "PROCUREMENT_BUDGET", effective_date: "", reason: "", pic_name: "", division_name: "", sv_dir: "+", sv_mag: "", bud_dir: "+", bud_mag: "" };
   const [f, setF] = useState(blank);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
@@ -357,14 +358,41 @@ function AddendumPanel({ spk, onChanged }) {
   const submit = async () => {
     setSaving(true);
     try {
-      await api.post(`/spk/${spk.id}/addendums`, {
+      const payload = {
         addendum_number: f.addendum_number, addendum_date: f.addendum_date, addendum_type: f.addendum_type,
         effective_date: f.effective_date || null, reason: f.reason, pic_name: f.pic_name || null, division_name: f.division_name || null,
         spk_value_change: svDelta, budget_change: budDelta,
-      });
-      toast.success("Addendum draft dibuat"); setOpen(false); setF(blank); onChanged?.();
+      };
+      if (editingId) await api.put(`/spk/${spk.id}/addendums/${editingId}`, payload);
+      else await api.post(`/spk/${spk.id}/addendums`, payload);
+      toast.success(editingId ? "Addendum diperbarui" : "Addendum draft dibuat");
+      setOpen(false); setEditingId(null); setF(blank); onChanged?.();
     } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
     finally { setSaving(false); }
+  };
+
+  const openCreate = () => { setEditingId(null); setF(blank); setOpen(true); };
+  const openEdit = (a) => {
+    const sv = Number(a.spk_value_change || 0);
+    const bud = Number(a.budget_change || 0);
+    setEditingId(a.id);
+    setF({
+      addendum_number: a.addendum_number || "", addendum_date: a.addendum_date || "",
+      addendum_type: a.addendum_type || "PROCUREMENT_BUDGET", effective_date: a.effective_date || "",
+      reason: a.reason || "", pic_name: a.pic_name || "", division_name: a.division_name || "",
+      sv_dir: sv < 0 ? "-" : "+", sv_mag: sv ? String(Math.abs(sv)) : "",
+      bud_dir: bud < 0 ? "-" : "+", bud_mag: bud ? String(Math.abs(bud)) : "",
+    });
+    setOpen(true);
+  };
+
+  const remove = async (a) => {
+    if (!window.confirm(`Hapus addendum ${a.addendum_number}? Data dan lampirannya ikut terhapus.`)) return;
+    try {
+      await api.delete(`/spk/${spk.id}/addendums/${a.id}`);
+      toast.success("Addendum dihapus");
+      onChanged?.();
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
   };
   const finalize = async (a) => {
     try {
@@ -377,7 +405,7 @@ function AddendumPanel({ spk, onChanged }) {
 
   return (
     <div className="space-y-4">
-      {canManage && <Button onClick={() => setOpen(true)} data-testid="addendum-add-btn"><Plus className="h-4 w-4 mr-2" />Tambah Addendum</Button>}
+      {canManage && <Button onClick={openCreate} data-testid="addendum-add-btn"><Plus className="h-4 w-4 mr-2" />Tambah Addendum</Button>}
       {list.length === 0 ? <div className="rounded-xl border bg-card p-10 text-center text-sm text-muted-foreground">Belum ada Addendum pada SPK ini.</div> : (
         <div className="border rounded-xl overflow-x-auto bg-card shadow-sm">
           <table className="w-full text-sm"><thead className="bg-muted"><tr className="text-left text-xs uppercase text-muted-foreground">
@@ -394,9 +422,13 @@ function AddendumPanel({ spk, onChanged }) {
                 <td className="p-3 text-right text-xs">{a.budget_change ? rupiah(a.budget_change) : "-"}</td>
                 <td className="p-3 text-right text-xs">{a.status === "effective" ? `${rupiah(a.before_procurement_budget)} -> ${rupiah(a.after_procurement_budget)}` : "-"}</td>
                 <td className="p-3"><StatusBadge status={addStatusMap[a.status] || a.status} /></td>
-                <td className="p-3">
-                  {a.status === "draft" && canFinalize && <Button size="sm" variant="outline" className="h-7 text-xs mr-1" onClick={() => finalize(a)} data-testid={`addendum-finalize-${a.addendum_number}`}>Finalisasi</Button>}
-                  {a.status === "draft" && canManage && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => cancel(a)}>Batal</Button>}
+                <td className="p-3 whitespace-nowrap">
+                  <div className="flex items-center gap-1">
+                    {a.status === "draft" && canFinalize && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => finalize(a)} data-testid={`addendum-finalize-${a.addendum_number}`}>Finalisasi</Button>}
+                    {a.status === "draft" && canManage && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEdit(a)} data-testid={`addendum-edit-${a.addendum_number}`}><Pencil className="h-3.5 w-3.5 mr-1" />Edit</Button>}
+                    {a.status === "draft" && canManage && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => cancel(a)}>Batal</Button>}
+                    {a.status !== "effective" && canManage && <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => remove(a)} data-testid={`addendum-delete-${a.addendum_number}`}><Trash2 className="h-3.5 w-3.5 mr-1" />Hapus</Button>}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -404,9 +436,9 @@ function AddendumPanel({ spk, onChanged }) {
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditingId(null); setF(blank); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
-          <DialogHeader><DialogTitle>Tambah Addendum</DialogTitle>
+          <DialogHeader><DialogTitle>{editingId ? "Edit Addendum" : "Tambah Addendum"}</DialogTitle>
             <DialogDescription>SPK {spk.spk_number} - {spk.project_name} - Status {spk.status}</DialogDescription></DialogHeader>
           <div className="space-y-4">
             <div className="grid md:grid-cols-2 gap-3">
@@ -442,7 +474,7 @@ function AddendumPanel({ spk, onChanged }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Batal</Button>
-            <Button onClick={submit} disabled={saving} data-testid="addendum-save">{saving ? "Menyimpan..." : "Simpan Draft"}</Button>
+            <Button onClick={submit} disabled={saving} data-testid="addendum-save">{saving ? "Menyimpan..." : editingId ? "Simpan Perubahan" : "Simpan Draft"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
