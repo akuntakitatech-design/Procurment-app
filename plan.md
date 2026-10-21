@@ -734,3 +734,13 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
 - Verifikasi: 18/18 tes API (validasi negatif/non-angka, master manual, sinkron, restore), 5/5 tes logika bump impor,
   UI simpan 5000 -> `BRG-05001` bertahan setelah reload lalu dikembalikan ke 2, `CI=true yarn build` OK.
 - Tanpa perubahan skema/env. Redeploy: backend lalu frontend.
+
+## SPK Addendum — Tombol Edit & Hapus (Status: COMPLETED — lokal, preview 1:1 production)
+- Permintaan user: tab Addendum SPK belum punya tombol edit dan hapus.
+- Backend `spk_layer.py`: `DELETE /api/spk/{spk_id}/addendums/{aid}` (izin `spk_addendum:manage`); hanya status draft/cancelled,
+  addendum effective ditolak 409; baris `spk_addendum_documents` ikut dihapus lalu objek storage dibersihkan best-effort; audit `delete`.
+- Frontend `Spk.jsx`: tombol **Edit** (dialog terisi otomatis, memakai `PUT` existing) dan **Hapus** (konfirmasi, `DELETE`);
+  kolom Aksi dibuat satu baris (`whitespace-nowrap`) agar 4 tombol tidak terlipat.
+- Verifikasi: 11/11 tes API (buat draft, edit, hapus, 404, hapus ulang 404); UI: tombol Finalisasi/Edit/Batal/Hapus tampil,
+  dialog "Edit Addendum" terisi nomor, toast "Addendum diperbarui", hapus -> baris hilang + "Belum ada Addendum", API 404; build OK.
+- Tanpa env/skema. Redeploy: backend lalu frontend.

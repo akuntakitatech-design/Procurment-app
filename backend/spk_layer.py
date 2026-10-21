@@ -708,6 +708,29 @@ def install(server):
         await server.audit(user, "edit", "spk_addendum", aid, a.get("addendum_number"), after={"status": "cancelled"})
         return await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
 
+    @app.delete("/api/spk/{spk_id}/addendums/{aid}", tags=["spk"])
+    async def delete_addendum(spk_id: str, aid: str, user=Depends(server.current_user)):
+        _require(user, PERM_ADD_MANAGE)
+        a = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=404, detail="Addendum tidak ditemukan")
+        if a.get("status") == "effective":
+            raise HTTPException(status_code=409, detail="Addendum Effective tidak dapat dihapus (buat Addendum koreksi).")
+        docs = await _db().spk_addendum_documents.find({"addendum_id": aid, "spk_id": spk_id}, {"_id": 0}).to_list(500)
+        await _db().spk_addendum_documents.delete_many({"addendum_id": aid, "spk_id": spk_id})
+        await _db().spk_addendums.delete_one({"id": aid, "spk_id": spk_id})
+        # File lampiran dibersihkan setelah baris DB hilang; kegagalan storage hanya dicatat (tidak menggagalkan hapus).
+        for doc in docs:
+            try:
+                if doc.get("object_key"):
+                    S.delete_object(doc["object_key"])
+            except Exception as exc:  # pragma: no cover
+                server.logger.warning(f"SPK addendum attachment cleanup failed ({doc.get('object_key')}): {exc}")
+        await server.audit(user, "delete", "spk_addendum", aid, a.get("addendum_number"),
+                           before={"status": a.get("status"), "spk_value_change": a.get("spk_value_change"),
+                                   "budget_change": a.get("budget_change"), "documents": len(docs)})
+        return {"ok": True, "deleted_documents": len(docs)}
+
     @app.post("/api/spk/{spk_id}/addendums/{aid}/documents", tags=["spk"])
     async def upload_addendum_doc(spk_id: str, aid: str, file: UploadFile = File(...), user=Depends(server.current_user)):
         _require(user, PERM_ADD_MANAGE)
