@@ -371,6 +371,10 @@ async def _import_master(server, key, rows, user):
                 await server.audit(user, "excel_create", key, doc["id"], doc.get("code"))
                 created += 1
             imported += 1
+    if key != "stock_limits":
+        # Kode hasil impor dipakai apa adanya; counter dinaikkan agar penambahan berikutnya melanjutkan nomor terakhir.
+        import master_code_settings_layer
+        await master_code_settings_layer.bump_sequence_for_codes(server, key, [d.get("code") for d in prepared])
     return {"ok": True, "imported": imported, "created": created, "updated": updated, "errors": []}
 
 
