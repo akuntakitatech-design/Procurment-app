@@ -10,7 +10,8 @@ Adds the missing Platform Admin foundation on top of ``saas_platform_layer``:
 - Storage usage metadata
 - Platform dashboard KPIs + "Perlu Perhatian" attention feed
 
-This layer never hard-deletes tenants and keeps every mutation tenant-aware and audited.
+This layer itself never hard-deletes tenants and keeps every mutation tenant-aware and audited. Tenant deletion
+(soft delete -> restore / permanent purge) lives in ``tenant_delete_layer``.
 It reuses helpers from ``saas_platform_layer`` and is installed before tenant isolation so
 platform routes operate on the global database via ``P._global_db``.
 """
@@ -147,7 +148,9 @@ def _subscription_view(tenant: dict) -> dict:
         days_remaining = (dl - _now()).days
     severity = "normal"
     display = status or "-"
-    if tenant_status == "suspended" or status == "suspended":
+    if tenant_status == "deleted":
+        severity, display = "danger", "deleted"
+    elif tenant_status == "suspended" or status == "suspended":
         severity, display = "danger", "suspended"
     elif tenant_status == "pending_activation" or status == "pending_activation":
         severity, display = "warning", "pending_activation"
@@ -307,6 +310,8 @@ def install(server):
             "user_usage": {"active": active_users, "limit": max_users},
             "storage": await _storage_usage(db, tenant_id, limit_gb),
             "pending_activation": bool(pending_activation),
+            "is_default_tenant": tenant_id == T.DEFAULT_TENANT_ID,
+            "deletion_history": tenant.get("deletion_history") or [],
             "activation": ({"activation_url": _activation_url(pending_activation["token"]),
                             "email": pending_activation.get("email"),
                             "expires_at": pending_activation.get("expires_at")}
@@ -757,6 +762,9 @@ def install(server):
         tenants = await db.tenants.find({}, {"_id": 0}).to_list(10000)
         plan_map = {p["id"]: p async for p in db.plans.find({}, {"_id": 0})}
 
+        deleted_ids = [t.get("id") for t in tenants if str(t.get("status") or "").lower() == "deleted"]
+        deleted = len(deleted_ids)
+        tenants = [t for t in tenants if str(t.get("status") or "").lower() != "deleted"]
         total = len(tenants)
         active = pending = suspended = expired = expiring = 0
         attention = []
@@ -805,7 +813,10 @@ def install(server):
                                       "type": "storage_high", "severity": "warning",
                                       "message": f"Storage terpakai {usage['percent']}% ({usage['used_gb']}/{limit_gb} GB)."})
 
-        active_users = await db.users.count_documents({"is_platform_admin": {"$ne": True}, "is_active": {"$ne": False}})
+        user_filter = {"is_platform_admin": {"$ne": True}, "is_active": {"$ne": False}}
+        if deleted_ids:
+            user_filter["tenant_id"] = {"$nin": deleted_ids}
+        active_users = await db.users.count_documents(user_filter)
         severity_rank = {"danger": 0, "warning": 1, "normal": 2}
         attention.sort(key=lambda a: severity_rank.get(a.get("severity"), 3))
         return {
@@ -815,6 +826,7 @@ def install(server):
             "suspended": suspended,
             "expiring_30_days": expiring,
             "expired": expired,
+            "deleted": deleted,
             "active_users": active_users,
             "attention": attention,
             "attention_count": len(attention),

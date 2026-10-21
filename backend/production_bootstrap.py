@@ -233,6 +233,10 @@ subscription_admin_layer.install(server)
 # storage usage and platform dashboard KPIs. Installed before isolation so its platform routes
 # operate on the global database via saas_platform_layer._global_db.
 platform_admin_cp0_layer.install(server)
+# Hapus Tenant dua tahap (soft delete -> pulihkan / hapus permanen) untuk Platform Super Admin. Rute platform
+# memakai database global (P._global_db), dipasang bersama layer platform lain sebelum isolasi tenant.
+import tenant_delete_layer  # noqa: E402
+tenant_delete_layer.install(server)
 
 # Harden proxy ownership, cross-source references and attachment storage/download rules before
 # isolation middleware/startup activation. Isolation is still installed after all business

@@ -711,3 +711,15 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
 - Hasil: overflow 13 → 0 dari 396 kombinasi route×viewport; target sentuh mobile ≥44px untuk kontrol shadcn; `MobileSortBar` baru.
 - Verifikasi: `CI=true yarn build` OK; node unit test 29/29; testing_agent iterasi 7 (1 temuan overlay drawer → fixed), iterasi 8 & 9 (pasca-rebase) = 0 temuan.
 - Detail: `docs/responsive-audit.md`.
+
+## Platform Admin — Hapus Tenant dua tahap (branch `feat/platform-delete-tenant`, base `main` 06fcdca) (Status: COMPLETED — PR ke `main`, tanpa merge/deploy)
+- Keputusan user: dua tahap — **Hapus** (soft delete, dapat dipulihkan) lalu **Hapus Permanen** (purge DB + storage); tidak wajib Suspend dulu;
+  file storage tenant ikut dihapus saat purge. Dikerjakan dari laptop (Zed) dengan preview 1:1 ke DB/R2 production.
+- Backend `tenant_delete_layer.py`: `GET /api/platform/tenants/{id}/delete-preview`, `POST .../delete` (status `deleted`, sesi user dicabut,
+  token aktivasi pending dicabut), `POST .../restore`, `POST .../purge` (hanya status `deleted`; storage prefix `procureflow/tenants/<id>/` dulu,
+  lalu semua dokumen ber-`tenant_id` di seluruh koleksi kecuali koleksi platform, lalu dokumen tenant). Tenant default & `platform-root` dilindungi (409);
+  konfirmasi = ketik kode tenant; audit `tenant.deleted|restored|purged` di `platform_audit_logs` (dipertahankan).
+- Pendukung: `storage.list_prefix/delete_keys`; `mariadb_motor._delete` batch 500 pk (semantik sama); lifecycle `deleted` -> locked;
+  dashboard platform tidak menghitung tenant terhapus (field `deleted`); detail `is_default_tenant` + `deletion_history`; UI filter **Dihapus**.
+- Verifikasi: `tests/platform_tenant_delete_test.py` 35/35 (tenant uji dibuat & di-purge sendiri); cek langsung DB+R2 tenant uji: 0 baris, 0 objek;
+  data PT REAL utuh; `CI=true yarn build` OK; UAT browser (tombol, dialog dampak, banner, filter). Sisa data uji: PRC-000168 (status Dihapus).

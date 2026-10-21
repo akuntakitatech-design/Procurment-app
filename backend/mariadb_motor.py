@@ -1270,8 +1270,12 @@ class MariaCollection:
         async with db._transaction() as conn:
             rows = await self._select_rows(flt, for_update=True, conn=conn)
             targets = rows if many else rows[:1]
-            for pk, _ in targets:
-                await db._execute(f"DELETE FROM {_q(self.name)} WHERE pk = %s", [pk], conn=conn)
+            pks = [pk for pk, _ in targets]
+            # Batch per 500 pk (baris sudah terkunci FOR UPDATE di transaksi yang sama) -> hasil identik dengan
+            # DELETE per baris, tetapi round-trip jauh lebih sedikit untuk delete_many besar.
+            for i in range(0, len(pks), 500):
+                part = pks[i:i + 500]
+                await db._execute(f"DELETE FROM {_q(self.name)} WHERE pk IN ({', '.join(['%s'] * len(part))})", part, conn=conn)
             return DeleteResult(len(targets))
 
     async def count_documents(self, filter: Optional[dict] = None, *args, **kwargs) -> int:
