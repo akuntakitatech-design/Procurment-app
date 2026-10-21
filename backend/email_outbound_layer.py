@@ -77,13 +77,14 @@ def _normalize_public(raw):
     except (TypeError, ValueError):
         port = 587
     if provider == "gmail":
+        username = str(raw.get("username") or raw.get("from_email") or "").strip()
         return {
             "enabled": bool(raw.get("enabled", True)),
             "provider": "gmail",
             "host": "smtp.gmail.com",
             "port": 587,
-            "username": str(raw.get("username") or "").strip(),
-            "from_email": str(raw.get("from_email") or raw.get("username") or "").strip(),
+            "username": username,
+            "from_email": str(raw.get("from_email") or username).strip(),
             "from_name": str(raw.get("from_name") or "Procurement").strip(),
             "security": "starttls",
         }
@@ -129,18 +130,23 @@ async def _effective_config(server):
 
     public = _normalize_public(row)
     stored_password = _decrypt_password(row.get("password_encrypted"))
-    password = stored_password or env.get("password") or ""
+    # Kompatibilitas data lama: sebagian instalasi menyimpan password SMTP plaintext di field `password`.
+    legacy_password = str(row.get("password") or "")
+    password = stored_password or legacy_password or env.get("password") or ""
     return {
         **public,
         "password": password,
         "source": "application",
-        "password_source": "application" if stored_password else ("environment" if env.get("password") else None),
+        "password_source": "application" if (stored_password or legacy_password) else ("environment" if env.get("password") else None),
     }
 
 
 async def public_config(server):
     cfg = await _effective_config(server)
     out = {k: cfg.get(k) for k in ("enabled", "provider", "host", "port", "username", "from_email", "from_name", "security", "source")}
+    if not out.get("from_name"):
+        company = await server.db.settings.find_one({"id": "company"}, {"_id": 0, "name": 1}) or {}
+        out["from_name"] = (company.get("name") or "Procurement").strip()
     out["password_set"] = bool(cfg.get("password"))
     out["password_source"] = cfg.get("password_source")
     out["configured"] = bool(cfg.get("enabled") and cfg.get("from_email") and (cfg.get("provider") == "gmail" or cfg.get("host")))
@@ -204,6 +210,8 @@ def install(server):
         server.require(user, "edit")
         body = body or {}
         current = await _effective_config(server)
+        company = await server.db.settings.find_one({"id": "company"}, {"_id": 0, "name": 1}) or {}
+        default_name = (company.get("name") or "Procurement").strip()
         incoming = {
             "enabled": body.get("enabled", current.get("enabled", True)),
             "provider": body.get("provider", current.get("provider", "gmail")),
@@ -211,10 +219,12 @@ def install(server):
             "port": body.get("port", current.get("port", 587)),
             "username": body.get("username", current.get("username", "")),
             "from_email": body.get("from_email", current.get("from_email", "")),
-            "from_name": body.get("from_name", current.get("from_name", "Procurement")),
+            "from_name": body.get("from_name") or current.get("from_name") or default_name,
             "security": body.get("security", current.get("security", "starttls")),
         }
         cfg = _normalize_public(incoming)
+        if not cfg.get("from_email"):
+            cfg["from_email"] = cfg.get("username") or ""
         new_password = str(body.get("password") or "")
         credentials_changed = (
             cfg.get("provider") != current.get("provider")
@@ -224,6 +234,7 @@ def install(server):
         _validate(cfg, effective_password, require_ready=bool(cfg.get("enabled")))
 
         existing = await server.db.settings.find_one({"id": SETTINGS_ID}, {"_id": 0}) or {}
+        legacy_password = str(existing.get("password") or "")
         update = {
             "id": SETTINGS_ID,
             **cfg,
@@ -235,8 +246,13 @@ def install(server):
             update["password_encrypted"] = _encrypt_password(new_password)
         elif existing.get("password_encrypted") and not credentials_changed:
             update["password_encrypted"] = existing["password_encrypted"]
+        elif legacy_password and not credentials_changed:
+            # Migrasi otomatis saat menyimpan: plaintext lama disimpan sebagai ciphertext.
+            update["password_encrypted"] = _encrypt_password(legacy_password)
         elif credentials_changed and existing.get("password_encrypted"):
             unset["password_encrypted"] = ""
+        if legacy_password:
+            unset["password"] = ""
 
         before = {k: existing.get(k) for k in ("enabled", "provider", "host", "port", "username", "from_email", "from_name", "security")}
         write = {"$set": update}
@@ -275,3 +291,30 @@ def install(server):
         )
         await server.audit(user, "test", "settings", SETTINGS_ID, reason=f"Email tes dikirim ke {target}")
         return {"ok": True, "to": target, "sent_at": now}
+
+    # Route generik /api/settings/{key} sudah terdaftar lebih awal di server.py dan akan menelan
+    # /api/settings/email_outbound (pada data lama bahkan membocorkan password plaintext).
+    # Pindahkan route generik ke akhir agar handler khusus di atas yang dipakai.
+    generic = []
+    for route in list(server.app.router.routes):
+        if getattr(route, "path", None) != "/api/settings/{key}":
+            continue
+        methods = getattr(route, "methods", set()) or set()
+        if "GET" in methods or "PUT" in methods:
+            server.app.router.routes.remove(route)
+            generic.append(route)
+    server.app.router.routes.extend(generic)
+
+    @app.on_event("startup")
+    async def migrate_legacy_plaintext_password():
+        """Data lama menyimpan password SMTP sebagai plaintext di field `password`. Enkripsi sekali, lalu hapus field itu."""
+        try:
+            rows = await server.db.settings.find({"password": {"$exists": True}}, {"_id": 0}).to_list(50)
+            for row in rows:
+                if not row.get("password"):
+                    continue
+                values = {"password_encrypted": _encrypt_password(row["password"])}
+                await server.db.settings.update_one({"id": row.get("id")}, {"$set": values, "$unset": {"password": ""}})
+                server.logger.info("Email outbound: password plaintext lama dienkripsi dan dihapus dari dokumen settings")
+        except Exception as exc:  # pragma: no cover
+            server.logger.warning(f"Email outbound: migrasi password lama gagal: {exc}")

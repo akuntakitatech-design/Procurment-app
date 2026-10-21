@@ -748,3 +748,18 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   dialog "Edit Addendum" terisi nomor, toast "Addendum diperbarui", hapus -> baris hilang + "Belum ada Addendum", API 404;
   reversal: 5/5 tes negatif (draft/reversed ditolak 409, hapus reversed 409) + UI Batalkan mengembalikan budget 700.100.000 -> 700.000.000; build OK.
 - Tanpa env/skema. Redeploy: backend lalu frontend.
+
+## Email Outbound — Form Disederhanakan + Perbaikan Keamanan (Status: COMPLETED — lokal, preview 1:1 production)
+- Permintaan user: klien cukup memasukkan email pengirim, tanpa setelan SMTP lain.
+- Frontend `EmailOutboundSettings.jsx`: hanya **Email Pengirim** + **App Password**; nama pengirim otomatis dari nama perusahaan;
+  jenis akun default Gmail dengan tautan **Pakai SMTP perusahaan** yang membuka server/port/keamanan; ringkasan "Dikirim sebagai".
+- Backend `email_outbound_layer.py`: `_normalize_public` Gmail memakai `from_email` bila `username` kosong (data lama);
+  `PUT` mengisi `from_name` dari Settings → Perusahaan dan `from_email` dari username.
+- **Perbaikan keamanan**: route generik `/api/settings/{key}` terdaftar lebih dulu dan menelan `/api/settings/email_outbound`,
+  sehingga GET mengembalikan dokumen settings mentah **termasuk password SMTP plaintext** (ditemukan saat uji). Route generik
+  dipindah ke urutan terakhir (di layer email dan pass akhir `production_bootstrap.py`); password plaintext lama otomatis
+  dienkripsi ke `password_encrypted` lalu field `password` dihapus saat startup (idempoten).
+- Verifikasi: GET hanya field publik (`password_set=true`, `ready=true`, tanpa `password`); PUT nilai identik `200` dan password
+  lama tetap dipakai; DB `password` plaintext=0, `password_encrypted`=1; UI 2 isian + status "Siap digunakan" + ringkasan
+  "Dikirim sebagai: Procurement <…>"; `CI=true yarn build` OK.
+- Tanpa env/skema baru. Redeploy: backend lalu frontend.

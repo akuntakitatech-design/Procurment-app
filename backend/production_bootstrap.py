@@ -321,6 +321,19 @@ po_tax_layer.install(server)
 import price_redaction_layer  # noqa: E402
 price_redaction_layer.install(server)
 
+# Route generik /api/settings/{key} harus selalu berada di urutan terakhir. Layer yang dipasang
+# setelah print_layout_layer (mis. email_outbound) menambahkan route spesifik; tanpa pass ini
+# route generik akan menelannya dan mengembalikan dokumen mentah (termasuk password lama).
+_generic_settings = []
+for _route in list(server.app.router.routes):
+    if getattr(_route, "path", None) != "/api/settings/{key}":
+        continue
+    _methods = getattr(_route, "methods", set()) or set()
+    if "GET" in _methods or "PUT" in _methods:
+        server.app.router.routes.remove(_route)
+        _generic_settings.append(_route)
+server.app.router.routes.extend(_generic_settings)
+
 
 # Paling luar: header Server-Timing (jumlah/durasi query DB) untuk audit performa.
 if server.DB_BACKEND == "mariadb":
