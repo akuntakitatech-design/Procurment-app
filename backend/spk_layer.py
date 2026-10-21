@@ -56,7 +56,7 @@ PERM_ADD_FINALIZE = "spk_addendum:finalize"
 NEW_PERMISSIONS = [PERM_SPK_VIEW, PERM_SPK_MANAGE, PERM_POLICY_VIEW, PERM_POLICY_MANAGE,
                    PERM_ADD_VIEW, PERM_ADD_MANAGE, PERM_ADD_FINALIZE]
 ADDENDUM_TYPES = {"SPK_VALUE", "PROCUREMENT_BUDGET", "BOTH"}
-ADDENDUM_STATUSES = {"draft", "effective", "cancelled"}
+ADDENDUM_STATUSES = {"draft", "effective", "cancelled", "reversed"}
 ADD_DOC_SEGMENT = "spk-addendums" if os.environ.get("APP_ENV", os.environ.get("ENVIRONMENT", "")).strip().lower() in ("production", "prod") else "preview/spk-addendums"
 
 
@@ -164,6 +164,13 @@ class AddendumIn(BaseModel):
 
 
 class FinalizeIn(BaseModel):
+    expected_spk_value: int | None = None
+    expected_procurement_budget: int | None = None
+
+
+class ReversalIn(BaseModel):
+    reason: str = Field(min_length=3, max_length=2000)
+    addendum_number: str | None = None
     expected_spk_value: int | None = None
     expected_procurement_budget: int | None = None
 
@@ -696,14 +703,78 @@ def install(server):
             result["warning"] = warning
         return result
 
+    @app.post("/api/spk/{spk_id}/addendums/{aid}/reverse", tags=["spk"])
+    async def reverse_addendum(spk_id: str, aid: str, body: ReversalIn, user=Depends(server.current_user)):
+        """Batalkan Addendum Effective dengan addendum koreksi berlawanan (histori tetap utuh)."""
+        _require(user, PERM_ADD_FINALIZE)
+        a = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
+        if not a:
+            raise HTTPException(status_code=404, detail="Addendum tidak ditemukan")
+        if a.get("status") != "effective":
+            raise HTTPException(status_code=409, detail="Hanya Addendum Effective yang dapat dibatalkan")
+        spk = await _db().spk.find_one({"id": spk_id}, {"_id": 0})
+        if not spk:
+            raise HTTPException(status_code=404, detail="SPK tidak ditemukan")
+        cur_sv = int(spk.get("spk_value") or 0)
+        cur_budget = int(spk.get("procurement_budget") or 0)
+        if body.expected_spk_value is not None and int(body.expected_spk_value) != cur_sv:
+            raise HTTPException(status_code=409, detail="Nilai SPK sudah berubah sejak form dibuka. Muat ulang (refresh) sebelum membatalkan.")
+        if body.expected_procurement_budget is not None and int(body.expected_procurement_budget) != cur_budget:
+            raise HTTPException(status_code=409, detail="Budget sudah berubah sejak form dibuka. Muat ulang (refresh) sebelum membatalkan.")
+        new_sv = cur_sv - int(a.get("spk_value_change") or 0)
+        new_budget = cur_budget - int(a.get("budget_change") or 0)
+        _check_resulting(new_sv, new_budget)
+        base = (body.addendum_number or f"REV-{a.get('addendum_number')}").strip()
+        num = base
+        i = 2
+        while await _db().spk_addendums.find_one({"spk_id": spk_id, "addendum_number": num}, {"_id": 0, "id": 1}):
+            num = f"{base}-{i}"
+            i += 1
+        now = _now()
+        today = datetime.now(timezone.utc).date().isoformat()
+        rev_id = str(uuid.uuid4())
+        rev = {
+            "id": rev_id, "spk_id": spk_id, "addendum_number": num,
+            "addendum_date": today, "addendum_type": "BOTH",
+            "effective_date": today, "pic_id": None, "pic_name": a.get("pic_name"),
+            "division_id": a.get("division_id"), "division_name": a.get("division_name"),
+            "reason": f"Pembatalan Addendum {a.get('addendum_number')}: {body.reason.strip()}",
+            "spk_value_change": -int(a.get("spk_value_change") or 0),
+            "budget_change": -int(a.get("budget_change") or 0),
+            "status": "effective",
+            "before_spk_value": cur_sv, "after_spk_value": new_sv,
+            "before_procurement_budget": cur_budget, "after_procurement_budget": new_budget,
+            "reversal_of": aid,
+            "created_by": user.get("email"), "created_at": now,
+            "updated_by": user.get("email"), "updated_at": now,
+            "finalized_by": user.get("email"), "finalized_at": now,
+            "cancelled_by": None, "cancelled_at": None,
+        }
+        await _db().spk_addendums.insert_one(rev)
+        await _db().spk_addendums.update_one({"id": aid}, {"$set": {
+            "status": "reversed", "reversed_by": user.get("email"), "reversed_at": now,
+            "reversal_addendum_id": rev_id, "updated_by": user.get("email"), "updated_at": now,
+        }})
+        await _db().spk.update_one({"id": spk_id}, {"$set": {
+            "spk_value": new_sv, "procurement_budget": new_budget, "over_budget": False,
+            "updated_by": user.get("email"), "updated_at": now,
+        }})
+        await server.audit(user, "edit", "spk_addendum", aid, a.get("addendum_number"),
+                           before={"status": "effective", "spk_value": cur_sv, "procurement_budget": cur_budget},
+                           after={"status": "reversed", "spk_value": new_sv, "procurement_budget": new_budget, "reversal": num})
+        return {
+            "original": await _db().spk_addendums.find_one({"id": aid}, {"_id": 0}),
+            "reversal": await _db().spk_addendums.find_one({"id": rev_id}, {"_id": 0}),
+        }
+
     @app.post("/api/spk/{spk_id}/addendums/{aid}/cancel", tags=["spk"])
     async def cancel_addendum(spk_id: str, aid: str, user=Depends(server.current_user)):
         _require(user, PERM_ADD_MANAGE)
         a = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
         if not a:
             raise HTTPException(status_code=404, detail="Addendum tidak ditemukan")
-        if a.get("status") == "effective":
-            raise HTTPException(status_code=409, detail="Addendum Effective tidak dapat dibatalkan (buat Addendum koreksi).")
+        if a.get("status") in ("effective", "reversed"):
+            raise HTTPException(status_code=409, detail="Addendum Effective tidak dapat dibatalkan (gunakan Pembatalan Addendum).")
         await _db().spk_addendums.update_one({"id": aid}, {"$set": {"status": "cancelled", "cancelled_by": user.get("email"), "cancelled_at": _now(), "updated_at": _now()}})
         await server.audit(user, "edit", "spk_addendum", aid, a.get("addendum_number"), after={"status": "cancelled"})
         return await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
@@ -714,8 +785,8 @@ def install(server):
         a = await _db().spk_addendums.find_one({"id": aid, "spk_id": spk_id}, {"_id": 0})
         if not a:
             raise HTTPException(status_code=404, detail="Addendum tidak ditemukan")
-        if a.get("status") == "effective":
-            raise HTTPException(status_code=409, detail="Addendum Effective tidak dapat dihapus (buat Addendum koreksi).")
+        if a.get("status") in ("effective", "reversed"):
+            raise HTTPException(status_code=409, detail="Addendum yang sudah efektif/dibatalkan tidak dapat dihapus (histori dipertahankan).")
         docs = await _db().spk_addendum_documents.find({"addendum_id": aid, "spk_id": spk_id}, {"_id": 0}).to_list(500)
         await _db().spk_addendum_documents.delete_many({"addendum_id": aid, "spk_id": spk_id})
         await _db().spk_addendums.delete_one({"id": aid, "spk_id": spk_id})

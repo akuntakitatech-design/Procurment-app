@@ -741,6 +741,10 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   addendum effective ditolak 409; baris `spk_addendum_documents` ikut dihapus lalu objek storage dibersihkan best-effort; audit `delete`.
 - Frontend `Spk.jsx`: tombol **Edit** (dialog terisi otomatis, memakai `PUT` existing) dan **Hapus** (konfirmasi, `DELETE`);
   kolom Aksi dibuat satu baris (`whitespace-nowrap`) agar 4 tombol tidak terlipat.
+- Pembatalan Addendum **Effective** (keputusan user, opsi A): `POST /api/spk/{spk_id}/addendums/{aid}/reverse` (izin `spk_addendum:finalize`)
+  membuat addendum koreksi bernilai berlawanan yang langsung effective, lalu menandai addendum asli `reversed` (histori terkunci, tidak bisa dihapus).
+  Nilai SPK/budget kembali ke sebelumnya, audit mencatat status lama/baru dan nomor koreksi. UI: tombol **Batalkan** + dialog alasan wajib.
 - Verifikasi: 11/11 tes API (buat draft, edit, hapus, 404, hapus ulang 404); UI: tombol Finalisasi/Edit/Batal/Hapus tampil,
-  dialog "Edit Addendum" terisi nomor, toast "Addendum diperbarui", hapus -> baris hilang + "Belum ada Addendum", API 404; build OK.
+  dialog "Edit Addendum" terisi nomor, toast "Addendum diperbarui", hapus -> baris hilang + "Belum ada Addendum", API 404;
+  reversal: 5/5 tes negatif (draft/reversed ditolak 409, hapus reversed 409) + UI Batalkan mengembalikan budget 700.100.000 -> 700.000.000; build OK.
 - Tanpa env/skema. Redeploy: backend lalu frontend.

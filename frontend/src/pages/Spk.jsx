@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   Plus, Search, Pencil, ArrowLeft, FileText, Upload, Trash2, Download, ShieldCheck,
-  Wallet, TrendingUp, Layers3, Info, ClipboardList,
+  Wallet, TrendingUp, Layers3, Info, ClipboardList, RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -335,7 +335,7 @@ const ADD_TYPE_OPTS = [
   { value: "SPK_VALUE", label: "Nilai SPK" },
   { value: "BOTH", label: "Keduanya" },
 ];
-const addStatusMap = { draft: "Draft", effective: "Normal", cancelled: "cancelled" };
+const addStatusMap = { draft: "Draft", effective: "Normal", cancelled: "Dibatalkan", reversed: "Dibatalkan (koreksi)" };
 
 function AddendumPanel({ spk, onChanged }) {
   const canManage = spk.can_manage_addendum;
@@ -344,6 +344,9 @@ function AddendumPanel({ spk, onChanged }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [reversing, setReversing] = useState(null);
+  const [revReason, setRevReason] = useState("");
+  const [revSaving, setRevSaving] = useState(false);
   const blank = { addendum_number: "", addendum_date: "", addendum_type: "PROCUREMENT_BUDGET", effective_date: "", reason: "", pic_name: "", division_name: "", sv_dir: "+", sv_mag: "", bud_dir: "+", bud_mag: "" };
   const [f, setF] = useState(blank);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
@@ -394,6 +397,23 @@ function AddendumPanel({ spk, onChanged }) {
       onChanged?.();
     } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
   };
+
+  const openReverse = (a) => { setReversing(a); setRevReason(""); };
+  const submitReverse = async () => {
+    if (!reversing) return;
+    try {
+      setRevSaving(true);
+      await api.post(`/spk/${spk.id}/addendums/${reversing.id}/reverse`, {
+        reason: revReason.trim(),
+        expected_spk_value: curSv,
+        expected_procurement_budget: curBud,
+      });
+      toast.success("Addendum dibatalkan — nilai SPK dan budget dikembalikan");
+      setReversing(null); setRevReason("");
+      onChanged?.();
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
+    finally { setRevSaving(false); }
+  };
   const finalize = async (a) => {
     try {
       const r = await api.post(`/spk/${spk.id}/addendums/${a.id}/finalize`, { expected_spk_value: curSv, expected_procurement_budget: curBud });
@@ -420,14 +440,16 @@ function AddendumPanel({ spk, onChanged }) {
                 <td className="p-3 text-xs">{a.addendum_type}</td>
                 <td className="p-3 text-right text-xs">{a.spk_value_change ? rupiah(a.spk_value_change) : "-"}</td>
                 <td className="p-3 text-right text-xs">{a.budget_change ? rupiah(a.budget_change) : "-"}</td>
-                <td className="p-3 text-right text-xs">{a.status === "effective" ? `${rupiah(a.before_procurement_budget)} -> ${rupiah(a.after_procurement_budget)}` : "-"}</td>
+                <td className="p-3 text-right text-xs">{(a.status === "effective" || a.status === "reversed") ? `${rupiah(a.before_procurement_budget)} -> ${rupiah(a.after_procurement_budget)}` : "-"}</td>
                 <td className="p-3"><StatusBadge status={addStatusMap[a.status] || a.status} /></td>
                 <td className="p-3 whitespace-nowrap">
                   <div className="flex items-center gap-1">
                     {a.status === "draft" && canFinalize && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => finalize(a)} data-testid={`addendum-finalize-${a.addendum_number}`}>Finalisasi</Button>}
                     {a.status === "draft" && canManage && <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEdit(a)} data-testid={`addendum-edit-${a.addendum_number}`}><Pencil className="h-3.5 w-3.5 mr-1" />Edit</Button>}
                     {a.status === "draft" && canManage && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => cancel(a)}>Batal</Button>}
-                    {a.status !== "effective" && canManage && <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => remove(a)} data-testid={`addendum-delete-${a.addendum_number}`}><Trash2 className="h-3.5 w-3.5 mr-1" />Hapus</Button>}
+                    {a.status === "effective" && canFinalize && <Button size="sm" variant="outline" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => openReverse(a)} data-testid={`addendum-reverse-${a.addendum_number}`}><RotateCcw className="h-3.5 w-3.5 mr-1" />Batalkan</Button>}
+                    {(a.status === "draft" || a.status === "cancelled") && canManage && <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => remove(a)} data-testid={`addendum-delete-${a.addendum_number}`}><Trash2 className="h-3.5 w-3.5 mr-1" />Hapus</Button>}
+                    {a.status === "reversed" && <span className="text-xs text-muted-foreground">Histori terkunci</span>}
                   </div>
                 </td>
               </tr>
@@ -475,6 +497,31 @@ function AddendumPanel({ spk, onChanged }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Batal</Button>
             <Button onClick={submit} disabled={saving} data-testid="addendum-save">{saving ? "Menyimpan..." : editingId ? "Simpan Perubahan" : "Simpan Draft"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!reversing} onOpenChange={(v) => { if (!v) { setReversing(null); setRevReason(""); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Batalkan Addendum</DialogTitle>
+            <DialogDescription>Addendum tidak dihapus. Sistem membuat addendum koreksi bernilai berlawanan agar histori dan audit tetap utuh.</DialogDescription>
+          </DialogHeader>
+          {reversing && <div className="space-y-3">
+            <div className="rounded-xl border bg-muted/40 p-3 space-y-1 text-sm">
+              <div>Addendum <b>{reversing.addendum_number}</b> · {reversing.addendum_type}</div>
+              <div className="text-xs text-muted-foreground">Nilai SPK: {rupiah(curSv)} → <b className="text-foreground">{rupiah(curSv - Number(reversing.spk_value_change || 0))}</b></div>
+              <div className="text-xs text-muted-foreground">Budget Procurement: {rupiah(curBud)} → <b className="text-foreground">{rupiah(curBud - Number(reversing.budget_change || 0))}</b></div>
+            </div>
+            <Field label="Alasan pembatalan *">
+              <textarea value={revReason} onChange={(e) => setRevReason(e.target.value)} className="w-full min-h-20 rounded-md border bg-background px-3 py-2 text-sm" data-testid="addendum-reverse-reason" />
+            </Field>
+          </div>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setReversing(null); setRevReason(""); }}>Tutup</Button>
+            <Button variant="destructive" onClick={submitReverse} disabled={revSaving || revReason.trim().length < 3} data-testid="addendum-reverse-confirm">
+              {revSaving ? "Memproses..." : "Batalkan Addendum"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
