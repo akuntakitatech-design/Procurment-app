@@ -723,3 +723,14 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   dashboard platform tidak menghitung tenant terhapus (field `deleted`); detail `is_default_tenant` + `deletion_history`; UI filter **Dihapus**.
 - Verifikasi: `tests/platform_tenant_delete_test.py` 35/35 (tenant uji dibuat & di-purge sendiri); cek langsung DB+R2 tenant uji: 0 baris, 0 objek;
   data PT REAL utuh; `CI=true yarn build` OK; UAT browser (tombol, dialog dampak, banner, filter). Sisa data uji: PRC-000168 (status Dihapus).
+
+## Kode Master — Nomor Urut Terakhir & Sinkron dari Data (Status: COMPLETED — lokal, preview 1:1 production)
+- Keputusan user: opsi A — format kode (prefix/pemisah/lebar digit) + **nomor urut terakhir** + tombol **Sinkron dari data** + counter naik otomatis setelah impor Excel.
+- Backend `master_code_settings_layer.py`: GET `/api/settings/master_codes` mengembalikan `sequences`, `last_seq`, `next_code`; PUT menerima `sequences`
+  (validasi 0..999999999; master berkode manual dilewati); endpoint baru `POST /api/settings/master_codes/{name}/sync-sequence`
+  memindai kode sesuai format aktif lalu menaikkan counter (tidak menurunkan); `bump_sequence_for_codes()` dipanggil `excel_import_layer`
+  setelah impor master agar penambahan berikutnya melanjutkan nomor terakhir.
+- Frontend `MasterCodeSettings.jsx`: input nomor urut terakhir per master, tombol Sinkron dari data, pratinjau kode berikutnya, simpan format+nomor.
+- Verifikasi: 18/18 tes API (validasi negatif/non-angka, master manual, sinkron, restore), 5/5 tes logika bump impor,
+  UI simpan 5000 -> `BRG-05001` bertahan setelah reload lalu dikembalikan ke 2, `CI=true yarn build` OK.
+- Tanpa perubahan skema/env. Redeploy: backend lalu frontend.
