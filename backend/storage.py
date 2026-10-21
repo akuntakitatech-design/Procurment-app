@@ -147,3 +147,44 @@ def delete_object(path: str) -> None:
         _s3_client().delete_object(Bucket=S3_BUCKET, Key=path)
         return
     raise RuntimeError(f"Unsupported STORAGE_DRIVER: {STORAGE_DRIVER}")
+
+
+def list_prefix(prefix: str) -> list:
+    """Daftar objek di bawah `prefix` (tanpa scoping tenant): [(key, size), ...]."""
+    clean = str(prefix or "").replace("\\", "/").lstrip("/")
+    if not clean or not clean.endswith("/"):
+        raise ValueError("Prefix storage harus berakhiran '/'")
+    if STORAGE_DRIVER == "local":
+        root = _safe_local_path(clean)
+        if not root.exists():
+            return []
+        base = LOCAL_PATH.resolve()
+        return [(p.resolve().relative_to(base).as_posix(), p.stat().st_size) for p in root.rglob("*") if p.is_file()]
+    if STORAGE_DRIVER in ("minio", "s3"):
+        out = []
+        for page in _s3_client().get_paginator("list_objects_v2").paginate(Bucket=S3_BUCKET, Prefix=clean):
+            out.extend((o["Key"], int(o.get("Size") or 0)) for o in page.get("Contents") or [])
+        return out
+    raise RuntimeError(f"Unsupported STORAGE_DRIVER: {STORAGE_DRIVER}")
+
+
+def delete_keys(keys) -> int:
+    """Hapus banyak objek sekaligus (S3: batch 1000). Mengembalikan jumlah objek yang dihapus."""
+    keys = [str(k) for k in keys or [] if k]
+    if not keys:
+        return 0
+    if STORAGE_DRIVER == "local":
+        for k in keys:
+            delete_object(k)
+        return len(keys)
+    if STORAGE_DRIVER in ("minio", "s3"):
+        client, done = _s3_client(), 0
+        for i in range(0, len(keys), 1000):
+            part = keys[i:i + 1000]
+            res = client.delete_objects(Bucket=S3_BUCKET, Delete={"Objects": [{"Key": k} for k in part], "Quiet": True})
+            errors = res.get("Errors") or []
+            if errors:
+                raise RuntimeError(f"Gagal menghapus {len(errors)} objek storage (contoh: {errors[0].get('Key')}: {errors[0].get('Code')})")
+            done += len(part)
+        return done
+    raise RuntimeError(f"Unsupported STORAGE_DRIVER: {STORAGE_DRIVER}")

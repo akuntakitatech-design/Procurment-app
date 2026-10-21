@@ -24,3 +24,13 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Artefak lokal / alat (bukan bagian aplikasi)
+.venv/
+.playwright-mcp/
+screenshots/
+*.orig
+*.rej
+
+# File kredensial pemilik (mis. CredDevProcurement.txt)
+Cred*.txt

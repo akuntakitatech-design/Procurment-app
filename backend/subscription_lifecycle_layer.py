@@ -85,6 +85,8 @@ def _reminder_threshold(days_remaining: int | None, thresholds):
 
 def _message_for(status: str, phase: str, days_remaining: int | None, deadline: datetime | None):
     date_text = deadline.astimezone(timezone.utc).strftime("%d-%m-%Y") if deadline else None
+    if status == "deleted":
+        return "Workspace telah dihapus oleh administrator platform. Hubungi administrator untuk informasi lebih lanjut."
     if phase == "locked" and status == "suspended":
         return "Workspace ditangguhkan oleh administrator platform. Hubungi administrator untuk informasi lebih lanjut."
     if phase == "locked":
@@ -127,8 +129,14 @@ def _evaluate(tenant: dict, now: datetime):
     access_end = _parse_dt(sub.get("grace_ends_at"))
     access_days = _post_expiry_access_days(tenant)
 
+    # Tenant dihapus (soft delete, lihat tenant_delete_layer) terkunci penuh sampai dipulihkan.
+    if tenant.get("status") == "deleted" or current_status == "deleted":
+        status = "deleted"
+        phase = "locked"
+        deadline = ends_at or trial_end
+        access_end = None
     # Tenant-level suspension and subscription-level suspension both lock immediately.
-    if tenant.get("status") == "suspended" or current_status == "suspended":
+    elif tenant.get("status") == "suspended" or current_status == "suspended":
         status = "suspended"
         phase = "locked"
         deadline = ends_at or trial_end

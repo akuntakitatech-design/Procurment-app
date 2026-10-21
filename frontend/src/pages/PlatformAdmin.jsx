@@ -13,8 +13,8 @@ import PlatformInvitations from "@/components/PlatformInvitations";
 import PlatformBranding from "@/components/PlatformBranding";
 import {
   Activity, Building2, CalendarClock, Clock3, Copy, Hash, HardDrive, Link2, Loader2, LogOut, Mail,
-  Pencil, Phone, Plus, RefreshCw, RotateCcw, Search, Send, ShieldCheck, ShieldOff, TriangleAlert,
-  UserRound, Users,
+  Pencil, Phone, Plus, RefreshCw, RotateCcw, Search, Send, ShieldCheck, ShieldOff, Trash2, TriangleAlert,
+  Undo2, UserRound, Users,
 } from "lucide-react";
 
 const badgeClass = (status) => {
@@ -23,11 +23,12 @@ const badgeClass = (status) => {
   if (s === "pending_activation") return "bg-indigo-50 text-indigo-700 border-indigo-200";
   if (s === "expiring_soon" || s === "grace" || s === "trial") return "bg-amber-50 text-amber-700 border-amber-200";
   if (s === "suspended") return "bg-orange-50 text-orange-700 border-orange-200";
+  if (s === "deleted") return "bg-rose-100 text-rose-800 border-rose-300";
   if (s === "expired") return "bg-rose-50 text-rose-700 border-rose-200";
   return "bg-slate-50 text-slate-600 border-slate-200";
 };
 const statusLabel = (s) => ({
-  active: "Aktif", pending_activation: "Pending Activation", suspended: "Suspended",
+  active: "Aktif", pending_activation: "Pending Activation", suspended: "Suspended", deleted: "Dihapus",
   expired: "Expired", expiring_soon: "Akan Expired", grace: "Masa Tenggang", trial: "Trial",
 }[String(s || "").toLowerCase()] || (s || "-"));
 
@@ -344,6 +345,117 @@ function EditProfileDialog({ open, onOpenChange, tenant, onDone }) {
   );
 }
 
+/* ------------------------------ Hapus Tenant (2 tahap) ------------------------------ */
+const fmtBytes = (n) => {
+  if (n == null) return "-";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  return `${(n / 1024 ** 3).toFixed(2)} GB`;
+};
+
+function DeleteTenantDialog({ open, onOpenChange, tenant, mode, onDone }) {
+  const purge = mode === "purge";
+  const tenantId = tenant?.id;
+  const [preview, setPreview] = useState(null);
+  const [loadingPv, setLoadingPv] = useState(false);
+  const [reason, setReason] = useState("");
+  const [code, setCode] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!open || !tenantId) return;
+    setReason(""); setCode(""); setPreview(null); setLoadingPv(true);
+    api.get(`/platform/tenants/${tenantId}/delete-preview`)
+      .then((r) => setPreview(r.data))
+      .catch((e) => toast.error(apiError(e.response?.data?.detail) || e.message))
+      .finally(() => setLoadingPv(false));
+  }, [open, tenantId]);
+
+  const expected = preview?.confirm_code || "";
+  const codeOk = !!expected && code.trim().toUpperCase() === expected.toUpperCase();
+  const allowed = purge ? preview?.purgeable : preview?.deletable;
+  const st = preview?.storage || {};
+  const cols = Object.entries(preview?.collections || {}).sort((a, b) => b[1] - a[1]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!purge && reason.trim().length < 3) { toast.error("Alasan wajib diisi (min 3 karakter)"); return; }
+    if (!codeOk) { toast.error(`Ketik kode tenant ${expected} untuk konfirmasi`); return; }
+    setSaving(true);
+    try {
+      const r = purge
+        ? await api.post(`/platform/tenants/${tenantId}/purge`, { confirm_code: code.trim() })
+        : await api.post(`/platform/tenants/${tenantId}/delete`, { confirm_code: code.trim(), reason: reason.trim() });
+      toast.success(r.data?.message || (purge ? "Tenant dihapus permanen" : "Tenant dihapus"));
+      onOpenChange(false); onDone?.(purge);
+    } catch (e) { toast.error(apiError(e.response?.data?.detail) || e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-rose-700">{purge ? "Hapus Permanen Tenant" : "Hapus Tenant"}</DialogTitle>
+          <DialogDescription>
+            {purge
+              ? "Semua data, user, dan file tenant ini dihapus dari database dan storage. Tindakan ini TIDAK DAPAT dibatalkan."
+              : "Workspace dikunci, semua sesi user dicabut, dan tenant pindah ke filter Dihapus. Data tetap tersimpan: masih dapat dipulihkan atau dihapus permanen."}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4" data-testid={purge ? "purge-tenant-form" : "delete-tenant-form"}>
+          <div className="rounded-xl border bg-slate-50 p-3 text-sm">
+            <span className="font-mono text-[11px] font-bold px-2 py-1 rounded-md bg-slate-950 text-white">{tenant?.tenant_code || "-"}</span>
+            <span className="ml-2 font-semibold">{tenant?.name}</span>
+          </div>
+
+          {loadingPv ? (
+            <div className="flex items-center text-sm text-muted-foreground"><Loader2 className="h-4 w-4 mr-2 animate-spin" />Menghitung dampak...</div>
+          ) : preview && (
+            <>
+              {!allowed && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800" data-testid="delete-blocked">
+                  {preview.protected ? "Tenant default/utama platform tidak dapat dihapus."
+                    : purge ? "Hapus tenant terlebih dahulu sebelum hapus permanen." : "Tenant sudah berstatus dihapus."}
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-2 text-xs" data-testid="delete-impact">
+                <div className="rounded-xl bg-slate-50 p-3"><div className="text-muted-foreground">User</div><div className="text-lg font-bold">{preview.users ?? 0}</div></div>
+                <div className="rounded-xl bg-slate-50 p-3"><div className="text-muted-foreground">Dokumen</div><div className="text-lg font-bold">{preview.total_documents ?? 0}</div></div>
+                <div className="rounded-xl bg-slate-50 p-3"><div className="text-muted-foreground">File storage</div><div className="text-lg font-bold">{st.objects ?? "-"}</div><div className="text-[10px] text-muted-foreground">{fmtBytes(st.bytes)}</div></div>
+              </div>
+              {st.error && <div className="text-[11px] text-amber-700">Storage tidak dapat dihitung: {st.error}</div>}
+              {cols.length > 0 && (
+                <div className="max-h-28 overflow-auto rounded-xl border p-2 text-[11px] text-muted-foreground flex flex-wrap gap-1">
+                  {cols.map(([name, n]) => <span key={name} className="rounded-md bg-slate-100 px-1.5 py-0.5">{name}: <b className="text-foreground">{n}</b></span>)}
+                </div>
+              )}
+              {allowed && !purge && (
+                <div className="space-y-1.5"><Label>Alasan *</Label>
+                  <textarea value={reason} onChange={(e) => setReason(e.target.value)} className="w-full min-h-20 rounded-md border bg-background px-3 py-2 text-sm" placeholder="Alasan penghapusan tenant" data-testid="delete-reason" />
+                </div>
+              )}
+              {allowed && (
+                <div className="space-y-1.5">
+                  <Label>Ketik <span className="font-mono font-bold">{expected}</span> untuk konfirmasi *</Label>
+                  <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder={expected} autoComplete="off" className="font-mono" data-testid="delete-confirm-code" />
+                </div>
+              )}
+            </>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Batal</Button>
+            <Button type="submit" variant="destructive" disabled={saving || loadingPv || !allowed || !codeOk} data-testid={purge ? "purge-submit" : "delete-submit"}>
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}{purge ? "Hapus Permanen" : "Hapus Tenant"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ============================== MAIN ============================== */
 export default function PlatformAdmin() {
   const { user, logout } = useAuth();
@@ -358,7 +470,7 @@ export default function PlatformAdmin() {
   const [err, setErr] = useState("");
   const [detailTab, setDetailTab] = useState("overview");
   const [platformBrand, setPlatformBrand] = useState({ name: "KelolaKita Procurement", logo_available: false, logo_version: null });
-  const [dlg, setDlg] = useState({ create: false, renew: false, suspend: false, edit: false });
+  const [dlg, setDlg] = useState({ create: false, renew: false, suspend: false, edit: false, del: false, purge: false });
 
   useEffect(() => { api.get("/platform-branding").then((r) => setPlatformBrand(r.data || {})).catch(() => {}); }, []);
   const platformLogoUrl = platformBrand.logo_available ? `${API}/platform-branding/logo?v=${encodeURIComponent(platformBrand.logo_version || "1")}` : null;
@@ -394,7 +506,10 @@ export default function PlatformAdmin() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return tenants.filter((t) => {
-      if (statusFilter !== "all") {
+      const isDeleted = String(t.status || "").toLowerCase() === "deleted";
+      // Tenant terhapus hanya tampil di filter "Dihapus".
+      if (isDeleted !== (statusFilter === "deleted")) return false;
+      if (statusFilter !== "all" && statusFilter !== "deleted") {
         const st = String(t.status || "").toLowerCase();
         if (statusFilter === "expiring" || statusFilter === "expired") {
           const end = t.subscription?.ends_at ? new Date(t.subscription.ends_at) : null;
@@ -417,6 +532,11 @@ export default function PlatformAdmin() {
     finally { setBusy(false); }
   };
   const reactivate = () => doAction(() => api.post(`/platform/tenants/${selected.id}/reactivate`, { reason: "Reaktivasi dari Platform Admin" }), "Tenant diaktifkan kembali");
+  const restore = () => doAction(() => api.post(`/platform/tenants/${selected.id}/restore`, { reason: "Dipulihkan dari Platform Admin" }), "Tenant dipulihkan");
+  const afterDelete = async (purged) => {
+    if (purged) { setSelected(null); await load(); return; }
+    await refreshSelected();
+  };
   const resend = async () => {
     setBusy(true);
     try {
@@ -512,7 +632,7 @@ export default function PlatformAdmin() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {[["all", "Semua"], ["active", "Aktif"], ["pending_activation", "Pending"], ["expiring", "Akan Expired"], ["expired", "Expired"], ["suspended", "Suspended"]].map(([v, l]) => (
+                {[["all", "Semua"], ["active", "Aktif"], ["pending_activation", "Pending"], ["expiring", "Akan Expired"], ["expired", "Expired"], ["suspended", "Suspended"], ["deleted", "Dihapus"]].map(([v, l]) => (
                   <button key={v} onClick={() => setStatusFilter(v)} className={`h-8 px-3 rounded-lg text-xs font-medium border ${statusFilter === v ? "bg-slate-950 text-white border-slate-950" : "bg-white text-slate-600 hover:bg-slate-50"}`} data-testid={`filter-${v}`}>{l}</button>
                 ))}
               </div>
@@ -571,13 +691,31 @@ export default function PlatformAdmin() {
                     <div className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 shrink-0" /><span>{s.contact?.whatsapp || "-"}</span></div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => setDlg((d) => ({ ...d, edit: true }))} data-testid="edit-tenant-btn"><Pencil className="h-3.5 w-3.5 mr-1.5" />Edit</Button>
-                    <Button size="sm" variant="secondary" onClick={() => setDlg((d) => ({ ...d, renew: true }))} data-testid="renew-btn"><RotateCcw className="h-3.5 w-3.5 mr-1.5" />Perpanjang</Button>
-                    {s.status === "suspended"
-                      ? <Button size="sm" variant="secondary" onClick={reactivate} disabled={busy} data-testid="reactivate-btn"><ShieldCheck className="h-3.5 w-3.5 mr-1.5" />Reactivate</Button>
-                      : <Button size="sm" variant="secondary" className="text-orange-700" onClick={() => setDlg((d) => ({ ...d, suspend: true }))} data-testid="suspend-btn"><ShieldOff className="h-3.5 w-3.5 mr-1.5" />Suspend</Button>}
+                    {s.status === "deleted" ? (
+                      <>
+                        <Button size="sm" variant="secondary" onClick={restore} disabled={busy} data-testid="restore-tenant-btn"><Undo2 className="h-3.5 w-3.5 mr-1.5" />Pulihkan</Button>
+                        <Button size="sm" variant="destructive" onClick={() => setDlg((d) => ({ ...d, purge: true }))} disabled={busy} data-testid="purge-tenant-btn"><Trash2 className="h-3.5 w-3.5 mr-1.5" />Hapus Permanen</Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button size="sm" variant="secondary" onClick={() => setDlg((d) => ({ ...d, edit: true }))} data-testid="edit-tenant-btn"><Pencil className="h-3.5 w-3.5 mr-1.5" />Edit</Button>
+                        <Button size="sm" variant="secondary" onClick={() => setDlg((d) => ({ ...d, renew: true }))} data-testid="renew-btn"><RotateCcw className="h-3.5 w-3.5 mr-1.5" />Perpanjang</Button>
+                        {s.status === "suspended"
+                          ? <Button size="sm" variant="secondary" onClick={reactivate} disabled={busy} data-testid="reactivate-btn"><ShieldCheck className="h-3.5 w-3.5 mr-1.5" />Reactivate</Button>
+                          : <Button size="sm" variant="secondary" className="text-orange-700" onClick={() => setDlg((d) => ({ ...d, suspend: true }))} data-testid="suspend-btn"><ShieldOff className="h-3.5 w-3.5 mr-1.5" />Suspend</Button>}
+                        {!s.is_default_tenant && <Button size="sm" variant="secondary" className="text-rose-700" onClick={() => setDlg((d) => ({ ...d, del: true }))} data-testid="delete-tenant-btn"><Trash2 className="h-3.5 w-3.5 mr-1.5" />Hapus</Button>}
+                      </>
+                    )}
                   </div>
                 </div>
+
+                {s.status === "deleted" && (
+                  <div className="m-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800" data-testid="deleted-tenant-banner">
+                    <div className="font-semibold flex items-center gap-1.5"><Trash2 className="h-3.5 w-3.5" />Tenant dihapus — workspace terkunci</div>
+                    <div className="mt-1">{fmtDateTime(s.deleted_at)} oleh {s.deleted_by || "-"}{s.deleted_reason ? ` · Alasan: ${s.deleted_reason}` : ""}</div>
+                    <div className="mt-1 text-rose-700/80">Pulihkan untuk membuka kembali akses, atau Hapus Permanen untuk menghapus seluruh data & file.</div>
+                  </div>
+                )}
 
                 {/* Pending activation banner */}
                 {s.pending_activation && s.activation && (
@@ -707,6 +845,8 @@ export default function PlatformAdmin() {
       {s && <RenewDialog open={dlg.renew} onOpenChange={(v) => setDlg((d) => ({ ...d, renew: v }))} tenant={s} plans={plans} onDone={refreshSelected} />}
       {s && <SuspendDialog open={dlg.suspend} onOpenChange={(v) => setDlg((d) => ({ ...d, suspend: v }))} tenant={s} onDone={refreshSelected} />}
       {s && <EditProfileDialog open={dlg.edit} onOpenChange={(v) => setDlg((d) => ({ ...d, edit: v }))} tenant={s} onDone={refreshSelected} />}
+      {s && <DeleteTenantDialog open={dlg.del} onOpenChange={(v) => setDlg((d) => ({ ...d, del: v }))} tenant={s} mode="soft" onDone={afterDelete} />}
+      {s && <DeleteTenantDialog open={dlg.purge} onOpenChange={(v) => setDlg((d) => ({ ...d, purge: v }))} tenant={s} mode="purge" onDone={afterDelete} />}
     </div>
   );
 }
