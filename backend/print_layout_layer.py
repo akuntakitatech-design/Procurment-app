@@ -23,33 +23,37 @@ META = ["date", "status", "requester", "receiver", "supplier", "buyer", "payment
 
 def default_layout(code, title):
     is_po = code == "PO"
+    is_do = code == "DO"
+    is_real = is_po or is_do
     return {
         "code": code,
-        "title": "PURCHASE ORDER" if is_po else title,
+        "title": "PURCHASE ORDER" if is_po else ("Bukti Penerimaan Barang" if is_do else title),
         "paper_size": "A4",
         "orientation": "portrait",
         "font_family": "Arial",
         "font_size": 11,
         "primary_color": "#17396f" if is_po else "#1e3a8a",
-        "margin_mm": 10 if is_po else 12,  # legacy (satu nilai); sumber kebenaran = 4 sisi di bawah
-        # Default rekomendasi (dapat diubah di Layout Dokumen): PO REAL atas/bawah 12, kiri/kanan 15.
+        "margin_mm": 10 if is_real else 12,  # legacy (satu nilai); sumber kebenaran = 4 sisi di bawah
+        # Default rekomendasi (dapat diubah di Layout Dokumen): PO/DO REAL atas/bawah 12, kiri/kanan 15.
         "margin_top_mm": 12,
-        "margin_right_mm": 15 if is_po else 12,
+        "margin_right_mm": 15 if is_real else 12,
         "margin_bottom_mm": 12,
-        "margin_left_mm": 15 if is_po else 12,
-        "logo_width_mm": 24 if is_po else 28,
+        "margin_left_mm": 15 if is_real else 12,
+        "logo_width_mm": 24 if is_real else 28,
         "header_style": "classic",
-        "template_style": "real_reference" if is_po else "generic",
+        "template_style": "real_reference" if is_real else "generic",
         "show_logo": True,
         "show_company_address": True,
-        "show_qr": False if is_po else True,
+        "show_qr": False if is_real else True,
         "show_message": True,
         "show_signatures": True,
         "sections": list(SECTIONS),
         "columns": ["item", "qty", "unit", "price", "discount", "total"] if is_po else ["item", "qty", "unit", "spk", "price", "total"],
         "meta_fields": list(META),
-        "signature_labels": ["Approved by,", "Signed by,"] if is_po else ["Dibuat Oleh", "Diperiksa Oleh", "Disetujui Oleh"],
-        "footer_text": "" if is_po else "Dokumen ini dibuat oleh sistem ProcureFlow.",
+        "signature_labels": (["Approved by,", "Signed by,"] if is_po else
+                             (["Project Manager / Spv Part Management", "To Send Invoice, sign here & return"] if is_do else
+                              ["Dibuat Oleh", "Diperiksa Oleh", "Disetujui Oleh"])),
+        "footer_text": "" if is_real else "Dokumen ini dibuat oleh sistem ProcureFlow.",
         # PO REAL reference fields. Blank values fall back to company/master data.
         "po_delivery_company_name": "",
         "po_bill_company_name": "",
@@ -58,6 +62,9 @@ def default_layout(code, title):
         "po_bill_phone": "",
         "po_approved_name": "",
         "po_approved_company": "",
+        # DO REAL reference fields (Bukti Penerimaan Barang).
+        "do_note_text": "Wajib lampirkan Dokumen ini sebagai kelengkapan penagihan Invoice" if is_do else "",
+        "do_signature_note": "your name & company stamp" if is_do else "",
     }
 
 
@@ -68,6 +75,7 @@ def _normalize_one(raw, code, title):
         "title", "paper_size", "orientation", "font_family", "font_size", "primary_color", "margin_mm", "logo_width_mm", *MARGIN_SIDES,
         "header_style", "template_style", "show_logo", "show_company_address", "show_qr", "show_message", "show_signatures", "footer_text",
         "po_delivery_company_name", "po_bill_company_name", "po_bill_address", "po_bill_contact", "po_bill_phone", "po_approved_name", "po_approved_company",
+        "do_note_text", "do_signature_note",
     }
     for k in allowed_scalar:
         if k in src:
@@ -103,12 +111,12 @@ def _normalize_one(raw, code, title):
     if out["header_style"] not in ("classic", "minimal", "boxed"):
         out["header_style"] = "classic"
     if out["template_style"] not in ("generic", "real_reference"):
-        out["template_style"] = "real_reference" if code == "PO" else "generic"
-    if code != "PO" and out["template_style"] == "real_reference":
+        out["template_style"] = "real_reference" if code in ("PO", "DO") else "generic"
+    if code not in ("PO", "DO") and out["template_style"] == "real_reference":
         out["template_style"] = "generic"
     if len(str(out.get("footer_text") or "")) > 1000:
         raise HTTPException(400, "Teks footer terlalu panjang")
-    for k in ("po_delivery_company_name", "po_bill_company_name", "po_bill_address", "po_bill_contact", "po_bill_phone", "po_approved_name", "po_approved_company"):
+    for k in ("po_delivery_company_name", "po_bill_company_name", "po_bill_address", "po_bill_contact", "po_bill_phone", "po_approved_name", "po_approved_company", "do_note_text", "do_signature_note"):
         if len(str(out.get(k) or "")) > 1000:
             raise HTTPException(400, f"{k} terlalu panjang")
     return out
