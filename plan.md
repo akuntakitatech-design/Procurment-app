@@ -822,3 +822,18 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   `Yard Balai Raja, Jalan Lingkar Timur Pinggir, Duri`, Vendor + `No. DO: ewe3w4343` + `No. Faktur: 54668779`,
   `To: spk01 — timbun tanah`; `CI=true yarn build` OK.
 - Tanpa env/skema. Redeploy: frontend saja.
+
+## Perbaikan — Alokasi SPK Hilang Setelah DO Diedit (Status: COMPLETED — lokal, preview 1:1 production)
+- Laporan pemilik: setelah DO diedit, nomor SPK di form dan cetak hilang padahal di PO ada.
+- Akar masalah: `transaction_mutation_layer._replace` membuat ulang seluruh baris dokumen dengan `id` baru
+  (`server.gid()`), sedangkan alokasi SPK disimpan di `procurement_item_spk_allocations` per `item_line_id`.
+  Akibatnya baris alokasi menunjuk id baris yang sudah dihapus (orphan) dan alokasi tidak lagi terbaca.
+- Bukti data: DO/2026/10/00004 punya baris alokasi `item_line_id=68823b89…` yang tidak ada lagi di `do_lines`
+  (baris aktif `d8727756…`), sedangkan DO lain (mis. DO/2026/10/00002) alokasinya masih cocok.
+- Perbaikan: `_replace` memetakan `id` baris lama → id baris baru dari payload, lalu `update_many` alokasi SPK
+  ke id baru; alokasi milik baris yang dihapus dibersihkan agar tidak menjadi orphan yang ikut menghitung pemakaian SPK.
+  `_delete` juga menghapus alokasi SPK dokumen. Tidak ada perubahan pada `source_key` ledger (tetap unik per posting).
+- Verifikasi: `py_compile` OK; nama field koleksi terverifikasi (`source_document_id`, `item_line_id`, `allocated_qty`);
+  pemetaan id diverifikasi dari payload frontend (`lines` memuat `id` baris tersimpan). Uji edit end-to-end belum dijalankan
+  agar tidak mengubah data production.
+- Tanpa env/skema. Redeploy: backend.
