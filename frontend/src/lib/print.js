@@ -3,6 +3,7 @@ import { rupiah, num, fmtDate } from "@/lib/format";
 import { dpRows } from "@/lib/poDp";
 import { isPoV2, poV2SummaryRows, fmtIdr } from "@/lib/poTaxPrint";
 import { buildPoPrintHtml, poApproved } from "@/lib/poPrintReal";
+import { buildDoPrintHtml } from "@/lib/doPrintReal";
 import { printImage, companyLogoPath, poSignaturePath } from "@/lib/printAssets";
 import { layoutMargins, cssMargin, mergeLayout } from "@/lib/printMargins";
 
@@ -37,28 +38,30 @@ const moduleKey = (type) => {
 
 const defaultLayout = (type, title) => {
   const po = String(type || "").toUpperCase() === "PO";
+  const isDo = String(type || "").toUpperCase() === "DO";
+  const real = po || isDo;
   return {
-    title: po ? "PURCHASE ORDER" : (title || type),
+    title: po ? "PURCHASE ORDER" : (isDo ? "Bukti Penerimaan Barang" : (title || type)),
     paper_size: "A4",
     orientation: "portrait",
     font_family: "Arial",
     font_size: 11,
     primary_color: po ? "#17396f" : "#1e3a8a",
-    margin_mm: po ? 10 : 12,
-    margin_top_mm: 12, margin_right_mm: po ? 15 : 12, margin_bottom_mm: 12, margin_left_mm: po ? 15 : 12,
-    logo_width_mm: po ? 24 : 28,
+    margin_mm: real ? 10 : 12,
+    margin_top_mm: 12, margin_right_mm: real ? 15 : 12, margin_bottom_mm: 12, margin_left_mm: real ? 15 : 12,
+    logo_width_mm: real ? 24 : 28,
     header_style: "classic",
-    template_style: po ? "real_reference" : "generic",
+    template_style: real ? "real_reference" : "generic",
     show_logo: true,
     show_company_address: true,
-    show_qr: po ? false : true,
+    show_qr: real ? false : true,
     show_message: true,
     show_signatures: true,
     sections: [...DEFAULT_SECTIONS],
     columns: po ? ["item", "qty", "unit", "price", "discount", "total"] : [...DEFAULT_COLUMNS],
     meta_fields: [...DEFAULT_META],
-    signature_labels: po ? ["Approved by,", "Signed by,"] : ["Dibuat Oleh", "Diperiksa Oleh", "Disetujui Oleh"],
-    footer_text: po ? "" : "Dokumen ini dibuat oleh sistem ProcureFlow.",
+    signature_labels: po ? ["Approved by,", "Signed by,"] : (isDo ? ["Project Manager / Spv Part Management", "To Send Invoice, sign here & return"] : ["Dibuat Oleh", "Diperiksa Oleh", "Disetujui Oleh"]),
+    footer_text: real ? "" : "Dokumen ini dibuat oleh sistem ProcureFlow.",
     po_delivery_company_name: "",
     po_bill_company_name: "",
     po_bill_address: "",
@@ -66,6 +69,8 @@ const defaultLayout = (type, title) => {
     po_bill_phone: "",
     po_approved_name: "",
     po_approved_company: "",
+    do_note_text: isDo ? "Wajib lampirkan Dokumen ini sebagai kelengkapan penagihan Invoice" : "",
+    do_signature_note: isDo ? "your name & company stamp" : "",
   };
 };
 
@@ -214,6 +219,13 @@ export async function printDoc(type, doc, opts = {}) {
     const supplier = suppliers.find(x => x.id === doc.supplier_id) || {};
     const project = projects.find(x => x.id === doc.default_project_id) || {};
     const html = buildPoPrintHtml({ doc, allocLines, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal });
+    const w = window.open("", "_blank");
+    w.document.write(html); w.document.close();
+    return;
+  }
+
+  if (key === "do" && layout.template_style === "real_reference") {
+    const html = buildDoPrintHtml({ doc, company, layout, logoImg, allocLines });
     const w = window.open("", "_blank");
     w.document.write(html); w.document.close();
     return;

@@ -945,7 +945,33 @@ async def get_do(did: str, user=Depends(current_user)):
         ph = await db.po.find_one({"id": l.get("po_id")}, {"_id": 0})
         l["po_no"] = ph["no"] if ph else None
     d["lines"] = lines
-    d["supplier_name"] = m["suppliers"].get(d.get("supplier_id"), {}).get("name")
+    sup = m["suppliers"].get(d.get("supplier_id"), {}) or {}
+    d["supplier_name"] = sup.get("name")
+    d["supplier_legal_name"] = sup.get("legal_name") or sup.get("name")
+    d["supplier_address"] = sup.get("address")
+    d["supplier_city"] = sup.get("city")
+    contacts = sup.get("contacts") or []
+    primary_contact = next((c for c in contacts if c.get("is_primary")), contacts[0] if contacts else {})
+    d["supplier_phone"] = sup.get("phone") or primary_contact.get("phone")
+    wh_id = d.get("default_warehouse_id") or next((l.get("warehouse_id") for l in lines if l.get("warehouse_id")), None)
+    wh = m["warehouses"].get(wh_id, {}) or {}
+    d["warehouse_name"] = wh.get("name")
+    d["warehouse_address"] = wh.get("location")
+    d["project_name"] = (m["projects"].get(d.get("default_project_id"), {}) or {}).get("name")
+    po_nos = list(dict.fromkeys([l.get("po_no") for l in lines if l.get("po_no")]))
+    d["order_no"] = ", ".join(po_nos)
+    # State cetak: Done bila semua PO sumber sudah Fully Received, Partial bila baru sebagian.
+    po_statuses = []
+    for pid in {l.get("po_id") for l in lines if l.get("po_id")}:
+        po = await db.po.find_one({"id": pid}, {"_id": 0, "status": 1})
+        if po:
+            po_statuses.append(po.get("status"))
+    if po_statuses and all(s == "Fully Received" for s in po_statuses):
+        d["receipt_state"] = "Done"
+    elif any(s in ("Partially Received", "Fully Received") for s in po_statuses):
+        d["receipt_state"] = "Partial"
+    else:
+        d["receipt_state"] = d.get("status")
     return d
 
 

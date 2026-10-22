@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import api, { API, apiError } from "@/lib/api";
 import { buildPoPrintHtml } from "@/lib/poPrintReal";
+import { buildDoPrintHtml } from "@/lib/doPrintReal";
 import { MARGIN_SIDES, MARGIN_LABELS, MARGIN_RANGE, marginKey, layoutMargins, mergeLayout, PRINT_DIALOG_HINT } from "@/lib/printMargins";
 import { printImage, companyLogoPath, poSignaturePath } from "@/lib/printAssets";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,29 +32,31 @@ const META_FIELDS = [
 
 const defaultLayout = (code, name) => {
   const po = code === "PO";
+  const isDo = code === "DO";
+  const real = po || isDo;
   return {
-    title: po ? "PURCHASE ORDER" : name,
+    title: po ? "PURCHASE ORDER" : (isDo ? "Bukti Penerimaan Barang" : name),
     paper_size: "A4",
     orientation: "portrait",
     font_family: "Arial",
     font_size: 11,
     primary_color: po ? "#17396f" : "#1e3a8a",
-    margin_mm: po ? 10 : 12,
+    margin_mm: real ? 10 : 12,
     // default rekomendasi (sama dengan backend); nilai tersimpan selalu menang
-    margin_top_mm: 12, margin_right_mm: po ? 15 : 12, margin_bottom_mm: 12, margin_left_mm: po ? 15 : 12,
-    logo_width_mm: po ? 24 : 28,
+    margin_top_mm: 12, margin_right_mm: real ? 15 : 12, margin_bottom_mm: 12, margin_left_mm: real ? 15 : 12,
+    logo_width_mm: real ? 24 : 28,
     header_style: "classic",
-    template_style: po ? "real_reference" : "generic",
+    template_style: real ? "real_reference" : "generic",
     show_logo: true,
     show_company_address: true,
-    show_qr: po ? false : true,
+    show_qr: real ? false : true,
     show_message: true,
     show_signatures: true,
     sections: [...DEFAULT_SECTIONS],
     columns: po ? ["item", "qty", "unit", "price", "discount", "total"] : [...DEFAULT_COLUMNS],
     meta_fields: META_FIELDS.map(([key]) => key),
-    signature_labels: po ? ["Approved by,", "Signed by,"] : ["Dibuat Oleh", "Diperiksa Oleh", "Disetujui Oleh"],
-    footer_text: po ? "" : "Dokumen ini dibuat oleh sistem ProcureFlow.",
+    signature_labels: po ? ["Approved by,", "Signed by,"] : (isDo ? ["Project Manager / Spv Part Management", "To Send Invoice, sign here & return"] : ["Dibuat Oleh", "Diperiksa Oleh", "Disetujui Oleh"]),
+    footer_text: real ? "" : "Dokumen ini dibuat oleh sistem ProcureFlow.",
     po_delivery_company_name: "",
     po_bill_company_name: "",
     po_bill_address: "",
@@ -61,6 +64,8 @@ const defaultLayout = (code, name) => {
     po_bill_phone: "",
     po_approved_name: "",
     po_approved_company: "",
+    do_note_text: isDo ? "Wajib lampirkan Dokumen ini sebagai kelengkapan penagihan Invoice" : "",
+    do_signature_note: isDo ? "your name & company stamp" : "",
     code,
   };
 };
@@ -154,8 +159,50 @@ function RealPoPreview({ layout, signature }) {
   </div>;
 }
 
+const SAMPLE_DO = {
+  no: "WH/IN/76138", date: "2026-09-17", created_at: "2026-09-17T08:35:00Z", receiver: "Nama Penerima", receipt_state: "Done",
+  order_no: "PO/75279/12/25", warehouse_address: "Gudang Contoh\nJl. Contoh No. 1, Jakarta",
+  supplier_legal_name: "PT Supplier Contoh", supplier_address: "Jl. Vendor No. 2", supplier_city: "Jakarta", supplier_phone: "021-0000000",
+  lines: [
+    { item_name: "Barang Contoh A", qty: 10, unit: "PCS", spk: "WH/EPC/001" },
+    { item_name: "Barang Contoh B", qty: 276, unit: "METER", spk: "WH/EPC/002" },
+  ],
+};
+
+function RealDoPreview({ layout }) {
+  const [company, setCompany] = useState({});
+  const [logoImg, setLogoImg] = useState("");
+  const [width, setWidth] = useState(520);
+  const boxRef = useRef(null);
+  useEffect(() => { api.get("/settings/company").then((r) => setCompany(r.data || {})).catch(() => setCompany({})); }, []);
+  const logoPath = companyLogoPath(company);
+  useEffect(() => { let on = true; printImage(logoPath).then((u) => on && setLogoImg(u)); return () => { on = false; }; }, [logoPath]);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(([e]) => setWidth(Math.max(280, e.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const html = useMemo(() => buildDoPrintHtml({
+    doc: SAMPLE_DO, company, layout, logoImg: layout.show_logo === false ? "" : logoImg, autoPrint: false,
+  }), [company, layout, logoImg]);
+  const pm = layoutMargins(layout);
+  const scale = Math.min(1, width / A4_PX[0]);
+  return <div className="space-y-2">
+    <p className="text-xs text-muted-foreground" data-testid="do-preview-margin-summary">Contoh data DO. Margin: atas {pm.top} · kanan {pm.right} · bawah {pm.bottom} · kiri {pm.left} mm (pratinjau skala {Math.round(scale * 100)}%).</p>
+    <div ref={boxRef} className="rounded-xl border bg-slate-100 p-0 overflow-hidden" data-testid="do-print-preview">
+      <div style={{ width: A4_PX[0] * scale, height: A4_PX[1] * scale }} className="mx-auto">
+        <iframe title="Pratinjau cetak DO" srcDoc={html} sandbox="allow-same-origin" data-testid="do-print-preview-frame"
+          style={{ width: A4_PX[0], height: A4_PX[1], border: 0, background: "#fff", transform: `scale(${scale})`, transformOrigin: "0 0" }} />
+      </div>
+    </div>
+  </div>;
+}
+
 function Preview({ layout, active, signature }) {
   if (active === "po" && layout.template_style === "real_reference") return <RealPoPreview layout={layout} signature={signature}/>;
+  if (active === "do" && layout.template_style === "real_reference") return <RealDoPreview layout={layout}/>;
   const sections = layout.sections || DEFAULT_SECTIONS;
   const columnNames = layout.columns || DEFAULT_COLUMNS;
   const sample = { date: "17/09/2026", status: "Approved", supplier: "PT Supplier Contoh", buyer: "Nama Buyer", payment_term: "30 Hari", delivery_term: "Franco Gudang" };
@@ -189,18 +236,21 @@ export default function PrintLayouts() {
   const uploadSignature=async()=>{if(!signatureFile)return toast.error("Pilih file tanda tangan terlebih dahulu");try{const fd=new FormData();fd.append("file",signatureFile);await api.post("/settings/print_layouts/po/signature",fd,{headers:{"Content-Type":"multipart/form-data"}});setSignatureFile(null);await loadSignature();toast.success("Tanda tangan PO tersimpan");}catch(e){toast.error(apiError(e.response?.data?.detail));}};
   const deleteSignature=async()=>{try{await api.delete("/settings/print_layouts/po/signature");setSignatureFile(null);await loadSignature();toast.success("Tanda tangan PO dihapus");}catch(e){toast.error(apiError(e.response?.data?.detail));}};
   const moduleOptions = MODULES.map(([value,code,name])=>({value,label:`${code} — ${name}`,selectedLabel:code}));
+  const realTemplate = (active === "po" || active === "do") && layout.template_style === "real_reference";
 
   return <div className="space-y-5">
     <PageHeader title="Layout Dokumen" subtitle="Atur desain print-out setiap transaksi secara independen."><Button variant="outline" onClick={reset}><RotateCcw className="h-4 w-4 mr-2"/>Reset Modul</Button><Button onClick={save} disabled={saving}><Save className="h-4 w-4 mr-2"/>{saving?"Menyimpan...":"Simpan Layout"}</Button></PageHeader>
     <div className="grid grid-cols-1 xl:grid-cols-[460px_minmax(0,1fr)] gap-5">
       <div className="space-y-4">
-        <Card><CardContent className="pt-6 space-y-4"><Field label="Jenis Dokumen"><Combobox options={moduleOptions} value={active} onChange={setActive}/></Field>{active === "po" && <Field label="Template Visual PO"><Combobox options={[{value:"real_reference",label:"REAL — Referensi PO Existing"},{value:"generic",label:"Generic / Builder"}]} value={layout.template_style||"real_reference"} onChange={v=>setLayout({template_style:v})}/></Field>}<div className="grid grid-cols-2 gap-3"><Field label="Judul Dokumen"><Input value={layout.title} onChange={e=>setLayout({title:e.target.value})}/></Field><Field label="Ukuran Kertas"><Combobox options={[{value:"A4",label:"A4"},{value:"A5",label:"A5"},{value:"Letter",label:"Letter"}]} value={layout.paper_size} onChange={v=>setLayout({paper_size:v})}/></Field><Field label="Orientasi"><Combobox options={[{value:"portrait",label:"Portrait"},{value:"landscape",label:"Landscape"}]} value={layout.orientation} onChange={v=>setLayout({orientation:v})}/></Field><Field label="Gaya Header"><Combobox options={[{value:"classic",label:"Classic"},{value:"minimal",label:"Minimal"},{value:"boxed",label:"Boxed"}]} value={layout.header_style} onChange={v=>setLayout({header_style:v})}/></Field><Field label="Font"><Combobox options={["Arial","Inter","Helvetica","Georgia","Times New Roman"].map(v=>({value:v,label:v}))} value={layout.font_family} onChange={v=>setLayout({font_family:v})}/></Field><Field label="Ukuran Font"><Input type="number" min="8" max="16" value={layout.font_size} onChange={e=>setLayout({font_size:Number(e.target.value)})}/></Field><MarginFields layout={layout} setLayout={setLayout}/><Field label="Warna Utama"><Input type="color" value={layout.primary_color} onChange={e=>setLayout({primary_color:e.target.value})}/></Field></div><div className="grid grid-cols-2 gap-2 text-sm">{[["show_logo","Tampilkan Logo"],["show_company_address","Alamat Perusahaan"],["show_qr","QR Verifikasi"],["show_message","Pesan/Ketentuan"],["show_signatures","Tanda Tangan"]].map(([k,l])=><label key={k} className="flex items-center gap-2 rounded-lg border px-3 py-2"><input type="checkbox" checked={!!layout[k]} onChange={e=>setLayout({[k]:e.target.checked})}/>{l}</label>)}</div></CardContent></Card>
+        <Card><CardContent className="pt-6 space-y-4"><Field label="Jenis Dokumen"><Combobox options={moduleOptions} value={active} onChange={setActive}/></Field>{(active === "po" || active === "do") && <Field label={`Template Visual ${active === "po" ? "PO" : "DO"}`}><Combobox options={[{value:"real_reference",label:active === "po" ? "REAL — Referensi PO Existing" : "REAL — Bukti Penerimaan Barang"},{value:"generic",label:"Generic / Builder"}]} value={layout.template_style||"real_reference"} onChange={v=>setLayout({template_style:v})}/></Field>}<div className="grid grid-cols-2 gap-3"><Field label="Judul Dokumen"><Input value={layout.title} onChange={e=>setLayout({title:e.target.value})}/></Field><Field label="Ukuran Kertas"><Combobox options={[{value:"A4",label:"A4"},{value:"A5",label:"A5"},{value:"Letter",label:"Letter"}]} value={layout.paper_size} onChange={v=>setLayout({paper_size:v})}/></Field><Field label="Orientasi"><Combobox options={[{value:"portrait",label:"Portrait"},{value:"landscape",label:"Landscape"}]} value={layout.orientation} onChange={v=>setLayout({orientation:v})}/></Field><Field label="Gaya Header"><Combobox options={[{value:"classic",label:"Classic"},{value:"minimal",label:"Minimal"},{value:"boxed",label:"Boxed"}]} value={layout.header_style} onChange={v=>setLayout({header_style:v})}/></Field><Field label="Font"><Combobox options={["Arial","Inter","Helvetica","Georgia","Times New Roman"].map(v=>({value:v,label:v}))} value={layout.font_family} onChange={v=>setLayout({font_family:v})}/></Field><Field label="Ukuran Font"><Input type="number" min="8" max="16" value={layout.font_size} onChange={e=>setLayout({font_size:Number(e.target.value)})}/></Field><MarginFields layout={layout} setLayout={setLayout}/><Field label="Warna Utama"><Input type="color" value={layout.primary_color} onChange={e=>setLayout({primary_color:e.target.value})}/></Field></div><div className="grid grid-cols-2 gap-2 text-sm">{[["show_logo","Tampilkan Logo"],["show_company_address","Alamat Perusahaan"],["show_qr","QR Verifikasi"],["show_message","Pesan/Ketentuan"],["show_signatures","Tanda Tangan"]].map(([k,l])=><label key={k} className="flex items-center gap-2 rounded-lg border px-3 py-2"><input type="checkbox" checked={!!layout[k]} onChange={e=>setLayout({[k]:e.target.checked})}/>{l}</label>)}</div></CardContent></Card>
+
+        {active === "do" && layout.template_style === "real_reference" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Detail Template REAL</div><div className="text-xs text-muted-foreground">Data perusahaan, gudang, supplier, nomor PO, dan isi tabel diambil otomatis dari transaksi. Kosongkan catatan bila tidak ingin dicetak.</div></div><Field label="Catatan Wajib Lampirkan"><Textarea rows={2} value={layout.do_note_text||""} onChange={e=>setLayout({do_note_text:e.target.value})} placeholder="Wajib lampirkan Dokumen ini sebagai kelengkapan penagihan Invoice" data-testid="do-note-text"/></Field><Field label="Catatan Kotak Tanda Tangan"><Input value={layout.do_signature_note||""} onChange={e=>setLayout({do_signature_note:e.target.value})} placeholder="your name & company stamp" data-testid="do-signature-note"/></Field></CardContent></Card>}
 
         {active === "po" && layout.template_style === "real_reference" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Detail Template REAL</div><div className="text-xs text-muted-foreground">Kosongkan field yang ingin mengambil data otomatis dari perusahaan/master supplier/proyek.</div></div><Field label="Nama Perusahaan - Delivery To"><Input value={layout.po_delivery_company_name||""} onChange={e=>setLayout({po_delivery_company_name:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field><Field label="Nama Perusahaan - Bill To"><Input value={layout.po_bill_company_name||""} onChange={e=>setLayout({po_bill_company_name:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field><Field label="Alamat Bill To"><Input value={layout.po_bill_address||""} onChange={e=>setLayout({po_bill_address:e.target.value})} placeholder="Otomatis dari alamat perusahaan"/></Field><div className="grid grid-cols-2 gap-3"><Field label="Up / PIC Bill To"><Input value={layout.po_bill_contact||""} onChange={e=>setLayout({po_bill_contact:e.target.value})}/></Field><Field label="HP Bill To"><Input value={layout.po_bill_phone||""} onChange={e=>setLayout({po_bill_phone:e.target.value})}/></Field></div><div className="grid grid-cols-2 gap-3"><Field label="Approved By"><Input value={layout.po_approved_name||""} onChange={e=>setLayout({po_approved_name:e.target.value})} placeholder="Bisa otomatis dari approval"/></Field><Field label="Perusahaan Approver"><Input value={layout.po_approved_company||""} onChange={e=>setLayout({po_approved_company:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field></div></CardContent></Card>}
 
         {active === "po" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Tanda Tangan PO</div><div className="text-xs text-muted-foreground">Upload PNG/JPG/WEBP. Tanda tangan hanya dicetak pada PO yang sudah Approved; PO Draft tetap tanpa tanda tangan dan memakai watermark DRAFT.</div></div>{signature.available&&<div className="h-28 rounded-lg border bg-white p-2 flex items-center justify-center"><img src={`${API}/settings/print_layouts/po/signature?v=${encodeURIComponent(signature.version||"1")}`} alt="Tanda tangan tersimpan" data-testid="po-signature-saved-img" className="max-h-full max-w-full object-contain"/></div>}<Input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>setSignatureFile(e.target.files?.[0]||null)}/><div className="flex gap-2"><Button type="button" variant="outline" onClick={uploadSignature} disabled={!signatureFile}><Upload className="h-4 w-4 mr-2"/>Upload Tanda Tangan</Button>{signature.available&&<Button type="button" variant="ghost" onClick={deleteSignature}><Trash2 className="h-4 w-4 mr-2 text-destructive"/>Hapus</Button>}</div></CardContent></Card>}
 
-        {!(active === "po" && layout.template_style === "real_reference") && <>
+        {!realTemplate && <>
         <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Urutan Bagian</div><div className="text-xs text-muted-foreground">Atur posisi blok dari atas ke bawah.</div></div>{layout.sections.map((s,i)=><div key={s} className="flex items-center gap-2 rounded-lg border p-2"><FileText className="h-4 w-4 text-muted-foreground"/><span className="flex-1 text-sm">{SECTION_LABELS[s]||s}</span><Button size="icon" variant="outline" onClick={()=>setLayout({sections:move(layout.sections,i,-1)})} disabled={i===0}><ArrowUp className="h-4 w-4"/></Button><Button size="icon" variant="outline" onClick={()=>setLayout({sections:move(layout.sections,i,1)})} disabled={i===layout.sections.length-1}><ArrowDown className="h-4 w-4"/></Button></div>)}</CardContent></Card>
         <Card><CardContent className="pt-6 space-y-3"><div className="font-semibold">Informasi Header Dokumen</div><div className="grid grid-cols-2 gap-2 text-sm">{META_FIELDS.map(([k,l])=><label key={k} className="flex items-center gap-2 rounded-lg border px-3 py-2"><input type="checkbox" checked={layout.meta_fields.includes(k)} onChange={()=>toggleMeta(k)}/>{l}</label>)}</div></CardContent></Card>
         <Card><CardContent className="pt-6 space-y-3"><div className="font-semibold">Kolom Tabel Item</div><div className="grid grid-cols-2 gap-2 text-sm">{Object.entries(COLUMN_LABELS).map(([k,l])=><label key={k} className="flex items-center gap-2 rounded-lg border px-3 py-2"><input type="checkbox" checked={layout.columns.includes(k)} onChange={()=>toggleColumn(k)}/>{l}</label>)}</div><div className="space-y-2 pt-2">{layout.columns.map((c,i)=><div key={c} className="flex items-center gap-2 rounded-lg border p-2"><span className="flex-1 text-sm">{COLUMN_LABELS[c]||c}</span><Button size="icon" variant="outline" onClick={()=>setLayout({columns:move(layout.columns,i,-1)})} disabled={i===0}><ArrowUp className="h-4 w-4"/></Button><Button size="icon" variant="outline" onClick={()=>setLayout({columns:move(layout.columns,i,1)})} disabled={i===layout.columns.length-1}><ArrowDown className="h-4 w-4"/></Button></div>)}</div></CardContent></Card>

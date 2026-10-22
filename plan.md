@@ -763,3 +763,31 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   lama tetap dipakai; DB `password` plaintext=0, `password_encrypted`=1; UI 2 isian + status "Siap digunakan" + ringkasan
   "Dikirim sebagai: Procurement <…>"; `CI=true yarn build` OK.
 - Tanpa env/skema baru. Redeploy: backend lalu frontend.
+
+## Cetak DO — Template "Bukti Penerimaan Barang" (Status: COMPLETED — lokal, preview 1:1 production)
+- Permintaan user (opsi A): cetak DO mengikuti form manual — header logo + nama perusahaan, judul kanan, dua kolom alamat
+  (Warehouse/Vendor), nomor DO besar, baris `Received By | Order | State | Received Date`, tabel `Product | Quantity | To`,
+  catatan "Wajib lampirkan Dokumen ini…", dua kotak tanda tangan, dan footer. Semua nilai dari data transaksi (bukan hardcode).
+- `backend/print_layout_layer.py`: DO boleh `template_style=real_reference`; default REAL DO = judul "Bukti Penerimaan Barang",
+  margin atas/bawah 12 & kiri/kanan 15, logo 24 mm, tanpa QR, footer kosong, label TTD
+  "Project Manager / Spv Part Management" + "To Send Invoice, sign here & return"; field baru `do_note_text` dan
+  `do_signature_note` (diatur di Layout Dokumen, divalidasi panjangnya).
+- `backend/doc_procurement.py` `get_do()`: menambah `supplier_legal_name/address/city/phone` (telepon fallback kontak utama),
+  `warehouse_address` (master Gudang → field `location`), `project_name`, `order_no` (gabungan PO sumber), dan `receipt_state`:
+  semua PO sumber `Fully Received` → **Done**; ada `Partially Received`/`Fully Received` → **Partial**; selain itu status DO.
+- Frontend `src/lib/doPrintReal.js` (baru): HTML cetak A4 (margin per sisi), qty format id-ID, jam dari `created_at`
+  (Asia/Jakarta), kolom **To** = SPK baris (alokasi SPK tahap DO → `lines[].spk` → `doc.spk` → "-").
+- `src/lib/print.js`: cabang DO `real_reference` memakai template baru dan meneruskan `allocLines`
+  (`GET /api/spk-allocations/do/doc/{id}` sudah diambil untuk DO).
+- `src/pages/PrintLayouts.jsx`: selector **Template Visual** untuk PO & DO, card "Detail Template REAL" DO
+  (Catatan Wajib Lampirkan + Catatan Kotak Tanda Tangan), card builder generik disembunyikan saat template REAL,
+  preview DO memakai iframe template yang sama dengan hasil cetak.
+- Config `tenant-pt-real` diubah via `PUT /api/settings/print_layouts` (payload `modules` lengkap):
+  `modules.do.template_style=real_reference` + judul/margin/logo/QR/footer/label TTD sesuai default REAL.
+- Verifikasi: cetak `DO/2026/10/00002` → PT. Rajawali Emas Ancora Lestari, Warehouse Address dari Gudang
+  ("Yard Balai Raja, Jalan Lingkar Timur Pinggir"), Vendor PT. Abagi Besar Citra + alamat + kota + telepon, nomor DO,
+  Received By `aprove2@gmail.com`, Order `PO/2026/10/00004`, **State Done**, Received Date + jam, `100 Pcs`, **To `spk01`**
+  (alokasi SPK nyata), catatan wajib lampirkan, 2 kotak TTD; cetak `DO/2026/10/00001` (tenant uji terbuka) juga State Done;
+  PO/2026/10/00004 tetap tercetak "PURCHASE ORDER" (tanpa regresi); preview Layout Dokumen DO sesuai; `CI=true yarn build` OK.
+  State **Partial** mengikuti status PO, belum ada sampel PO `Partially Received` di tenant yang tidak terkunci langganan.
+- Tanpa env/skema baru. Redeploy: backend lalu frontend.
