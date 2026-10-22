@@ -837,3 +837,19 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   pemetaan id diverifikasi dari payload frontend (`lines` memuat `id` baris tersimpan). Uji edit end-to-end belum dijalankan
   agar tidak mengubah data production.
 - Tanpa env/skema. Redeploy: backend.
+
+## Master Barang — 5000 Item + Perbaikan Import & Batas Daftar (Status: COMPLETED — data production)
+- Permintaan pemilik: buat nama barang baru sampai total 5000; wajib isi nama, kategori, satuan, divisi, supplier utama.
+- Data `tenant-pt-real`: 949 → **5000** item. 4051 item baru: kode `SKU/0948`–`SKU/4998`, nama
+  `BARANG TEST 0001`–`BARANG TEST 4051`, kategori `SPAREPART`, divisi `SPAREPART`, satuan `Pcs`,
+  supplier utama `SUP-00001` (PT. ABC). Dibuat lewat `POST /api/excel/import/items` (2 baris uji + 4049 sisanya).
+- `excel_import_layer._import_master` (items): kini mengisi field turunan `category`, `unit`, dan `uoms` seperti
+  `master_auto._normalize_item` (sebelumnya kosong karena jalur import melewati normalisasi).
+- `server.master_list`: `.to_list(3000)` → `.to_list(50000)` agar seluruh 5000 item terjangkau di halaman Master
+  (sebelumnya `total` berhenti di 3000 dan item terlama tidak muncul/tidak bisa dicari).
+- Verifikasi: DB total 5000, `BARANG TEST` 4051, tidak ada item tanpa tenant; `GET /master/items?page=1` → `total=5000`;
+  lookup form memakai `to_list(50000)` sehingga semua item tersedia di combobox; uji import 1 baris (`SKU/9999`)
+  menghasilkan `category=SPAREPART`, `unit=Pcs`, `uoms=[{base,factor:1}]` lalu baris uji dihapus (total kembali 5000);
+  `py_compile` OK.
+- Tanpa env/skema. Redeploy: backend.
+- Catatan: 4051 item `BARANG TEST` adalah data uji; hapus bila tidak diperlukan (butuh perintah eksplisit).
