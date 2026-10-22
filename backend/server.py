@@ -590,7 +590,7 @@ def _mc(name):
 async def master_list(name: str, user=Depends(current_user), q: Optional[str] = None, active_only: bool = False):
     col = _mc(name)
     query = {"is_active": True} if active_only else {}
-    docs = await col.find(query, {"_id": 0}).sort("created_at", -1).to_list(3000)
+    docs = await col.find(query, {"_id": 0}).sort("created_at", -1).to_list(50000)
     if name == "items" and not is_global(user) and user.get("divisions"):
         docs = [d for d in docs if d.get("division_id") in user["divisions"]]
     if q:

@@ -310,6 +310,14 @@ async def _import_master(server, key, rows, user):
                 if sup_id:
                     prepared[-1]["primary_supplier_id"] = sup_id
                     prepared[-1]["primary_supplier_name"] = (maps["suppliers"].get(sup_code.upper()) or {}).get("name")
+            # Field turunan yang sama dengan form Master Barang (master_auto._normalize_item) agar hasil import
+            # tidak kosong di kolom Kategori/Satuan maupun konversi satuan dasar.
+            uom_doc = maps["uoms"].get(_text(r.get("base_uom_code")).upper()) or {}
+            cat_doc = maps["item_categories"].get(_text(r.get("category_code")).upper()) or {}
+            prepared[-1]["category"] = cat_doc.get("name")
+            prepared[-1]["unit"] = uom_doc.get("symbol") or uom_doc.get("name") or uom_doc.get("code")
+            prepared[-1]["uoms"] = ([{"uom_id": prepared[-1].get("base_uom_id"), "factor": 1.0, "is_base": True}]
+                                    if prepared[-1].get("base_uom_id") else [])
         elif key == "units":
             prepared.append({
                 "code": _text(r.get("code")), "name": _text(r.get("name")), "type": _text(r.get("type")) or None,
