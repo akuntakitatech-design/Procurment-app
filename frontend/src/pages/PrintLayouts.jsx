@@ -162,12 +162,18 @@ function RealPoPreview({ layout, signature }) {
 const SAMPLE_DO = {
   no: "WH/IN/76138", date: "2026-09-17", created_at: "2026-09-17T08:35:00Z", receiver: "Nama Penerima", receipt_state: "Done",
   order_no: "PO/75279/12/25", warehouse_address: "Gudang Contoh\nJl. Contoh No. 1, Jakarta",
+  supplier_dn: "SJ/001/2026", supplier_invoice: "FAK/002/2026",
   supplier_legal_name: "PT Supplier Contoh", supplier_address: "Jl. Vendor No. 2", supplier_city: "Jakarta", supplier_phone: "021-0000000",
   lines: [
-    { item_name: "Barang Contoh A", qty: 10, unit: "PCS", spk: "WH/EPC/001" },
-    { item_name: "Barang Contoh B", qty: 276, unit: "METER", spk: "WH/EPC/002" },
+    { id: "l1", item_name: "Barang Contoh A", qty: 10, unit: "PCS" },
+    { id: "l2", item_name: "Barang Contoh B", qty: 276, unit: "METER" },
   ],
 };
+
+const SAMPLE_DO_ALLOC = [
+  { item_line_id: "l1", allocations: [{ spk_number: "spk01", project_name: "timbun tanah", allocated_qty: 10 }], non_spk_qty: 0 },
+  { item_line_id: "l2", allocations: [{ spk_number: "spk02", project_name: "pengadaan alat", allocated_qty: 200 }], non_spk_qty: 76 },
+];
 
 function RealDoPreview({ layout }) {
   const [company, setCompany] = useState({});
@@ -185,7 +191,7 @@ function RealDoPreview({ layout }) {
     return () => ro.disconnect();
   }, []);
   const html = useMemo(() => buildDoPrintHtml({
-    doc: SAMPLE_DO, company, layout, logoImg: layout.show_logo === false ? "" : logoImg, autoPrint: false,
+    doc: SAMPLE_DO, company, layout, logoImg: layout.show_logo === false ? "" : logoImg, allocLines: SAMPLE_DO_ALLOC, autoPrint: false,
   }), [company, layout, logoImg]);
   const pm = layoutMargins(layout);
   const scale = Math.min(1, width / A4_PX[0]);
