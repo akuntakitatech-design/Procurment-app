@@ -809,3 +809,16 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   `To: spk01 — timbun tanah`; `Page.printToPDF` (`displayHeaderFooter=true`, `preferCSSPageSize`) → 1 halaman A4 595×842 pt,
   tanpa tanggal/jam/`about:blank`, nomor DO hanya muncul 1×; `CI=true yarn build` OK.
 - Tanpa env/skema baru. Redeploy: frontend saja.
+
+## Cetak DO — Nama Project di Form & Alamat Gudang (Status: COMPLETED — lokal, preview 1:1 production)
+- `SpkAllocationModal.formatAllocText(summary, {withProject})`: opsi baru menampilkan nama project setelah nomor SPK
+  (`spk01: 100 — timbun tanah`). Default mati agar tampilan MRO/RO/PO tidak berubah.
+- `Do.jsx`: sel **Alokasi SPK** di form DO memakai `withProject`; pratinjau baris sebelum simpan juga menampilkan nama project
+  (tanpa duplikasi bila teks SPK sudah memuatnya).
+- Warehouse Address: kode sudah memakai `warehouses.location`; pemilik mengisi field Lokasi di master Gudang production
+  (`Yard Balai Raja, Jalan Lingkar Timur Pinggir, Duri`) sehingga cetakan memakai alamat gudang, bukan fallback alamat perusahaan.
+  Tidak ada perubahan kode untuk bagian ini.
+- Verifikasi: `DO/2026/10/00002` → sel form `spk01: 100 — timbun tanah`; cetak → Warehouse Address
+  `Yard Balai Raja, Jalan Lingkar Timur Pinggir, Duri`, Vendor + `No. DO: ewe3w4343` + `No. Faktur: 54668779`,
+  `To: spk01 — timbun tanah`; `CI=true yarn build` OK.
+- Tanpa env/skema. Redeploy: frontend saja.

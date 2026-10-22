@@ -16,9 +16,11 @@ const num = (v) => Number(v || 0);
 const rupiah = (v) => `Rp ${num(v).toLocaleString("id-ID")}`;
 
 // Horizontal compact allocation text, e.g. "SPK-001: 3 • SPK-002: 4 • Non-SPK: 3"
-export function formatAllocText(summary) {
+export function formatAllocText(summary, opts = {}) {
   if (!summary) return "Non-SPK";
-  const parts = (summary.allocations || []).map((a) => `${a.spk_number || a.spk_id}: ${num(a.allocated_qty)}`);
+  // withProject: tampilkan nama project setelah nomor SPK (dipakai cetak/form DO).
+  const suffix = (a) => (opts.withProject && a.project_name ? ` — ${a.project_name}` : "");
+  const parts = (summary.allocations || []).map((a) => `${a.spk_number || a.spk_id}: ${num(a.allocated_qty)}${suffix(a)}`);
   const nonSpk = num(summary.non_spk_qty);
   if (parts.length === 0) return `Non-SPK: ${num(summary.item_qty)}`;
   if (nonSpk > 1e-9) parts.push(`Non-SPK: ${nonSpk}`);
