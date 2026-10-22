@@ -776,7 +776,10 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   `warehouse_address` (master Gudang → field `location`), `project_name`, `order_no` (gabungan PO sumber), dan `receipt_state`:
   semua PO sumber `Fully Received` → **Done**; ada `Partially Received`/`Fully Received` → **Partial**; selain itu status DO.
 - Frontend `src/lib/doPrintReal.js` (baru): HTML cetak A4 (margin per sisi), qty format id-ID, jam dari `created_at`
-  (Asia/Jakarta), kolom **To** = SPK baris (alokasi SPK tahap DO → `lines[].spk` → `doc.spk` → "-").
+  (Asia/Jakarta), kolom **To** = nomor SPK + nama project (alokasi SPK tahap DO → `lines[].spk` → `doc.spk` → "-"),
+  mis. `spk01 — timbun tanah`; bila alokasi terbagi: `spk02 — pengadaan alat (200), Non-SPK (76)`.
+  `@page margin` dibuat `0` dan margin dokumen dipindah ke padding sheet agar browser tidak mencetak
+  header/footer bawaan (tanggal+jam, judul dokumen kecil di kanan atas, `about:blank`, nomor halaman).
 - `src/lib/print.js`: cabang DO `real_reference` memakai template baru dan meneruskan `allocLines`
   (`GET /api/spk-allocations/do/doc/{id}` sudah diambil untuk DO).
 - `src/pages/PrintLayouts.jsx`: selector **Template Visual** untuk PO & DO, card "Detail Template REAL" DO
@@ -786,8 +789,23 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   `modules.do.template_style=real_reference` + judul/margin/logo/QR/footer/label TTD sesuai default REAL.
 - Verifikasi: cetak `DO/2026/10/00002` → PT. Rajawali Emas Ancora Lestari, Warehouse Address dari Gudang
   ("Yard Balai Raja, Jalan Lingkar Timur Pinggir"), Vendor PT. Abagi Besar Citra + alamat + kota + telepon, nomor DO,
-  Received By `aprove2@gmail.com`, Order `PO/2026/10/00004`, **State Done**, Received Date + jam, `100 Pcs`, **To `spk01`**
+  Received By `aprove2@gmail.com`, Order `PO/2026/10/00004`, **State Done**, Received Date + jam, `100 Pcs`, **To `spk01 — timbun tanah`**
   (alokasi SPK nyata), catatan wajib lampirkan, 2 kotak TTD; cetak `DO/2026/10/00001` (tenant uji terbuka) juga State Done;
   PO/2026/10/00004 tetap tercetak "PURCHASE ORDER" (tanpa regresi); preview Layout Dokumen DO sesuai; `CI=true yarn build` OK.
+  Header/footer browser: uji `Page.printToPDF` dengan `displayHeaderFooter=true` → 1 halaman A4 (595×842 pt), tanpa tanggal/jam,
+  tanpa `about:blank`, nomor DO hanya muncul 1x (di badan dokumen).
   State **Partial** mengikuti status PO, belum ada sampel PO `Partially Received` di tenant yang tidak terkunci langganan.
 - Tanpa env/skema baru. Redeploy: backend lalu frontend.
+
+## Cetak DO — Penyempurnaan (Status: COMPLETED — lokal, preview 1:1 production)
+- Permintaan user: (1) hilangkan nomor DO kecil di atas judul, (2) tampilkan No. DO supplier dan No. Faktur di bawah
+  Vendor Address, (3) kolom `To` menampilkan nama project setelah nomor SPK.
+- `doPrintReal.js`: `document.title` dikosongkan tepat sebelum `window.print()` lalu dipulihkan, sehingga header cetak
+  browser tidak lagi mencetak nomor dokumen kecil di kanan atas (margin `@page` tetap 0 agar tanggal/jam/URL tidak tercetak).
+- `doPrintReal.js`: blok `.addr-meta` di bawah Vendor Address mencetak `No. DO: <supplier_dn>` dan
+  `No. Faktur: <supplier_invoice>` (hanya bila datanya ada; keduanya dari data DO, bukan hardcode).
+- Kolom `To` memakai SPK + nama project dari alokasi SPK tahap DO, mis. `spk01 — timbun tanah`.
+- Verifikasi: cetak `DO/2026/10/00002` → Vendor Address diikuti `No. DO: ewe3w4343` dan `No. Faktur: 54668779`,
+  `To: spk01 — timbun tanah`; `Page.printToPDF` (`displayHeaderFooter=true`, `preferCSSPageSize`) → 1 halaman A4 595×842 pt,
+  tanpa tanggal/jam/`about:blank`, nomor DO hanya muncul 1×; `CI=true yarn build` OK.
+- Tanpa env/skema baru. Redeploy: frontend saja.
