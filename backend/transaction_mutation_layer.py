@@ -235,6 +235,7 @@ async def _replace(server, module, did, body, user):
     doc = await head_col.find_one({"id": did}, {"_id": 0})
     old_lines = await line_col.find({meta["fk"]: did}, {"_id": 0}).to_list(10000)
     old_line_by_id = {x.get("id"): x for x in old_lines}
+    old_line_ids = {x.get("id") for x in old_lines if x.get("id")}
     normalized, uom_metas = await _normalize_qty_body(server, module, body)
     if module == "po":
         import po_tax  # versi dari dokumen TERSIMPAN; resolve aturan + snapshot (baris tak diubah = snapshot lama)
@@ -335,8 +336,13 @@ async def _replace(server, module, did, body, user):
         await _reset_approval(server, module, did)
 
     new_lines = []
+    # Peta id baris lama -> id baris baru (dipakai untuk memindahkan alokasi SPK, yang disimpan per item_line_id).
+    line_id_map = {}
     for line, specs, umeta in prepared:
         lid = server.gid()
+        old_id = line.get("id") if line.get("id") in old_line_ids else None
+        if old_id and old_id not in line_id_map:
+            line_id_map[old_id] = lid
         if module == "mro":
             rec = {"id": lid, "mro_id": did, "item_id": line.get("item_id"), "qty": float(line.get("qty") or 0), "unit": line.get("unit"), "warehouse_id": line.get("warehouse_id") or normalized.get("default_warehouse_id"), "project_id": line.get("project_id") or normalized.get("default_project_id"), "unit_id": line.get("unit_id") or normalized.get("default_unit_id"), "notes": line.get("notes")}
         elif module == "ro":
@@ -369,6 +375,21 @@ async def _replace(server, module, did, body, user):
             await server.create_alloc(source_type, source_line_id, source_doc_id, module, lid, did, qty, rec.get("item_id"))
 
     no = doc.get("no")
+    # Alokasi SPK (procurement_item_spk_allocations) terikat ke item_line_id. Baris dokumen dibuat ulang
+    # dengan id baru saat edit, jadi alokasi dipindahkan ke id baru; alokasi baris yang dihapus dibersihkan
+    # agar tidak menjadi orphan yang ikut menghitung pemakaian SPK.
+    if line_id_map or old_line_ids:
+        spk_alloc = server.db.procurement_item_spk_allocations
+        for old_id, new_id in line_id_map.items():
+            await spk_alloc.update_many(
+                {"source_type": module, "source_document_id": did, "item_line_id": old_id},
+                {"$set": {"item_line_id": new_id}},
+            )
+        stale_line_ids = [x for x in old_line_ids if x not in line_id_map]
+        if stale_line_ids:
+            await spk_alloc.delete_many(
+                {"source_type": module, "source_document_id": did, "item_line_id": {"$in": stale_line_ids}},
+            )
     if module == "po":
         import doc_procurement as _dp
         import po_tax
@@ -464,6 +485,7 @@ async def _delete(server, module, did, user):
     if meta["stock"]:
         await _reverse_ledgers(server, did, user, "delete")
     await server.db.allocations.delete_many({"$or": [{"target_doc_id": did}, {"source_doc_id": did}]})
+    await server.db.procurement_item_spk_allocations.delete_many({"source_type": module, "source_document_id": did})
     await line_col.delete_many({meta["fk"]: did})
     await server.db.approval_tasks.delete_many({"module": module, "document_id": did})
     if module == "po":
