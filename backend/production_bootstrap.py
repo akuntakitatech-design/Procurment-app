@@ -276,6 +276,8 @@ import transaction_input_guard_layer  # noqa: E402
 transaction_input_guard_layer.install(server)  # Divisi wajib + Qty transaksi > 0 (create/edit/submit/post)
 import supplier_document_layer  # noqa: E402
 supplier_document_layer.install(server)  # Dokumen Supplier via attachment engine existing
+import supplier_approval_layer  # noqa: E402
+supplier_approval_layer.install(server)  # Supplier baru wajib approval atasan sebelum dipakai di PO
 import user_profile_layer  # noqa: E402
 user_profile_layer.install(server)  # Profil Saya + Ganti Password (rotasi sesi)
 import control_center_layer  # noqa: E402
