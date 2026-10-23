@@ -105,5 +105,20 @@ check("himpunan status final-approved tidak berubah", [...APPROVED_PO_STATUSES].
 check("nama Approved by = approver terakhir yang approve (logika existing), override layout tetap dihormati", h.includes('<div class="sign-name">Approver L2</div>') && H(v2, { layout: { po_approved_name: "Direksi" } }).includes('<div class="sign-name">Direksi</div>'));
 check("Approved tanpa file TTD: tidak ada gambar", !realPoHtml({ doc: v2, company: {}, layout, showPrice: true, signatureImg: "", autoPrint: false }).includes("approved-signature\" src"));
 
+// ---------------------------------------------------------------- paraf Approval 1 (muncul sejak Approval 1 disetujui)
+const L1_OK = { seq: 1, status: "Approved", acted_by: "Pretty", acted_at: "2026-10-23T03:07:35.684816+00:00" };
+const L1_PENDING = { seq: 1, status: "Pending", acted_by: null, acted_at: null };
+const L2_PENDING = { seq: 2, status: "Pending", acted_by: null, acted_at: null };
+check("paraf Approval 1 tampil (PO final approved): label, nama, tanggal",
+  h.includes('<div class="paraf-l1">') && h.includes('<div class="paraf-title">Paraf Approval 1</div>') && h.includes('<div class="paraf-name">Approver L1</div>') && h.includes('<div class="paraf-date">') && h.includes("Approver L1"));
+const hWait = H({ ...v2, status: "Waiting Approval", approvals: [L1_OK, L2_PENDING] });
+check("paraf Approval 1 muncul saat baru lolos Approval 1 (status Waiting Approval + watermark DRAFT)",
+  hWait.includes('<div class="paraf-name">Pretty</div>') && hWait.includes('<div class="draft-watermark">DRAFT</div>') && !hWait.includes(SIG));
+check("paraf Approval 1 tetap tampil pada PO yang sudah Approval 2", H({ ...v2, approvals: [L1_OK, { seq: 2, status: "Approved", acted_by: "Bu Melda", acted_at: "2026-10-23T03:10:00+00:00" }] }).includes('<div class="paraf-name">Pretty</div>'));
+check("tanpa Approval 1 disetujui: tidak ada paraf", !H({ ...v2, status: "Waiting Approval", approvals: [L1_PENDING, L2_PENDING] }).includes("Paraf Approval 1"));
+check("paraf ikut tidak dicetak bila Tanda Tangan dimatikan di layout", !H(v2, { layout: { show_signatures: false } }).includes("Paraf Approval 1"));
+check("stempel tetap center: ruang tanda tangan memakai grid 1fr/auto/1fr dan gambar di kolom tengah",
+  h.includes("grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)") && h.includes(".approved-signature{grid-column:2;justify-self:center"));
+
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);
