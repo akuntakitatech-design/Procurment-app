@@ -926,3 +926,46 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   status awal belum ada → GET 404 → upload 200 → status available → GET 200 image → file non-gambar 400 → hapus 200 → status bersih → GET 404.
   State akhir production: **tidak ada paraf** (menunggu upload gambar asli oleh pemilik).
 - Tanpa env/skema baru. Redeploy: backend lalu frontend.
+
+## Cetak PO — Paraf Hanya Gambar (Status: COMPLETED — branch `fix/po-paraf-image-only`)
+- Permintaan pemilik: paraf cukup **gambar paraf saja**; label "Paraf Approval 1", nama approver, dan tanggal dihilangkan.
+  Posisi tetap seperti yang dikirim pemilik (sisi kanan area tanda tangan, sejajar dengan stempel).
+- `frontend/src/lib/poPrintReal.js`:
+  - Blok paraf disederhanakan menjadi `<div class="paraf-l1"><img class="paraf-signature" .../></div>`.
+  - Gate berubah dari "task seq 1 Approved + acted_by" menjadi "ada task seq 1 berstatus Approved" (nama tidak dipakai lagi).
+  - CSS `.paraf-title/.paraf-name/.paraf-date` dihapus; hanya `.paraf-l1` + `.paraf-signature` (maks 20mm × 7,5mm).
+  - Tidak ada fallback teks: bila gambar paraf belum diupload, blok paraf tidak dicetak.
+- `frontend/src/pages/PrintLayouts.jsx`: keterangan kartu diperbarui (hanya gambar yang dicetak).
+- `frontend/tests/po_print_real_test.mjs`: asersi disesuaikan — paraf hanya gambar (tanpa label/nama/tanggal), tampil saat Approval 1,
+  tetap tampil setelah Approval 2, tidak tampil bila Approval 1 belum disetujui / gambar belum diupload / `show_signatures=false`.
+- Verifikasi: test cetak PO **56/56**; render Edge headless memakai **gambar paraf asli** (yang sudah diupload pemilik) — hanya paraf
+  yang tampil, sejajar dengan stempel dan tidak menimpa nama; kondisi `Waiting Approval` (tanpa stempel) juga sesuai gambar pemilik.
+- Catatan data: `settings.po_paraf` sudah berisi gambar dari pemilik (`aprove1@gmail.com`, 467 KB PNG) — tidak diubah/dihapus.
+- Tanpa env/skema baru. Redeploy: frontend.
+
+### Revisi posisi & ukuran (permintaan pemilik)
+- Paraf dipindahkan dari ruang tanda tangan ke **baris nama approver**: dirender inline tepat setelah teks nama
+  (`<span class="sign-name-text">…</span><img class="paraf-signature">`, `margin-left:2mm`, maks 22 × 8 mm),
+  jadi posisinya tepat di sisi kanan huruf terakhir nama ("pas sebelah N nya").
+- Stempel/TTD diperbesar: `max-width:60mm; max-height:21mm` (sebelumnya 40 × 13,8 mm; tampil nyata 28 × 21 mm atau ±1,5×),
+  ditambatkan ke dasar ruang tanda tangan (`align-self:end; margin-bottom:3,5mm`) sehingga tumbuh ke atas dan
+  menimpa label "Approved by," (disetujui pemilik) tanpa menimpa nama.
+- `grid-auto-rows:14mm` ditambahkan pada `.sign-space` agar tinggi baris grid tidak ikut memanjang —
+  tanpa ini `margin-bottom` tidak berpengaruh dan stempel menimpa nama.
+- Verifikasi: test cetak PO 57/57; render Edge headless memakai gambar paraf + stempel asli dari produksi.
+
+### Revisi kedua (mengikuti foto dokumen pemilik)
+- Stempel/TTD kini **lapisan di belakang teks** yang menutupi seluruh blok tanda tangan, bukan hanya ruang 14 mm:
+  `.signatures>div{position:relative}` + `.approved-signature{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:70mm;max-height:30mm;z-index:0}`.
+- Label, nama, dan nama perusahaan diberi `position:relative;z-index:1` agar tetap terbaca di atas stempel.
+- `.sign-space` kembali menjadi ruang kosong 14 mm (tanpa grid) — gambar tidak lagi memengaruhi tinggi baris, sehingga tidak ada risiko halaman meluber.
+- Paraf tetap inline di baris nama (di kanan huruf terakhir) dan ikut berada di atas stempel.
+- Verifikasi: test cetak PO 57/57; render Edge headless memakai gambar paraf + stempel asli dari produksi (tampilan sama seperti foto pemilik).
+
+### Revisi ketiga (jarak baris nama–perusahaan)
+- Baris nama dan nama perusahaan dirapatkan: `.sign-name` dan `.sign-company` memakai `line-height:1.2` (tanpa margin).
+- Penyebab jarak sebelumnya: gambar paraf berupa inline image meninggikan line box nama. Sekarang paraf
+  `position:absolute;left:100%;top:50%;translateY(-50%)` di dalam `.sign-name-wrap` (inline-block), sehingga
+  tidak lagi menambah tinggi baris — nama & perusahaan rapat, paraf tetap menempel di kanan huruf terakhir nama.
+- Verifikasi: test cetak PO 58/58 (asresi baru: paraf absolute + line-height 1.2); render Edge headless dengan
+  gambar paraf + stempel asli dari produksi.
