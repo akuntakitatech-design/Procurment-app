@@ -889,3 +889,18 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
 - Tanpa env/skema baru. Redeploy: backend lalu frontend.
 - Catatan data: `tenant-pt-real` baru punya **5 supplier dengan PO valid**, jadi widget tetap menampilkan 5 baris
   sampai ada lebih banyak supplier ber-PO. Batas 10 adalah plafon, bukan jumlah baris paksa.
+
+## Cetak PO — Paraf Approval 1 (Status: COMPLETED — branch `feat/po-paraf-approval1`)
+- Permintaan pemilik: paraf Approval 1 muncul di cetak PO setelah Approval 1 disetujui, dan terbawa sampai Approval 2.
+  Posisi di sisi kanan stempel/TTD Approval 2, sementara stempel tetap **center** seperti sebelumnya.
+- `frontend/src/lib/poPrintReal.js`: data diambil dari `doc.approvals` (`seq = 1`, status `Approved`, `acted_by`, `acted_at`),
+  dirender sebagai blok `.paraf-l1` (label "Paraf Approval 1", nama approver, tanggal) di dalam `.sign-space` kolom kiri.
+- CSS: `.sign-space` tetap tinggi 14mm, kini grid `minmax(0,1fr) auto minmax(0,1fr)`; `.approved-signature` di kolom 2
+  (tetap center), `.paraf-l1` di kolom 3 (`margin-left:3mm`) → posisi stempel tidak bergeser, paraf menempel di kanannya.
+- Tidak diubah: watermark DRAFT (termasuk PO berstatus `Waiting Approval`), label "Approved by,"/"Signed by,",
+  nama & perusahaan, footer, tabel item, QR verifikasi.
+- Test `frontend/tests/po_print_real_test.mjs`: +6 asersi (tampil saat Approval 1 disetujui; tampil saat `Waiting Approval`
+  bersama watermark DRAFT; tetap tampil di PO yang sudah Approval 2; tidak tampil bila Approval 1 belum disetujui;
+  tidak tampil bila `show_signatures=false`; grid memastikan stempel tetap center).
+- Cakupan: tombol Print, Cetak Internal, Save as PDF, dan pratinjau Print Layouts. Email PO memakai HTML terpisah → belum memuat paraf.
+- Tanpa env/skema baru. Redeploy: frontend.
