@@ -29,3 +29,4 @@ export async function printImage(path) {
 
 export const companyLogoPath = (company) => (company?.logo_path ? `/company/logo?v=${encodeURIComponent(company.logo_version || "1")}` : "");
 export const poSignaturePath = (status) => (status?.available ? `/settings/print_layouts/po/signature?v=${encodeURIComponent(status.version || "1")}` : "");
+export const poParafPath = (status) => (status?.available ? `/settings/print_layouts/po/paraf?v=${encodeURIComponent(status.version || "1")}` : "");

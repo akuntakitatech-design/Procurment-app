@@ -3,7 +3,7 @@ import api, { API, apiError } from "@/lib/api";
 import { buildPoPrintHtml } from "@/lib/poPrintReal";
 import { buildDoPrintHtml } from "@/lib/doPrintReal";
 import { MARGIN_SIDES, MARGIN_LABELS, MARGIN_RANGE, marginKey, layoutMargins, mergeLayout, PRINT_DIALOG_HINT } from "@/lib/printMargins";
-import { printImage, companyLogoPath, poSignaturePath } from "@/lib/printAssets";
+import { printImage, companyLogoPath, poSignaturePath, poParafPath } from "@/lib/printAssets";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -119,18 +119,21 @@ function MarginFields({ layout, setLayout }) {
   </div>;
 }
 
-function RealPoPreview({ layout, signature }) {
+function RealPoPreview({ layout, signature, paraf }) {
   const [company, setCompany] = useState({});
   const [logoImg, setLogoImg] = useState("");
   const [signatureImg, setSignatureImg] = useState("");
+  const [parafImg, setParafImg] = useState("");
   const [sampleStatus, setSampleStatus] = useState("Approved");
   const [width, setWidth] = useState(520);
   const boxRef = useRef(null);
   useEffect(() => { api.get("/settings/company").then((r) => setCompany(r.data || {})).catch(() => setCompany({})); }, []);
   const logoPath = companyLogoPath(company);
   const sigPath = poSignaturePath(signature);
+  const parafPath = poParafPath(paraf);
   useEffect(() => { let on = true; printImage(logoPath).then((u) => on && setLogoImg(u)); return () => { on = false; }; }, [logoPath]);
   useEffect(() => { let on = true; printImage(sigPath).then((u) => on && setSignatureImg(u)); return () => { on = false; }; }, [sigPath]);
+  useEffect(() => { let on = true; printImage(parafPath).then((u) => on && setParafImg(u)); return () => { on = false; }; }, [parafPath]);
   useEffect(() => {
     const el = boxRef.current;
     if (!el || typeof ResizeObserver === "undefined") return undefined;
@@ -140,8 +143,8 @@ function RealPoPreview({ layout, signature }) {
   }, []);
   const html = useMemo(() => buildPoPrintHtml({
     doc: { ...SAMPLE_PO, status: sampleStatus }, allocLines: SAMPLE_ALLOC, company, layout, supplier: SAMPLE_SUPPLIER, project: { name: "Contoh Proyek" }, showPrice: true, internal: false, autoPrint: false,
-    logoImg: layout.show_logo === false ? "" : logoImg, signatureImg, marginGuides: true,
-  }), [company, layout, logoImg, signatureImg, sampleStatus]);
+    logoImg: layout.show_logo === false ? "" : logoImg, signatureImg, parafImg, marginGuides: true,
+  }), [company, layout, logoImg, signatureImg, parafImg, sampleStatus]);
   const pm = layoutMargins(layout);
   const scale = Math.min(1, width / A4_PX[0]);
   return <div className="space-y-2">
@@ -206,8 +209,8 @@ function RealDoPreview({ layout }) {
   </div>;
 }
 
-function Preview({ layout, active, signature }) {
-  if (active === "po" && layout.template_style === "real_reference") return <RealPoPreview layout={layout} signature={signature}/>;
+function Preview({ layout, active, signature, paraf }) {
+  if (active === "po" && layout.template_style === "real_reference") return <RealPoPreview layout={layout} signature={signature} paraf={paraf}/>;
   if (active === "do" && layout.template_style === "real_reference") return <RealDoPreview layout={layout}/>;
   const sections = layout.sections || DEFAULT_SECTIONS;
   const columnNames = layout.columns || DEFAULT_COLUMNS;
@@ -230,8 +233,11 @@ export default function PrintLayouts() {
   const [saving, setSaving] = useState(false);
   const [signature, setSignature] = useState({available:false,version:null});
   const [signatureFile, setSignatureFile] = useState(null);
+  const [paraf, setParaf] = useState({available:false,version:null});
+  const [parafFile, setParafFile] = useState(null);
   const loadSignature=()=>api.get("/settings/print_layouts/po/signature-status").then(r=>setSignature(r.data||{available:false})).catch(()=>setSignature({available:false}));
-  useEffect(() => { api.get("/settings/print_layouts").then(r => setAll(r.data?.modules || {})).catch(() => setAll({})); loadSignature(); }, []);
+  const loadParaf=()=>api.get("/settings/print_layouts/po/paraf-status").then(r=>setParaf(r.data||{available:false})).catch(()=>setParaf({available:false}));
+  useEffect(() => { api.get("/settings/print_layouts").then(r => setAll(r.data?.modules || {})).catch(() => setAll({})); loadSignature(); loadParaf(); }, []);
   const meta = MODULES.find(([k]) => k === active) || MODULES[0];
   const layout = useMemo(() => normalize(all[active], meta[1], meta[2]), [all, active, meta]);
   const setLayout = (patch) => setAll(cur => ({ ...cur, [active]: { ...layout, ...patch } }));
@@ -241,6 +247,8 @@ export default function PrintLayouts() {
   const reset = () => setAll(cur => ({ ...cur, [active]: defaultLayout(meta[1], meta[2]) }));
   const uploadSignature=async()=>{if(!signatureFile)return toast.error("Pilih file tanda tangan terlebih dahulu");try{const fd=new FormData();fd.append("file",signatureFile);await api.post("/settings/print_layouts/po/signature",fd,{headers:{"Content-Type":"multipart/form-data"}});setSignatureFile(null);await loadSignature();toast.success("Tanda tangan PO tersimpan");}catch(e){toast.error(apiError(e.response?.data?.detail));}};
   const deleteSignature=async()=>{try{await api.delete("/settings/print_layouts/po/signature");setSignatureFile(null);await loadSignature();toast.success("Tanda tangan PO dihapus");}catch(e){toast.error(apiError(e.response?.data?.detail));}};
+  const uploadParaf=async()=>{if(!parafFile)return toast.error("Pilih file paraf terlebih dahulu");try{const fd=new FormData();fd.append("file",parafFile);await api.post("/settings/print_layouts/po/paraf",fd,{headers:{"Content-Type":"multipart/form-data"}});setParafFile(null);await loadParaf();toast.success("Paraf Approval 1 tersimpan");}catch(e){toast.error(apiError(e.response?.data?.detail));}};
+  const deleteParaf=async()=>{try{await api.delete("/settings/print_layouts/po/paraf");setParafFile(null);await loadParaf();toast.success("Paraf Approval 1 dihapus");}catch(e){toast.error(apiError(e.response?.data?.detail));}};
   const moduleOptions = MODULES.map(([value,code,name])=>({value,label:`${code} — ${name}`,selectedLabel:code}));
   const realTemplate = (active === "po" || active === "do") && layout.template_style === "real_reference";
 
@@ -254,6 +262,7 @@ export default function PrintLayouts() {
 
         {active === "po" && layout.template_style === "real_reference" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Detail Template REAL</div><div className="text-xs text-muted-foreground">Kosongkan field yang ingin mengambil data otomatis dari perusahaan/master supplier/proyek.</div></div><Field label="Nama Perusahaan - Delivery To"><Input value={layout.po_delivery_company_name||""} onChange={e=>setLayout({po_delivery_company_name:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field><Field label="Nama Perusahaan - Bill To"><Input value={layout.po_bill_company_name||""} onChange={e=>setLayout({po_bill_company_name:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field><Field label="Alamat Bill To"><Input value={layout.po_bill_address||""} onChange={e=>setLayout({po_bill_address:e.target.value})} placeholder="Otomatis dari alamat perusahaan"/></Field><div className="grid grid-cols-2 gap-3"><Field label="Up / PIC Bill To"><Input value={layout.po_bill_contact||""} onChange={e=>setLayout({po_bill_contact:e.target.value})}/></Field><Field label="HP Bill To"><Input value={layout.po_bill_phone||""} onChange={e=>setLayout({po_bill_phone:e.target.value})}/></Field></div><div className="grid grid-cols-2 gap-3"><Field label="Approved By"><Input value={layout.po_approved_name||""} onChange={e=>setLayout({po_approved_name:e.target.value})} placeholder="Bisa otomatis dari approval"/></Field><Field label="Perusahaan Approver"><Input value={layout.po_approved_company||""} onChange={e=>setLayout({po_approved_company:e.target.value})} placeholder="Otomatis dari perusahaan"/></Field></div></CardContent></Card>}
 
+        {active === "po" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Paraf Approval 1</div><div className="text-xs text-muted-foreground">Upload PNG/JPG/WEBP. Paraf dicetak di sisi kanan stempel/TTD, hanya pada PO yang sudah lolos Approval 1. Bila kosong, cetak menampilkan nama & tanggal approval.</div></div>{paraf.available&&<div className="h-24 rounded-lg border bg-white p-2 flex items-center justify-center"><img src={`${API}/settings/print_layouts/po/paraf?v=${encodeURIComponent(paraf.version||"1")}`} alt="Paraf tersimpan" data-testid="po-paraf-saved-img" className="max-h-full max-w-full object-contain"/></div>}<Input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>setParafFile(e.target.files?.[0]||null)} data-testid="po-paraf-file"/><div className="flex gap-2"><Button type="button" variant="outline" onClick={uploadParaf} disabled={!parafFile} data-testid="po-paraf-upload"><Upload className="h-4 w-4 mr-2"/>Upload Paraf</Button>{paraf.available&&<Button type="button" variant="ghost" onClick={deleteParaf} data-testid="po-paraf-delete"><Trash2 className="h-4 w-4 mr-2 text-destructive"/>Hapus</Button>}</div></CardContent></Card>}
         {active === "po" && <Card><CardContent className="pt-6 space-y-3"><div><div className="font-semibold">Tanda Tangan PO</div><div className="text-xs text-muted-foreground">Upload PNG/JPG/WEBP. Tanda tangan hanya dicetak pada PO yang sudah Approved; PO Draft tetap tanpa tanda tangan dan memakai watermark DRAFT.</div></div>{signature.available&&<div className="h-28 rounded-lg border bg-white p-2 flex items-center justify-center"><img src={`${API}/settings/print_layouts/po/signature?v=${encodeURIComponent(signature.version||"1")}`} alt="Tanda tangan tersimpan" data-testid="po-signature-saved-img" className="max-h-full max-w-full object-contain"/></div>}<Input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>setSignatureFile(e.target.files?.[0]||null)}/><div className="flex gap-2"><Button type="button" variant="outline" onClick={uploadSignature} disabled={!signatureFile}><Upload className="h-4 w-4 mr-2"/>Upload Tanda Tangan</Button>{signature.available&&<Button type="button" variant="ghost" onClick={deleteSignature}><Trash2 className="h-4 w-4 mr-2 text-destructive"/>Hapus</Button>}</div></CardContent></Card>}
 
         {!realTemplate && <>
@@ -264,7 +273,7 @@ export default function PrintLayouts() {
 
         <Card><CardContent className="pt-6 space-y-3"><div className="font-semibold">Tanda Tangan & Footer</div>{layout.signature_labels.map((v,i)=><Field key={i} label={`Kolom Tanda Tangan ${i+1}`}><Input value={v} onChange={e=>setLayout({signature_labels:layout.signature_labels.map((x,j)=>j===i?e.target.value:x)})}/></Field>)}<Field label="Teks Footer"><Textarea rows={3} value={layout.footer_text||""} onChange={e=>setLayout({footer_text:e.target.value})} placeholder={active==="po"?"Alamat kantor pusat, telepon, fax (boleh beberapa baris)":""} data-testid="print-footer-text"/></Field></CardContent></Card>
       </div>
-      <div className="xl:sticky xl:top-[86px] xl:self-start"><div className="mb-2"><div className="font-semibold">Preview Layout</div><div className="text-xs text-muted-foreground">Preview mengikuti struktur template. Data transaksi asli digunakan saat print.</div></div><Preview layout={layout} active={active} signature={signature}/></div>
+      <div className="xl:sticky xl:top-[86px] xl:self-start"><div className="mb-2"><div className="font-semibold">Preview Layout</div><div className="text-xs text-muted-foreground">Preview mengikuti struktur template. Data transaksi asli digunakan saat print.</div></div><Preview layout={layout} active={active} signature={signature} paraf={paraf}/></div>
     </div>
   </div>;
 }

@@ -119,6 +119,12 @@ check("tanpa Approval 1 disetujui: tidak ada paraf", !H({ ...v2, status: "Waitin
 check("paraf ikut tidak dicetak bila Tanda Tangan dimatikan di layout", !H(v2, { layout: { show_signatures: false } }).includes("Paraf Approval 1"));
 check("stempel tetap center: ruang tanda tangan memakai grid 1fr/auto/1fr dan gambar di kolom tengah",
   h.includes("grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)") && h.includes(".approved-signature{grid-column:2;justify-self:center"));
+const PARAF_IMG = "data:image/png;base64,PARAF";
+const hParafImg = realPoHtml({ doc: { ...v2, status: "Waiting Approval", approvals: [L1_OK, L2_PENDING] }, company: {}, layout, showPrice: true, signatureImg: "", parafImg: PARAF_IMG, autoPrint: false });
+check("paraf dari gambar layout dicetak di kanan stempel", hParafImg.includes(`<img class="paraf-signature" src="${PARAF_IMG}"`) && hParafImg.includes('<div class="paraf-name">Pretty</div>'));
+check("paraf bergambar: tanggal tidak dicetak agar tetap dalam tinggi 14mm", !hParafImg.includes('<div class="paraf-date">'));
+check("tanpa gambar paraf: fallback nama + tanggal tetap tampil", hWait.includes('<div class="paraf-date">') && hWait.includes('<div class="paraf-name">Pretty</div>'));
+check("paraf bergambar tidak muncul bila Approval 1 belum disetujui", !realPoHtml({ doc: { ...v2, approvals: [L1_PENDING, L2_PENDING] }, company: {}, layout, showPrice: true, parafImg: PARAF_IMG, autoPrint: false }).includes('<img class="paraf-signature"'));
 
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

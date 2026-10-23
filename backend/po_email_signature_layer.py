@@ -18,6 +18,7 @@ import storage as S
 APPROVED_STATUSES = {"approved", "partially received", "fully received"}
 IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 SIGNATURE_SETTING_ID = "po_signature"
+PARAF_SETTING_ID = "po_paraf"
 LEGACY_LAYOUT_SETTING_ID = "print_layouts"
 
 
@@ -39,6 +40,11 @@ async def _signature_row(server):
         return row
     legacy = await server.db.settings.find_one({"id": LEGACY_LAYOUT_SETTING_ID}, {"_id": 0}) or {}
     return legacy
+
+
+async def _paraf_row(server):
+    """Paraf Approval 1 disimpan di record sendiri agar tidak hilang saat Layout Dokumen disimpan."""
+    return await server.db.settings.find_one({"id": PARAF_SETTING_ID}, {"_id": 0}) or {}
 
 
 def _po_html(doc, company):
@@ -164,6 +170,80 @@ def install(server):
         return {
             "available": available,
             "version": row.get("po_signature_version"),
+            "stored": bool(path),
+        }
+
+    # ---- Paraf Approval 1 (digambar di kanan stempel/TTD saat PO sudah lolos Approval 1)
+    @app.post("/api/settings/print_layouts/po/paraf", tags=["settings"])
+    async def upload_po_paraf(file: UploadFile = File(...), user=Depends(server.current_user)):
+        server.require(user, "edit")
+        ctype = (file.content_type or "").lower()
+        if ctype not in IMAGE_TYPES:
+            raise HTTPException(400, "Paraf harus PNG, JPG/JPEG, atau WEBP")
+        data = await file.read()
+        if not data:
+            raise HTTPException(400, "File paraf kosong")
+        if len(data) > 5 * 1024 * 1024:
+            raise HTTPException(400, "Ukuran paraf maksimal 5 MB")
+        ext = IMAGE_TYPES[ctype]
+        requested_path = f"settings/po-paraf.{ext}"
+        stored = S.put_object(requested_path, data, ctype)
+        stored_path = stored.get("path") or requested_path
+        version = server.now_iso()
+        await server.db.settings.update_one(
+            {"id": PARAF_SETTING_ID},
+            {"$set": {
+                "id": PARAF_SETTING_ID,
+                "po_paraf_path": stored_path,
+                "po_paraf_content_type": ctype,
+                "po_paraf_version": version,
+                "updated_by": user.get("email"),
+                "updated_at": version,
+            }},
+            upsert=True,
+        )
+        await server.audit(user, "edit", "settings", PARAF_SETTING_ID, reason="Paraf Approval 1 diperbarui")
+        return {"ok": True, "path": stored_path, "version": version}
+
+    @app.get("/api/settings/print_layouts/po/paraf", tags=["settings"])
+    async def get_po_paraf(user=Depends(server.current_user)):
+        server.require(user, "view")
+        row = await _paraf_row(server)
+        path = row.get("po_paraf_path")
+        if not path:
+            raise HTTPException(404, "Paraf Approval 1 belum diupload")
+        try:
+            data, ctype = S.get_object(path)
+        except FileNotFoundError:
+            raise HTTPException(404, "File paraf tidak ditemukan")
+        return Response(
+            content=data,
+            media_type=row.get("po_paraf_content_type") or ctype,
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
+
+    @app.delete("/api/settings/print_layouts/po/paraf", tags=["settings"])
+    async def delete_po_paraf(user=Depends(server.current_user)):
+        server.require(user, "edit")
+        await server.db.settings.delete_one({"id": PARAF_SETTING_ID})
+        await server.audit(user, "edit", "settings", PARAF_SETTING_ID, reason="Paraf Approval 1 dihapus")
+        return {"ok": True}
+
+    @app.get("/api/settings/print_layouts/po/paraf-status", tags=["settings"])
+    async def po_paraf_status(user=Depends(server.current_user)):
+        server.require(user, "view")
+        row = await _paraf_row(server)
+        path = row.get("po_paraf_path")
+        available = False
+        if path:
+            try:
+                S.get_object(path)
+                available = True
+            except FileNotFoundError:
+                available = False
+        return {
+            "available": available,
+            "version": row.get("po_paraf_version"),
             "stored": bool(path),
         }
 
