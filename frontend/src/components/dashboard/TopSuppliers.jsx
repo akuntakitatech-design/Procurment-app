@@ -10,7 +10,7 @@ export function TopSuppliers({ rank, onPick, delay }) {
   const [shown, setShown] = useState(false);
   useEffect(() => { const t = setTimeout(() => setShown(true), 120); return () => clearTimeout(t); }, [rank]);
   return (
-    <Panel title="Top 5 Supplier" icon={Trophy} testid="dash-top-suppliers" delay={delay}
+    <Panel title="Top 10 Supplier" icon={Trophy} testid="dash-top-suppliers" delay={delay}
       action={<span className="rounded-md bg-slate-50 px-2 py-1 text-[11px] text-slate-500">{byValue ? "Nilai PO" : "Jumlah PO"}</span>}>
       {!items.length ? <EmptyNote /> :
         <ol className="space-y-3.5">

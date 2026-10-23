@@ -54,7 +54,7 @@ def composition(po_rows):
     return {"total": len(po_rows), "items": [{"status": k, "count": cnt[k]} for k in order if cnt.get(k)]}
 
 
-def supplier_rank(po_rows, perm, limit=5):
+def supplier_rank(po_rows, perm, limit=10):
     """Top supplier berdasarkan Nilai PO valid (Grand Total). Tanpa izin harga: urut jumlah PO, nilai tidak dikirim."""
     agg = {}
     for r in po_rows:

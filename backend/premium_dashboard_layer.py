@@ -159,7 +159,7 @@ def install(server):
         else:
             recent = await server.db.audit_logs.find({}, {"_id": 0}).sort("at", -1).to_list(8)
         top_categories = [{"name": k, "value": v} for k, v in sorted(category_totals.items(), key=lambda x: x[1], reverse=True)[:5]]
-        top_suppliers = [{"name": k, "value": v} for k, v in sorted(supplier_totals.items(), key=lambda x: x[1], reverse=True)[:5]]
+        top_suppliers = [{"name": k, "value": v} for k, v in sorted(supplier_totals.items(), key=lambda x: x[1], reverse=True)[:10]]
 
         return {
             "year": year,
