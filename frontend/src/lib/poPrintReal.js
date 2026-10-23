@@ -143,7 +143,7 @@ function dpSummaryRows(doc, money) {
     : { key: "remaining", cls: "dp-row sum-strong", label: "Sisa Pembayaran", value: money(r.amount) });
 }
 
-export function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal, autoPrint = true, marginGuides = false }) {
+export function realPoHtml({ doc, company, layout, logoImg, code, supplier, project, signatureImg, parafImg, showPrice, internal, autoPrint = true, marginGuides = false }) {
   company = company || {};
   layout = layout || {};
   const font = layout.font_family || "Arial";
@@ -237,7 +237,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
   // ---- paraf Approval 1: muncul begitu Approval 1 disetujui dan tetap terbawa pada PO yang sudah Approval 2.
   // Ditempatkan di sisi kanan stempel/TTD Approval 2; stempel tetap center karena paraf berada di track grid sendiri.
   const l1Task = (doc.approvals || []).find((a) => Number(a?.seq) === 1 && String(a?.status || "").toLowerCase() === "approved" && a?.acted_by);
-  const parafL1 = l1Task ? `<div class="paraf-l1"><div class="paraf-title">Paraf Approval 1</div><div class="paraf-name">${esc(l1Task.acted_by)}</div><div class="paraf-date">${esc(fmtDate(l1Task.acted_at))}</div></div>` : "";
+  const parafL1 = l1Task ? `<div class="paraf-l1"><div class="paraf-title">Paraf Approval 1</div>${parafImg ? `<img class="paraf-signature" src="${parafImg}" alt=""/>` : ""}<div class="paraf-name">${esc(l1Task.acted_by)}</div>${parafImg ? "" : `<div class="paraf-date">${esc(fmtDate(l1Task.acted_at))}</div>`}</div>` : "";
   const labels = layout.signature_labels || [];
   const signatures = layout.show_signatures ? `<div class="signatures keep"><div><div class="sign-label">${esc(labels[0] || "Approved by,")}</div><div class="sign-space">${approvedSignature}${parafL1}</div><div class="sign-name">${esc(approvedName)}</div><div class="sign-company">${esc(approvedCompany)}</div></div><div><div class="sign-label">${esc(labels[1] || "Signed by,")}</div><div class="sign-space"></div><div class="sign-name">${esc(signedName)}</div><div class="sign-company">${esc(supplierCompany)}</div></div></div>` : "";
   const qrHtml = layout.show_qr && code ? `<div class="verify">Verification Code: ${esc(code)}</div>` : "";
@@ -285,7 +285,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     .terms{margin-top:3mm;line-height:1.2;font-size:${Math.max(7, fs - 1)}px}.terms .term-heading{font-size:${fs}px}.term-heading{font-weight:700;margin-top:1.2mm}.term-heading:first-child{margin-top:0}.term-spk{margin-top:1mm}
     .term-item{display:grid;grid-template-columns:9mm 1fr}.term-item .term-no{text-align:center}.term-item.bullet{grid-template-columns:9mm 1fr}.term-item.bullet .term-no{text-align:right;padding-right:1.2mm}.term-gap{height:.6mm}.term-bullets{columns:2;column-gap:4mm}.term-bullets .term-item{break-inside:avoid}
     .bank-wrap{margin-top:2.5mm}.bank-title{font-weight:700;margin-bottom:.8mm}.bank-table{width:100%;border-collapse:collapse;text-align:center}.bank-table th,.bank-table td{border-top:.25mm solid #000;border-bottom:.25mm solid #000;padding:.35mm 1.5mm;font-weight:400}
-    .signatures{display:grid;grid-template-columns:1fr 1fr;column-gap:30mm;text-align:center;margin-top:2.5mm;margin-bottom:1.5mm}.sign-label{font-weight:700}.sign-space{height:14mm;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center}.approved-signature{grid-column:2;justify-self:center;max-width:40mm;max-height:13.8mm;object-fit:contain}.paraf-l1{grid-column:3;justify-self:start;margin-left:3mm;text-align:left;line-height:1.12;white-space:nowrap}.paraf-l1 .paraf-title{font-size:7px;font-weight:700}.paraf-l1 .paraf-name{font-size:9px;font-weight:700}.paraf-l1 .paraf-date{font-size:7px}.sign-name{font-weight:700;text-decoration:underline}.sign-company{font-weight:700}
+    .signatures{display:grid;grid-template-columns:1fr 1fr;column-gap:30mm;text-align:center;margin-top:2.5mm;margin-bottom:1.5mm}.sign-label{font-weight:700}.sign-space{height:14mm;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center}.approved-signature{grid-column:2;justify-self:center;max-width:40mm;max-height:13.8mm;object-fit:contain}.paraf-l1{grid-column:3;justify-self:start;margin-left:3mm;text-align:left;line-height:1.12;white-space:nowrap}.paraf-l1 .paraf-title{font-size:7px;font-weight:700}.paraf-l1 .paraf-name{font-size:9px;font-weight:700}.paraf-l1 .paraf-date{font-size:7px}.paraf-signature{display:block;max-width:20mm;max-height:7.5mm;object-fit:contain;margin:.4mm 0}.sign-name{font-weight:700;text-decoration:underline}.sign-company{font-weight:700}
     .keep{break-inside:avoid;page-break-inside:avoid}
     .verify{font-size:${small}px;text-align:right;margin-top:2mm;color:#4b5563}
     .closing{flex:1 0 auto;display:flex;flex-direction:column;break-inside:avoid;page-break-inside:avoid}

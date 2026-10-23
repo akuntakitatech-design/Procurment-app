@@ -4,7 +4,7 @@ import { dpRows } from "@/lib/poDp";
 import { isPoV2, poV2SummaryRows, fmtIdr } from "@/lib/poTaxPrint";
 import { buildPoPrintHtml, poApproved } from "@/lib/poPrintReal";
 import { buildDoPrintHtml } from "@/lib/doPrintReal";
-import { printImage, companyLogoPath, poSignaturePath } from "@/lib/printAssets";
+import { printImage, companyLogoPath, poSignaturePath, poParafPath } from "@/lib/printAssets";
 import { layoutMargins, cssMargin, mergeLayout } from "@/lib/printMargins";
 
 export { realPoHtml, buildPoPrintHtml, poRefGroups, poRefLabel, poSpkCell, renderTermsMessage } from "@/lib/poPrintReal";
@@ -198,6 +198,14 @@ export async function printDoc(type, doc, opts = {}) {
       signatureImg = await printImage(poSignaturePath(s));
     } catch {}
   }
+  // Paraf Approval 1: tidak bergantung status final (muncul sejak Approval 1 disetujui), jadi selalu dicek untuk PO.
+  let parafImg = "";
+  if (key === "po") {
+    try {
+      const ps = (await api.get("/settings/print_layouts/po/paraf-status")).data || {};
+      parafImg = await printImage(poParafPath(ps));
+    } catch {}
+  }
   const showPrice = !!opts.showPrice;
   const internal = !!opts.internal;
   const lines = doc.lines || [];
@@ -218,7 +226,7 @@ export async function printDoc(type, doc, opts = {}) {
     const [suppliers, projects] = await Promise.all([getMaster("suppliers"), getMaster("projects")]);
     const supplier = suppliers.find(x => x.id === doc.supplier_id) || {};
     const project = projects.find(x => x.id === doc.default_project_id) || {};
-    const html = buildPoPrintHtml({ doc, allocLines, company, layout, logoImg, code, supplier, project, signatureImg, showPrice, internal });
+    const html = buildPoPrintHtml({ doc, allocLines, company, layout, logoImg, code, supplier, project, signatureImg, parafImg, showPrice, internal });
     const w = window.open("", "_blank");
     w.document.write(html); w.document.close();
     return;

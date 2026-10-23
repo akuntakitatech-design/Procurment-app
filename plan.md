@@ -904,3 +904,25 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   tidak tampil bila `show_signatures=false`; grid memastikan stempel tetap center).
 - Cakupan: tombol Print, Cetak Internal, Save as PDF, dan pratinjau Print Layouts. Email PO memakai HTML terpisah → belum memuat paraf.
 - Tanpa env/skema baru. Redeploy: frontend.
+
+## Cetak PO — Paraf Approval 1 sebagai Gambar & Konfigurabel (Status: COMPLETED — branch `feat/po-paraf-image-config`)
+- Permintaan pemilik: paraf Approval 1 memakai gambar (bukan hanya teks) dan **bisa dikonfigurasi di menu Layout Dokumen**.
+- Backend (`backend/po_email_signature_layer.py`): 4 endpoint baru dengan record settings terpisah `po_paraf`
+  (agar tidak hilang saat Layout Dokumen disimpan):
+  - `POST /api/settings/print_layouts/po/paraf` — upload PNG/JPG/WEBP maks 5 MB, izin `edit`, disimpan ke storage
+    sebagai `settings/po-paraf.<ext>`, field `po_paraf_path/content_type/version`, audit "Paraf Approval 1 diperbarui".
+  - `GET /api/settings/print_layouts/po/paraf` — kirim gambar (`Cache-Control: no-store`).
+  - `DELETE /api/settings/print_layouts/po/paraf` — hapus record + audit.
+  - `GET /api/settings/print_layouts/po/paraf-status` — `{available, version, stored}`.
+- Frontend:
+  - `pages/PrintLayouts.jsx`: kartu **Paraf Approval 1** (preview gambar tersimpan, upload, hapus) + pratinjau PO memakai
+    gambar paraf yang sama.
+  - `lib/printAssets.js`: `poParafPath()`; `lib/print.js`: ambil paraf (selalu dicek untuk PO, tidak bergantung status final).
+  - `lib/poPrintReal.js`: parameter `parafImg`; gambar maks 20mm × 7,5mm di kolom kanan ruang tanda tangan (stempel tetap center).
+    Bila paraf belum diupload → fallback teks nama + tanggal seperti rilis sebelumnya.
+- Test: `frontend/tests/po_print_real_test.mjs` 59/59 (4 asersi baru: gambar dicetak, tanggal tidak dicetak saat bergambar,
+  fallback teks, gambar tidak muncul bila Approval 1 belum disetujui).
+- Uji endpoint nyata di preview (DB & storage production, data uji 1×1 transparan lalu dihapus): 9/9 —
+  status awal belum ada → GET 404 → upload 200 → status available → GET 200 image → file non-gambar 400 → hapus 200 → status bersih → GET 404.
+  State akhir production: **tidak ada paraf** (menunggu upload gambar asli oleh pemilik).
+- Tanpa env/skema baru. Redeploy: backend lalu frontend.
