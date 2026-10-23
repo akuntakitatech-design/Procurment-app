@@ -878,3 +878,14 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   banner form tampil; `CI=true yarn build` OK. Data uji `SUP-00006/7/8` dihapus → 63 supplier, 0 pending.
 - Belum tercakup: import Excel supplier tetap membuat supplier langsung aktif (bisa diubah bila diminta).
 - Redeploy: backend lalu frontend.
+
+## Dashboard Top 10 Supplier (Status: COMPLETED — branch `feat/dashboard-top10-supplier`, menunggu merge)
+- Permintaan pemilik: widget dashboard "Top 5 Supplier" dinaikkan menjadi **Top 10 Supplier**.
+- Backend:
+  - `reporting/charts.py` → `supplier_rank(po_rows, perm, limit=10)` (sebelumnya `limit=5`).
+  - `premium_dashboard_layer.py` → `top_suppliers` dipotong `[:10]` (sebelumnya `[:5]`); `top_categories` tetap 5.
+- Frontend: `components/dashboard/TopSuppliers.jsx` judul panel menjadi **"Top 10 Supplier"**.
+- Test: `tests/dashboard_control_center_test.py` asersi `len(rk) <= 10`.
+- Tanpa env/skema baru. Redeploy: backend lalu frontend.
+- Catatan data: `tenant-pt-real` baru punya **5 supplier dengan PO valid**, jadi widget tetap menampilkan 5 baris
+  sampai ada lebih banyak supplier ber-PO. Batas 10 adalah plafon, bukan jumlah baris paksa.

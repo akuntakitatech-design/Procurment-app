@@ -224,7 +224,7 @@ def main():
           and abs((cur.get("invoice_value") or 0) - sum(float(i["amount"]) for i in month_inv)) < 0.01 and len(tr) == 12, cur)
     rk = D["supplier_rank"]["items"]
     vals = [x["value"] for x in rk]
-    check("Top supplier urut Nilai PO desc, total per supplier = Σ PO valid", vals == sorted(vals, reverse=True) and len(rk) <= 5 and
+    check("Top supplier urut Nilai PO desc, total per supplier = Σ PO valid", vals == sorted(vals, reverse=True) and len(rk) <= 10 and
           all(abs(x["value"] - sum(float(r.get("grand_total") or 0) for r in valid_list if r.get("supplier_id") == x["supplier_id"])) < 0.01 for x in rk), rk)
     att = D["attention"]
     pr = [x["priority"] for x in att["rows"]]
