@@ -1007,6 +1007,9 @@ def _install_lookup(server, allowed, in_scope):
             raise HTTPException(403, f"Anda tidak memiliki izin untuk memilih data {MODULES[name][0]}.")
         coll = server.db.spk if name == "spk" else server._mc(name)
         rows = await coll.find({}, {"_id": 0}).to_list(50000)
+        if name == "suppliers":
+            # Supplier baru wajib disetujui atasan (menu Approval -> Supplier) sebelum bisa dipilih di PO.
+            rows = [r for r in rows if (r.get("approval_status") or "approved") == "approved"]
         alw = allowed(user)
         scoped = name in DIV_MASTERS or name == "spk"
         ql, fields, out = (q or "").strip().lower(), _COMMON + LOOKUP_FIELDS[name], []

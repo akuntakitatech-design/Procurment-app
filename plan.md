@@ -853,3 +853,28 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   `py_compile` OK.
 - Tanpa env/skema. Redeploy: backend.
 - Catatan: 4051 item `BARANG TEST` adalah data uji; hapus bila tidak diperlukan (butuh perintah eksplisit).
+
+## Approval Supplier — Supplier Baru Wajib Disetujui Atasan (Status: COMPLETED — lokal, preview 1:1 production)
+- Permintaan pemilik: input supplier baru butuh approval atasan; sebelum disetujui **tidak muncul di transaksi PO**;
+  tersedia approval massal; menunya di **Approval** (ditambah kartu Supplier).
+- Backend layer baru `supplier_approval_layer.py`:
+  - `POST /api/master/suppliers` menandai supplier baru `approval_status=pending` (+ pemohon & waktu) dan mengirim notifikasi.
+  - `GET /api/supplier-approvals?status=pending|approved|rejected` (izin `view`) → daftar + `counts`.
+  - `POST /api/supplier-approvals/approve|reject` (izin `approve`), menerima banyak `ids` sekaligus (approval massal);
+    reject wajib alasan; setiap keputusan masuk audit `approve`/`reject`.
+  - Guard PO: `POST /api/po` dan `PUT /api/transactions/po/{id}` menolak supplier yang belum approved (400, pesan jelas)
+    sehingga aturan tidak bisa di-bypass lewat API langsung.
+  - `access_control_layer.lookup_rows`: supplier non-approved disembunyikan dari `/lookup/suppliers` dan `/lookup-batch`
+    (dipakai form PO).
+  - `master_list_paging_layer`: label status supplier menjadi `Menunggu Approval` / `Ditolak`.
+  - Supplier lama tanpa field `approval_status` dianggap **approved** (backward compatible; 63 supplier existing tetap bisa dipakai).
+  - Catatan teknis: layer mengambil `server.db` saat request karena `tenant_isolation_layer` memasang proxy tenant setelah layer ini.
+    Versi pertama sempat membaca 860 supplier lintas tenant; setelah diperbaiki terbaca 63 (tenant sendiri).
+- Frontend: kartu ke-4 **Supplier** di menu Approval (`approval-tab-supplier`) + komponen `SupplierApprovalPanel`
+  (tab Menunggu/Disetujui/Ditolak, pencarian, pilih semua, **Setujui Terpilih** / **Tolak Terpilih**, aksi per baris)
+  dan banner di form Supplier baru.
+- Verifikasi: create supplier → `pending` & tidak ada di lookup (63) → approve → muncul di lookup (65 dengan 2 uji) →
+  reject → `POST /po` ditolak 400; `status_label` `Ditolak`/`Aktif` benar; **approval massal 2 supplier via UI** → 0 tersisa;
+  banner form tampil; `CI=true yarn build` OK. Data uji `SUP-00006/7/8` dihapus → 63 supplier, 0 pending.
+- Belum tercakup: import Excel supplier tetap membuat supplier langsung aktif (bisa diubah bila diminta).
+- Redeploy: backend lalu frontend.

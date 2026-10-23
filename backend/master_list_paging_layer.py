@@ -48,6 +48,9 @@ async def _labels(db, name, rows):
     names = {c: {d["id"]: d.get("name") for d in docs} for c, docs in zip(colls, found)}
     for r in rows:
         r["status_label"] = "Aktif" if r.get("is_active") else "Nonaktif"
+        if name == "suppliers":
+            r["status_label"] = {"pending": "Menunggu Approval", "rejected": "Ditolak"}.get(
+                r.get("approval_status") or "approved", r["status_label"])
         for key, coll in refs.items():
             r[f"{key[:-3]}_label"] = names[coll].get(r.get(key)) if r.get(key) else None
 

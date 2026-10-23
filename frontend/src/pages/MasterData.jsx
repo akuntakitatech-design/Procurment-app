@@ -291,7 +291,12 @@ export function MasterFormDialog({ name, open, onOpenChange, form, setForm, refs
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={`${name === "suppliers" ? "max-w-6xl" : "max-w-3xl"} max-h-[92vh] overflow-y-auto`} data-testid={`master-${name}-form`}>
         <DialogHeader><DialogTitle className="font-head">{form.id ? "Edit" : "Tambah"} {cfg.label}</DialogTitle></DialogHeader>
-        {name === "suppliers" ? <SupplierEditor form={form} setForm={setForm} refs={refs} invalid={invalid} /> : <>
+        {name === "suppliers" ? <>
+          {!form.id && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200" data-testid="master-suppliers-approval-note">
+            Supplier baru disimpan sebagai <b>Menunggu Approval</b> dan belum bisa dipilih di PO sampai disetujui atasan di menu <b>Approval → Supplier</b>.
+          </div>}
+          <SupplierEditor form={form} setForm={setForm} refs={refs} invalid={invalid} />
+        </> : <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
             {cfg.fields.map((f) => { const bad = invalid.has(f.k); return <Field key={f.k} label={f.l + (f.auto ? " (Otomatis, bisa diedit)" : "") + (f.req ? " *" : "")}>
               {f.opts ? <div data-testid={`master-${name}-field-${f.k}`}><Combobox options={f.opts} value={form[f.k] ?? (f.k === "facility" ? "NORMAL" : "")} onChange={(v) => setForm({ ...form, [f.k]: v })} /></div> : f.ref ? <div data-testid={`master-${name}-field-${f.k}`} className={bad ? INVALID_WRAP : ""}><Combobox options={f.ref === "suppliers" ? [{ value: "", label: "Tanpa Supplier Utama" }, ...refOptions(f.ref)] : refOptions(f.ref)} value={form[f.k] || ""} onChange={(v) => setForm({ ...form, [f.k]: v })} /></div> :
