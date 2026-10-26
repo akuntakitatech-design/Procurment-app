@@ -1135,3 +1135,30 @@ Aturan yang diminta pemilik: dokumen berstatus **Tidak Berlaku** ikut dihitung l
 
 ### Catatan
 - Tanpa env/skema baru; data production tidak diubah. Redeploy: **backend lalu frontend**.
+
+---
+
+## Nama Project pada daftar Approval 1
+
+### Tujuan
+Menampilkan **nama project** pada daftar inbox Approval 1 agar approver tahu konteks pekerjaan tiap dokumen
+tanpa harus membuka dokumennya.
+
+### Perubahan
+- `backend/approval_email_layer.py`
+  - `/api/approvals/inbox` memuat peta `projects` (id -> name/code) sekali per permintaan, lalu mengisi
+    `project_id` dan `project_name` dari `default_project_id` dokumen (MRO/RO/PO).
+- `frontend/src/pages/Approval.jsx`
+  - Kolom **Project** setelah **Pemohon / Supplier**; nilai "-" bila dokumen tidak punya project.
+  - Pencarian ikut mencocokkan nama project; `colSpan` baris kosong 9 -> 10; `min-w` tabel 1050 -> 1100.
+
+### Pengujian
+- `CI=true yarn build` -> **Compiled successfully (30,65 s)**.
+- Data nyata read-only (tenant PT REAL, 32 approval task): **32/32 punya `project_name`**
+  (OMSS 22, BALAI RAJA 4, EX.NK 2, NK 2, EW PPPRE 2).
+- UI lokal (dev 4200 + backend 4180): kolom **PROJECT** tampil dan terisi "OMSS" pada 4 PO Pending;
+  tabel tetap selebar container sehingga tombol Aksi tidak terpotong (lebar natural 1114 px).
+- Tidak diuji: screenshot pada viewport mobile.
+
+### Catatan
+- Tanpa env/skema baru; data production tidak diubah (hanya membaca). Redeploy: **backend lalu frontend**.

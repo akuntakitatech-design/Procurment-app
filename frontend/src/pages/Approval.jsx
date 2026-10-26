@@ -55,7 +55,7 @@ export default function Approval() {
     if (view === "pending" && r.status !== "Pending") return false;
     if (view === "processed" && !["Approved", "Rejected"].includes(r.status)) return false;
     if (moduleFilter !== "all" && r.module !== moduleFilter) return false;
-    const text = `${r.document_type || ""} ${r.document_no || ""} ${r.context_name || ""} ${r.approver_name || ""} ${r.approver_email || ""}`.toLowerCase();
+    const text = `${r.document_type || ""} ${r.document_no || ""} ${r.context_name || ""} ${r.project_name || ""} ${r.approver_name || ""} ${r.approver_email || ""}`.toLowerCase();
     return !q || text.includes(q.toLowerCase());
   }), [rows, q, view, moduleFilter]);
 
@@ -110,14 +110,14 @@ export default function Approval() {
     </div>
 
     <Card><CardContent className="p-0 overflow-x-auto">
-      <table className="m-stack w-full min-w-[1050px] text-sm zebra">
-        <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground"><th className="p-3">Modul</th><th className="p-3">Dokumen</th><th className="p-3">Tanggal</th><th className="p-3">Pemohon / Supplier</th><th className="p-3">Level</th><th className="p-3">Approver</th><th className="p-3 text-right">Nilai</th><th className="p-3">Status</th><th className="p-3 text-right">Aksi</th></tr></thead>
+      <table className="m-stack w-full min-w-[1100px] text-sm zebra">
+        <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground"><th className="p-3">Modul</th><th className="p-3">Dokumen</th><th className="p-3">Tanggal</th><th className="p-3">Pemohon / Supplier</th><th className="p-3">Project</th><th className="p-3">Level</th><th className="p-3">Approver</th><th className="p-3 text-right">Nilai</th><th className="p-3">Status</th><th className="p-3 text-right">Aksi</th></tr></thead>
         <tbody>
-          {filtered.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">Tidak ada approval pada filter ini</td></tr>}
+          {filtered.length === 0 && <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">Tidak ada approval pada filter ini</td></tr>}
           {filtered.map((r) => <tr key={r.id} className="border-t">
             <td data-label="Modul" className="m-full p-3"><span className="rounded-md bg-muted px-2 py-1 font-mono text-xs font-semibold">{r.document_type || r.module?.toUpperCase()}</span></td>
             <td data-label="Dokumen" className="p-3"><button onClick={() => openDoc(r)} className="font-mono text-xs font-semibold text-primary hover:underline">{r.document_no}</button></td>
-            <td data-label="Tanggal" className="p-3">{fmtDate(r.date)}</td><td data-label="Pemohon / Supplier" className="p-3">{r.context_name || "-"}</td><td data-label="Level" className="p-3">Level {r.seq}</td>
+            <td data-label="Tanggal" className="p-3">{fmtDate(r.date)}</td><td data-label="Pemohon / Supplier" className="p-3">{r.context_name || "-"}</td><td data-label="Project" className="p-3">{r.project_name || "-"}</td><td data-label="Level" className="p-3">Level {r.seq}</td>
             <td data-label="Approver" className="m-full p-3"><div className="font-medium">{r.approver_name || "-"}</div><div className="text-xs text-muted-foreground">{r.approver_email || ""}</div></td>
             <td data-label="Nilai" className="p-3 text-right tabular-nums">{r.module === "po" && r.grand_total != null ? rupiah(r.grand_total) : "-"}</td><td data-label="Status" className="p-3"><StatusBadge status={r.status} /></td>
             <td data-label="Aksi" className="m-full p-3"><div className="flex flex-wrap justify-end gap-2">{isLevel2PoTask(r) ? <Button size="sm" variant="outline" onClick={() => setView("approval2")} data-testid={`approval-process-l2-${r.document_no}`}><Layers className="h-4 w-4 mr-1" />Proses Approval 2</Button> : r.status === "Pending" && <><Button size="sm" onClick={() => act(r, "approve")}><Check className="h-4 w-4 mr-1" />Approve</Button><Button size="sm" variant="outline" onClick={() => act(r, "reject")}><X className="h-4 w-4 mr-1" />Reject</Button></>}</div></td>
