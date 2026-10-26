@@ -349,6 +349,8 @@ def install(server):
             query["approver_email"] = str(user.get("email") or "").lower()
         steps = await server.db.approval_tasks.find(query, {"_id": 0}).sort([("status", 1), ("seq", 1)]).to_list(5000)
         suppliers = {s["id"]: s for s in await server.db.suppliers.find({}, {"_id": 0}).to_list(3000)}
+        projects = {p["id"]: str(p.get("name") or p.get("code") or "")
+                    for p in await server.db.projects.find({}, {"_id": 0, "id": 1, "name": 1, "code": 1}).to_list(5000)}
         out = []
         for step in steps:
             module = step.get("module")
@@ -372,6 +374,8 @@ def install(server):
                 "date": doc.get("date"),
                 "context_name": context_name,
                 "supplier_name": context_name if module == "po" else None,
+                "project_id": doc.get("default_project_id"),
+                "project_name": projects.get(doc.get("default_project_id")) or "",
                 "grand_total": grand_total,
                 "document_status": doc.get("approval_status") or doc.get("status"),
             })
