@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { DataTable } from "@/components/invoice/DataTable";
 import { InvoiceSummary } from "@/components/invoice/InvoiceSummary";
 import { fmtD, optsOf } from "@/lib/invoice";
+import { checklistSummary } from "@/lib/docChecklist";
 import { useServerList } from "@/lib/serverList";
 import { useReportParams } from "@/components/dashboard/ReportFilterChip";
 import { useSearchParams } from "react-router-dom";
@@ -33,6 +34,12 @@ const INV_COLS = [
   { key: "transmittal_no", label: "No. Transmittal", render: (r) => (r.transmittal_no ? <Link to={`/transmittal/${r.transmittal_id}`} onClick={(e) => e.stopPropagation()} className="font-mono text-xs font-semibold text-primary hover:underline" data-testid={`invoice-transmittal-link-${r.invoice_no}`}>{r.transmittal_no}</Link> : "-") },
   { key: "transmittal_status", label: "Status Transmittal", status: true },
   { key: "status", label: "Status Invoice", status: true },
+  { key: "doc_status", label: "Status Dokumen", render: (r) => {
+    const s = checklistSummary(r.doc_checklist);
+    return <span title={s.pending.length ? `Belum lengkap: ${s.pending.join(", ")}` : "Semua dokumen wajib lengkap"}>
+      <StatusBadge status={r.doc_status || (s.complete ? "Lengkap" : "Belum Lengkap")} />
+    </span>;
+  } },
   { key: "payment_status", label: "Status Pembayaran", status: true },
   { key: "settlement_status", label: "Status Hutang", status: true },
 ];
@@ -51,7 +58,7 @@ const DO_COLS = [
 ];
 const F = ({ children }) => <div className="w-44">{children}</div>;
 
-const INV_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["trace_division", 0, "Semua Divisi"], ["trace_project", 0, "Semua Proyek"], ["trace_spk", 0, "Semua SPK"], ["trace_po", 0, "Semua PO"], ["do_nos", 0, "Semua DO"], ["transmittal_status", 0, "Semua Status Transmittal"], ["status", 0, "Semua Status Invoice"], ["payment_status", 0, "Semua Status Pembayaran"], ["settlement_status", 0, "Semua Status Hutang"], ["due_state", 0, "Semua Jatuh Tempo"]];
+const INV_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["trace_division", 0, "Semua Divisi"], ["trace_project", 0, "Semua Proyek"], ["trace_spk", 0, "Semua SPK"], ["trace_po", 0, "Semua PO"], ["do_nos", 0, "Semua DO"], ["transmittal_status", 0, "Semua Status Transmittal"], ["status", 0, "Semua Status Invoice"], ["doc_status", 0, "Semua Status Dokumen"], ["payment_status", 0, "Semua Status Pembayaran"], ["settlement_status", 0, "Semua Status Hutang"], ["due_state", 0, "Semua Jatuh Tempo"]];
 const DO_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["division", 0, "Semua Divisi"], ["project", 0, "Semua Proyek"], ["spk", 0, "Semua SPK"], ["billing_status", 0, "Semua Status Penagihan"]];
 
 function useFilterUI(defs, facets) {
@@ -98,7 +105,7 @@ export default function InvoiceMonitoring() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="h-auto w-full sm:w-auto flex-wrap justify-start"><TabsTrigger value="invoice" data-testid="tab-invoice">Invoice Vendor</TabsTrigger><TabsTrigger value="do" data-testid="tab-do-billing">Status Penagihan DO</TabsTrigger></TabsList>
         <TabsContent value="invoice" className="mt-4">
-          <ServerTable url="/vendor-invoices" extra={tab === "invoice" ? rfx : {}} chip={tab === "invoice" && rpt.chip} defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={1950}
+          <ServerTable url="/vendor-invoices" extra={tab === "invoice" ? rfx : {}} chip={tab === "invoice" && rpt.chip} defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={2080}
             emptyText="Belum ada invoice" searchPlaceholder="Cari supplier, no invoice, PO, DO, SPK, proyek..." onOpen={(r) => nav(`/invoice/${r.id}`)}
             selectable selected={sel} onToggleAll={setSel} onToggle={(id) => setSel((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
             canSelect={(r) => !["Draft", "Dikirim"].includes(r.transmittal_status)} />

@@ -46,6 +46,18 @@ def norm_checklist(raw):
     return {k: (str(raw.get(k) or "").strip() if str(raw.get(k) or "").strip() in CHECK_VALUES else CHECK_DEFAULT) for k in CHECK_KEYS}
 
 
+DOC_DONE = ("Lengkap", "Tidak Berlaku")
+
+
+def doc_status_of(raw):
+    """Status kelengkapan dokumen untuk daftar: 'Lengkap' bila TIDAK ada dokumen 'Belum Lengkap'.
+
+    'Tidak Berlaku' ikut dianggap lengkap (dokumen tidak disyaratkan untuk invoice tersebut), sehingga invoice
+    yang seluruh dokumennya 'Tidak Berlaku' juga berstatus Lengkap.
+    """
+    return "Lengkap" if all(v in DOC_DONE for v in norm_checklist(raw).values()) else "Belum Lengkap"
+
+
 def doc_fields(body, cur):
     """Field dokumen tambahan (faktur pajak + checklist). Tidak menyentuh nilai/DP/pembayaran."""
     body = body or {}
@@ -249,6 +261,7 @@ def install(server):
             i["transmittal_no"] = str(t.get("no") or "")
             i["transmittal_id"] = str(t.get("id") or "")
             i["doc_checklist"] = norm_checklist(i.get("doc_checklist"))  # invoice lama: 8 kunci 'Belum Lengkap'
+            i["doc_status"] = doc_status_of(i["doc_checklist"])  # Lengkap / Belum Lengkap (Tidak Berlaku = lengkap)
         return invs
 
     async def visible_invoices(user):

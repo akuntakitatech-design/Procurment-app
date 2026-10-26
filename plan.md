@@ -1095,3 +1095,43 @@ Cetak/PDF tetap **A4 landscape** seperti form manual PT REAL.
 - Tanpa env/skema baru. Redeploy: **backend lalu frontend**.
 - Data production tidak diubah (semua verifikasi read-only; tidak ada export yang dijalankan ke server sehingga
   tidak ada baris audit baru).
+
+---
+
+## Kolom Status Dokumen pada daftar Invoice Vendor
+
+### Tujuan
+Menampilkan kelengkapan dokumen invoice langsung di daftar transaksi: **Lengkap** / **Belum Lengkap**.
+Aturan yang diminta pemilik: dokumen berstatus **Tidak Berlaku** ikut dihitung lengkap — hanya dokumen
+**Belum Lengkap** yang membuat status menjadi tidak lengkap.
+
+### Perubahan
+- `backend/vendor_invoice_layer.py`
+  - Helper `doc_status_of(checklist)`: `Lengkap` bila tidak ada nilai `Belum Lengkap`
+    (`Lengkap` dan `Tidak Berlaku` sama-sama dianggap selesai); selain itu `Belum Lengkap`.
+  - `enrich()` mengisi `doc_status` untuk setiap baris invoice (dipakai daftar, ringkasan, export, dan filter).
+- `frontend/src/pages/InvoiceMonitoring.jsx`
+  - Kolom **Status Dokumen** (badge) setelah **Status Invoice**, dengan tooltip berisi daftar dokumen yang
+    masih kurang; nilai memakai `doc_status` dari server (fallback hitung dari `doc_checklist`).
+  - Filter **Semua Status Dokumen** (`f_doc_status`) — faset otomatis dari data.
+  - `minWidth` 1950 -> 2080.
+- `backend/reporting/reports_txn.py`
+  - Laporan export `txn-invoice` menambah kolom **Status Dokumen** dan label parameter `f_doc_status`.
+- `backend/invoice_transmittal_unit_test.py` — 6 asersi baru (aturan status + kolom export).
+
+### Pengujian
+- `backend/invoice_transmittal_unit_test.py` -> **53/53 lulus** (termasuk: tanpa checklist -> Belum Lengkap;
+  semua Lengkap -> Lengkap; sebagian `Tidak Berlaku` -> tetap Lengkap; satu `Belum Lengkap` -> Belum Lengkap;
+  seluruh `Tidak Berlaku` -> Lengkap; export `txn-invoice` memuat `doc_status`).
+- `CI=true yarn build` -> **Compiled successfully (25,91 s)**.
+- Data nyata, read-only, tenant PT REAL (58 invoice): distribusi **1 Lengkap / 57 Belum Lengkap**;
+  `f_doc_status=Lengkap` -> 1 baris (invoice `4121`), `Belum Lengkap` -> 57 baris; faset `doc_status`
+  mengembalikan kedua nilai; export `txn-invoice` dengan filter tersebut -> 1 baris + keterangan
+  "Status Dokumen: Lengkap".
+- UI lokal (dev 4200 + backend 4180, tenant uji 2 invoice): kolom **STATUS DOKUMEN** tampil dengan badge
+  "Belum Lengkap" dan tooltip berisi 8 dokumen yang kurang; filter Status Dokumen tersedia dan pilihannya
+  mengikuti data (hanya "Belum Lengkap" pada tenant tersebut).
+- Tidak diuji: klik filter sampai memuat ulang untuk nilai `Lengkap` di UI (tenant uji tidak punya invoice lengkap).
+
+### Catatan
+- Tanpa env/skema baru; data production tidak diubah. Redeploy: **backend lalu frontend**.
