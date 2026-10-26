@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { TransactionPageHeader } from "@/components/TransactionPageHeader";
@@ -48,16 +48,17 @@ export default function InvoiceTransmittal() {
   const canEdit = can("transmittal.edit");
   const canDelete = can("transmittal.delete");
   const canPrint = can("transmittal.print");
+  const reloadList = list.reload;
 
-  const remove = async (r) => {
+  const remove = useCallback(async (r) => {
     if (!window.confirm(`Hapus Transmittal ${r.no}? Tindakan ini tidak dapat dibatalkan.`)) return;
     try {
       await api.delete(`/invoice-transmittals/${r.id}`);
       setSel((cur) => cur.filter((id) => id !== r.id));
       toast.success("Transmittal dihapus");
-      list.reload();
+      reloadList();
     } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
-  };
+  }, [reloadList]);
 
   const columns = useMemo(() => {
     if (!canEdit && !canDelete) return BASE_COLS;
@@ -83,7 +84,7 @@ export default function InvoiceTransmittal() {
         );
       },
     }];
-  }, [canEdit, canDelete, nav]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canEdit, canDelete, nav, remove]);
 
   // Seluruh id hasil filter (bukan hanya halaman aktif) untuk export PDF massal.
   const filteredIds = async () => {
