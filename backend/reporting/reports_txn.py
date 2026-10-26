@@ -186,14 +186,15 @@ _spec("txn-vendor-contract", "spk", "Daftar Kontrak Harga Vendor", "vendor_contr
 
 # ---------------------------------------------------------------- Finance
 _INV_L = (("f_supplier_name", "Supplier"), ("f_trace_division", "Divisi"), ("f_trace_project", "Proyek"), ("f_trace_spk", "SPK"),
-          ("f_trace_po", "PO"), ("f_do_nos", "DO"), ("f_status", "Status Invoice"), ("f_payment_status", "Status Pembayaran"),
-          ("f_settlement_status", "Status Hutang"), ("f_due_state", "Jatuh Tempo"))
+          ("f_trace_po", "PO"), ("f_do_nos", "DO"), ("f_status", "Status Invoice"), ("f_doc_status", "Status Dokumen"),
+          ("f_payment_status", "Status Pembayaran"), ("f_settlement_status", "Status Hutang"), ("f_due_state", "Jatuh Tempo"))
 _spec("txn-invoice", "hutang", "Daftar Invoice Vendor", "invoice.view", [
     Column("no", "No. Internal", width=16), _t("supplier_name", "Supplier", 20), _t("invoice_no", "No Invoice"), _t("trace_po", "PO"),
     _t("do_nos", "DO"), _t("trace_spk", "SPK"), _t("trace_project", "Proyek"), _t("trace_division", "Divisi"),
     Column("invoice_date", "Tgl Invoice", "date", width=11), Column("due_date", "Jatuh Tempo", "date", width=11),
     _t("due_state", "Keterangan Jatuh Tempo", 14), _m("amount", "Nilai Invoice"), _m("dp_allocated_total", "DP Dialokasikan"),
     _m("paid_total", "Sudah Dibayar"), _m("remaining", "Sisa Hutang"), _t("status", "Status Invoice", 12),
+    _t("doc_status", "Status Dokumen", 14),
     _t("payment_status", "Status Pembayaran", 12), _t("settlement_status", "Status Hutang", 12)], _list_builder("invoice"),
     labels=_INV_L, basis="Tanggal invoice (periode = Tgl Invoice)")
 _spec("txn-do-billing", "hutang", "Daftar Status Penagihan DO", "invoice.view", [

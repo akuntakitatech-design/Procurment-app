@@ -38,6 +38,17 @@ check(norm["invoice"] == "Lengkap" and norm["kontrak"] == "Tidak Berlaku", "Nila
 check(norm["kwitansi"] == "Belum Lengkap" and norm["po"] == "Belum Lengkap", "Nilai kosong/tidak dikenal -> Belum Lengkap")
 check(len(norm) == 8, "Checklist selalu berisi 8 kunci (aman untuk data lama)")
 
+# Status Dokumen pada daftar: 'Tidak Berlaku' ikut dihitung lengkap
+_ALL_OK = {k: "Lengkap" for k in VIL.CHECK_KEYS}
+check(VIL.doc_status_of({}) == "Belum Lengkap", "Status dokumen tanpa checklist -> Belum Lengkap")
+check(VIL.doc_status_of(_ALL_OK) == "Lengkap", "Semua dokumen Lengkap -> Status Dokumen Lengkap")
+check(VIL.doc_status_of({**_ALL_OK, "kwitansi": "Tidak Berlaku", "kontrak": "Tidak Berlaku"}) == "Lengkap",
+      "Dokumen Tidak Berlaku tidak membuat status jadi tidak lengkap")
+check(VIL.doc_status_of({**_ALL_OK, "bast": "Belum Lengkap"}) == "Belum Lengkap",
+      "Satu dokumen Belum Lengkap -> Status Dokumen Belum Lengkap")
+check(VIL.doc_status_of({k: "Tidak Berlaku" for k in VIL.CHECK_KEYS}) == "Lengkap",
+      "Seluruh dokumen Tidak Berlaku -> Status Dokumen Lengkap")
+
 doc = VIL.doc_fields({"tax_invoice_no": " 010.000-26.00000001 ", "tax_invoice_date": "2026-10-23"}, {})
 check(doc["tax_invoice_no"] == "010.000-26.00000001", "Nomor Faktur Pajak di-trim & disimpan")
 check(doc["tax_invoice_date"] == "2026-10-23", "Tanggal Faktur Pajak diterima format ISO")
@@ -124,6 +135,12 @@ check(_spec is not None and "ids" in {f.key for f in _spec.filters}, "Filter ids
 check(_spec is not None and {c.key for c in _spec.columns} == {"no", "date", "destination", "sender_name", "receiver_name",
                                                               "suppliers", "invoice_count", "total_amount", "status"},
       "Kolom export sama dengan daftar transmittal")
+
+_inv = REGISTRY.get("txn-invoice")
+check(_inv is not None and "doc_status" in {c.key for c in _inv.columns},
+      "Export daftar invoice memuat kolom Status Dokumen")
+check(_inv is not None and ("f_doc_status", "Status Dokumen") in _inv.param_labels,
+      "Filter Status Dokumen tercatat pada keterangan export invoice")
 
 
 class _TxnServer:
