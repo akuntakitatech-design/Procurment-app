@@ -14,6 +14,7 @@ import { rupiah, fmtDateTime } from "@/lib/format";
 import { dateOnly, fmtD, todayDate } from "@/lib/invoice";
 import { checklistSummary } from "@/lib/docChecklist";
 import { openTransmittalPrint } from "@/lib/transmittalPrint";
+import { companyLogoPath, printImage } from "@/lib/printAssets";
 import { ArrowLeft, CheckCircle2, Printer, Send, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -112,7 +113,11 @@ export default function InvoiceTransmittalForm() {
   };
 
   const print = async () => {
-    try { const r = await api.get(`/invoice-transmittals/${id}/print`); openTransmittalPrint(r.data); }
+    try {
+      const r = await api.get(`/invoice-transmittals/${id}/print`);
+      const logoImg = await printImage(companyLogoPath(r.data.company || {}));
+      openTransmittalPrint({ ...r.data, logoImg });
+    }
     catch (e) { toast.error(apiError(e.response?.data?.detail)); }
   };
 
