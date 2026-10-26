@@ -16,12 +16,16 @@ const errMsg = async (e) => {
   return d?.detail || "Export gagal. Coba lagi.";
 };
 
-/** Tombol Export Excel/PDF daftar transaksi (P6). Mengekspor SELURUH hasil daftar sesuai filter/pencarian/periode/sort aktif. */
-export function ListExportButtons({ reportKey, query, total, testidPrefix = "list" }) {
+/** Tombol Export Excel/PDF daftar transaksi (P6). Mengekspor SELURUH hasil daftar sesuai filter/pencarian/periode/sort aktif.
+ *  `formats` membatasi tombol yang tampil (mis. hanya Excel bila PDF memakai layout dokumen). */
+export function ListExportButtons({ reportKey, query, total, testidPrefix = "list", formats = ["xlsx", "pdf"] }) {
   const { can } = useAuth();
   const [busy, setBusy] = useState("");
   if (!reportKey || !can("export")) return null;
-  const states = { xlsx: listExportState(total, "xlsx", true), pdf: listExportState(total, "pdf", true) };
+  const want = (fmt) => formats.includes(fmt);
+  const states = {};
+  if (want("xlsx")) states.xlsx = listExportState(total, "xlsx", true);
+  if (want("pdf")) states.pdf = listExportState(total, "pdf", true);
   const run = async (fmt) => {
     if (!states[fmt].ok) { toast.error(states[fmt].reason); return; }
     setBusy(fmt);
@@ -39,17 +43,19 @@ export function ListExportButtons({ reportKey, query, total, testidPrefix = "lis
       toast.success(`Export ${fmt === "pdf" ? "PDF" : "Excel"} berhasil${n ? ` (${Number(n).toLocaleString("id-ID")} baris)` : ""}.`);
     } catch (e) { toast.error(await errMsg(e)); } finally { setBusy(""); }
   };
-  const reason = states.pdf.ok ? "" : states.xlsx.ok ? states.pdf.reason.replace("Persempit filter.", "Gunakan Export Excel atau persempit filter.") : states.xlsx.reason;
+  const reason = states.xlsx && states.pdf
+    ? (states.pdf.ok ? "" : states.xlsx.ok ? states.pdf.reason.replace("Persempit filter.", "Gunakan Export Excel atau persempit filter.") : states.xlsx.reason)
+    : [states.xlsx, states.pdf].filter(Boolean).filter((s) => !s.ok).map((s) => s.reason).join(" ");
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid={`${testidPrefix}-export`}>
-      <Button type="button" variant="outline" size="sm" className="h-11 sm:h-9" onClick={() => run("xlsx")} disabled={!!busy || !states.xlsx.ok}
+      {want("xlsx") && <Button type="button" variant="outline" size="sm" className="h-11 sm:h-9" onClick={() => run("xlsx")} disabled={!!busy || !states.xlsx.ok}
         title={states.xlsx.reason || "Export seluruh hasil filter ke Excel"} data-testid={`${testidPrefix}-export-xlsx`}>
         <FileSpreadsheet className="mr-1.5 h-4 w-4" />{busy === "xlsx" ? "Menyiapkan..." : "Export Excel"}
-      </Button>
-      <Button type="button" variant="outline" size="sm" className="h-11 sm:h-9" onClick={() => run("pdf")} disabled={!!busy || !states.pdf.ok}
+      </Button>}
+      {want("pdf") && <Button type="button" variant="outline" size="sm" className="h-11 sm:h-9" onClick={() => run("pdf")} disabled={!!busy || !states.pdf.ok}
         title={states.pdf.reason || "Export seluruh hasil filter ke PDF"} data-testid={`${testidPrefix}-export-pdf`}>
         <FileText className="mr-1.5 h-4 w-4" />{busy === "pdf" ? "Menyiapkan..." : "Export PDF"}
-      </Button>
+      </Button>}
       {reason && <span className="text-xs text-amber-700" data-testid={`${testidPrefix}-export-limit`}>{reason}</span>}
     </div>
   );

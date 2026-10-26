@@ -28,7 +28,8 @@ export const PRINT_CHECKLIST = [
 /** ✓ Lengkap · ✗ Belum Lengkap · − Tidak Berlaku */
 export const checklistMark = (status) => (status === "Lengkap" ? "✓" : status === "Tidak Berlaku" ? "−" : "✗");
 
-export function buildTransmittalHtml({ doc, company, logoImg = "", autoPrint = true }) {
+/** Isi satu dokumen transmittal (kop, info, tabel, keterangan, tanda tangan, footer). */
+const docBody = ({ doc, company, logoImg }) => {
   const items = doc.items || [];
   const total = items.reduce((s, i) => s + Number(i.amount || 0), 0);
   const rows = items.map((i, n) => {
@@ -51,7 +52,47 @@ export function buildTransmittalHtml({ doc, company, logoImg = "", autoPrint = t
   const sentAt = doc.sent_at ? shortDate(doc.sent_at) : shortDate(doc.date);
   const receivedAt = doc.received_at ? shortDate(doc.received_at) : "";
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(doc.no || "TRANSMITTAL")}</title>
+  return `<div class="head">
+      <div class="company">
+        ${logoImg ? `<img class="logo" src="${logoImg}" alt=""/>` : ""}
+        <div class="company-name">${esc(companyName)}</div>
+        ${companyAddress ? `<div class="company-addr">${esc(companyAddress)}</div>` : ""}
+      </div>
+      <div class="title"><h1>TRANSMITTAL INVOICE</h1><div class="no">${esc(doc.no || "")}</div><div>Tanggal: ${esc(longDate(doc.date))}</div></div>
+    </div>
+    <div class="info">
+      <div class="row"><span class="lab">Tujuan / Departemen</span><span class="val">${esc(doc.destination || "-")}</span></div>
+      <div class="row"><span class="lab">Status</span><span class="val">${esc(doc.status || "-")}</span></div>
+      <div class="row"><span class="lab">Pengirim</span><span class="val">${esc(doc.sender_name || "-")}</span></div>
+      <div class="row"><span class="lab">Penerima</span><span class="val">${esc(receiver || "-")}</span></div>
+      <div class="row"><span class="lab">Jumlah Invoice</span><span class="val">${items.length}</span></div>
+      <div class="row"><span class="lab">Total Nilai (Inc PPN)</span><span class="val">${money(total)}</span></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th rowspan="2" style="width:9mm">No</th>
+          <th rowspan="2" style="width:42mm">Nama Vendor</th>
+          <th rowspan="2" style="width:30mm">No. Invoice</th>
+          <th rowspan="2" style="width:34mm">No. Faktur Pajak</th>
+          <th rowspan="2" style="width:38mm">No. PO</th>
+          <th rowspan="2" style="width:28mm">Nilai (Inc PPN)</th>
+          <th colspan="5">Checklist Kelengkapan</th>
+        </tr>
+        <tr>${PRINT_CHECKLIST.map((t) => `<th>${esc(t.label)}</th>`).join("")}</tr>
+      </thead>
+      <tbody>${rows || `<tr><td colspan="11" class="c">Tidak ada invoice</td></tr>`}</tbody>
+      <tfoot><tr><td colspan="5" class="r">TOTAL</td><td class="r">${money(total)}</td><td colspan="5"></td></tr></tfoot>
+    </table>
+    <div class="notes"><div class="lab">Keterangan</div><div>${esc(doc.notes || "-")}</div></div>
+    <div class="signs">
+      <div class="box"><div class="cap">Dikirim oleh,</div><div class="space"></div><div class="name">${esc(doc.sender_name || "")}</div><div class="meta">Tanggal: ${esc(sentAt)}</div></div>
+      <div class="box"><div class="cap">Diterima oleh,</div><div class="space"></div><div class="name">${esc(receiver || "")}</div><div class="meta">Tanggal: ${esc(receivedAt || "____________")}</div></div>
+    </div>
+    ${String(company?.footer_text || "").trim() ? `<div class="footer">${esc(company.footer_text)}</div>` : ""}`;
+};
+
+const pageHtml = ({ title, body, autoPrint }) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
   <style>
     @page{size:A4 landscape;margin:10mm}
     *{box-sizing:border-box}
@@ -89,55 +130,46 @@ export function buildTransmittalHtml({ doc, company, logoImg = "", autoPrint = t
     .signs .name{font-weight:700;text-decoration:underline}
     .signs .meta{font-size:9px;color:#374151}
     .footer{margin-top:5mm;border-top:.35mm solid #000;padding-top:1.2mm;font-size:8.5px;text-align:center;color:#374151;white-space:pre-line}
+    .doc + .doc{break-before:page;page-break-before:always}
   </style></head><body>
     ${autoPrint ? `<div class="print-hint">Dialog cetak terbuka otomatis. Pilih "Save as PDF" bila ingin menyimpan salinan.</div>` : ""}
-    <div class="head">
-      <div class="company">
-        ${logoImg ? `<img class="logo" src="${logoImg}" alt=""/>` : ""}
-        <div class="company-name">${esc(companyName)}</div>
-        ${companyAddress ? `<div class="company-addr">${esc(companyAddress)}</div>` : ""}
-      </div>
-      <div class="title"><h1>TRANSMITTAL INVOICE</h1><div class="no">${esc(doc.no || "")}</div><div>Tanggal: ${esc(longDate(doc.date))}</div></div>
-    </div>
-    <div class="info">
-      <div class="row"><span class="lab">Tujuan / Departemen</span><span class="val">${esc(doc.destination || "-")}</span></div>
-      <div class="row"><span class="lab">Status</span><span class="val">${esc(doc.status || "-")}</span></div>
-      <div class="row"><span class="lab">Pengirim</span><span class="val">${esc(doc.sender_name || "-")}</span></div>
-      <div class="row"><span class="lab">Penerima</span><span class="val">${esc(receiver || "-")}</span></div>
-      <div class="row"><span class="lab">Jumlah Invoice</span><span class="val">${items.length}</span></div>
-      <div class="row"><span class="lab">Total Nilai (Inc PPN)</span><span class="val">${money(total)}</span></div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th rowspan="2" style="width:9mm">No</th>
-          <th rowspan="2" style="width:42mm">Nama Vendor</th>
-          <th rowspan="2" style="width:30mm">No. Invoice</th>
-          <th rowspan="2" style="width:34mm">No. Faktur Pajak</th>
-          <th rowspan="2" style="width:38mm">No. PO</th>
-          <th rowspan="2" style="width:28mm">Nilai (Inc PPN)</th>
-          <th colspan="5">Checklist Kelengkapan</th>
-        </tr>
-        <tr>${PRINT_CHECKLIST.map((t) => `<th>${esc(t.label)}</th>`).join("")}</tr>
-      </thead>
-      <tbody>${rows || `<tr><td colspan="11" class="c">Tidak ada invoice</td></tr>`}</tbody>
-      <tfoot><tr><td colspan="5" class="r">TOTAL</td><td class="r">${money(total)}</td><td colspan="5"></td></tr></tfoot>
-    </table>
-    <div class="notes"><div class="lab">Keterangan</div><div>${esc(doc.notes || "-")}</div></div>
-    <div class="signs">
-      <div class="box"><div class="cap">Dikirim oleh,</div><div class="space"></div><div class="name">${esc(doc.sender_name || "")}</div><div class="meta">Tanggal: ${esc(sentAt)}</div></div>
-      <div class="box"><div class="cap">Diterima oleh,</div><div class="space"></div><div class="name">${esc(receiver || "")}</div><div class="meta">Tanggal: ${esc(receivedAt || "____________")}</div></div>
-    </div>
-    ${String(company?.footer_text || "").trim() ? `<div class="footer">${esc(company.footer_text)}</div>` : ""}
+    ${body}
     ${autoPrint ? `<script>window.onload=function(){setTimeout(function(){window.print()},450)}</script>` : ""}
   </body></html>`;
+
+export function buildTransmittalHtml({ doc, company, logoImg = "", autoPrint = true }) {
+  return pageHtml({
+    title: doc.no || "TRANSMITTAL",
+    body: docBody({ doc, company, logoImg }),
+    autoPrint,
+  });
 }
 
-export function openTransmittalPrint(data, autoPrint = true) {
-  const html = buildTransmittalHtml({ doc: data, company: data.company || {}, logoImg: data.logoImg || "", autoPrint });
+/** Beberapa transmittal dalam satu dokumen cetak — satu transmittal per halaman (untuk export PDF massal). */
+export function buildTransmittalMultiHtml({ docs = [], company, logoImg = "", autoPrint = true }) {
+  const body = (docs || []).map((d) => `<section class="doc">${docBody({ doc: d, company: d.company || company || {}, logoImg: d.logoImg || logoImg })}</section>`).join("");
+  return pageHtml({
+    title: docs.length === 1 ? (docs[0].no || "TRANSMITTAL") : `Transmittal Invoice (${docs.length})`,
+    body,
+    autoPrint,
+  });
+}
+
+const openPrint = (html) => {
   const w = window.open("", "_blank");
   if (!w) return false;
   w.document.write(html);
   w.document.close();
   return true;
+};
+
+export function openTransmittalPrint(data, autoPrint = true) {
+  const html = buildTransmittalHtml({ doc: data, company: data.company || {}, logoImg: data.logoImg || "", autoPrint });
+  return openPrint(html);
+}
+
+/** Cetak/export PDF 1..n transmittal (hasil export massal = satu halaman per transmittal). */
+export function openTransmittalPrintMany(docs, autoPrint = true) {
+  const html = buildTransmittalMultiHtml({ docs, autoPrint });
+  return openPrint(html);
 }

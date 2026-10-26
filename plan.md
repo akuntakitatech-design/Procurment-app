@@ -1046,3 +1046,52 @@ dokumen dikelompokkan (satu header "Checklist Kelengkapan" dengan 5 sub-kolom), 
 - `frontend/tests/transmittal_print_test.mjs` → **22/22 lulus** (esbuild bundle + node).
 - `CI=true yarn build` → **OK (30,50 s)**.
 - Tidak ada perubahan backend, env, maupun skema. Redeploy: **frontend saja**.
+
+---
+
+## Daftar Transmittal: aksi Edit/Hapus + Export Excel & PDF (1 atau massal)
+
+### Tujuan
+Melengkapi halaman daftar Transmittal Invoice: tombol **Ubah** dan **Hapus** per baris, serta **Export Excel**
+dan **Export PDF** yang bisa memakai baris terpilih (1 atau banyak) maupun seluruh hasil filter.
+Cetak/PDF tetap **A4 landscape** seperti form manual PT REAL.
+
+### Perubahan
+- `backend/reporting/reports_txn.py`
+  - ReportSpec baru `txn-transmittal` (grup `hutang`, izin `transmittal.view`, `catalog=False`) memakai jalur daftar
+    yang sama (`server.TXN_LIST_ROWS("transmittal", ...)`) -> cakupan tenant/divisi & filter identik dengan daftar.
+  - Parameter `ids` (dipisah koma) membatasi export ke baris terpilih; kolom: No, Tanggal, Tujuan/Departemen,
+    Pengirim, Penerima, Supplier, Jml Invoice, Total Nilai, Status.
+- `backend/reporting/report_center.py`
+  - `ids` tidak dimasukkan ke keterangan filter pada kop Excel/PDF (parameter pilihan baris, bukan filter pengguna).
+- `frontend/src/components/ListExportButtons.jsx`
+  - Prop opsional `formats` (default `["xlsx","pdf"]`) untuk menampilkan sebagian tombol; perilaku lama tidak berubah.
+- `frontend/src/pages/InvoiceTransmittal.jsx`
+  - Kolom **Aksi**: tombol Ubah (buka form) dan Hapus (konfirmasi) — hanya aktif untuk status **Draft** dan
+    mengikuti izin `transmittal.edit` / `transmittal.delete` (backend tetap menolak non-Draft dengan 409).
+  - Seleksi baris (checkbox) untuk export terpilih; tombol **Export Excel** (Pusat Laporan, `ids` bila ada pilihan)
+    dan **Export PDF** (layout dokumen landscape, satu halaman per transmittal, maksimal 100 dokumen per ekspor).
+- `frontend/src/lib/transmittalPrint.js`
+  - `buildTransmittalMultiHtml` + `openTransmittalPrintMany`: beberapa transmittal dalam satu dokumen cetak
+    (`break-before: page`), satu dialog cetak/print-to-PDF.
+- `frontend/tests/transmittal_print_test.mjs` + `backend/invoice_transmittal_unit_test.py` diperluas.
+
+### Pengujian
+- `backend/invoice_transmittal_unit_test.py` -> **46/46 lulus** (termasuk registrasi `txn-transmittal`, izin,
+  filter `ids` → 1 baris, tanpa `ids` → semua baris, jalur daftar transmittal).
+- `frontend/tests/transmittal_print_test.mjs` -> **29/29 lulus** (termasuk multi-dokumen: 2 section, page break,
+  satu `window.print`, escaping, landscape).
+- `CI=true yarn build` -> **OK (25,26 s)**.
+- Exporter Excel/PDF diuji dengan data sintetis: xlsx 6.378 byte, pdf 2.771 byte.
+- Data nyata (read-only, tenant PT REAL): `TXN_LIST_ROWS("transmittal")` → **1 baris** `TRN/2026/10/00002`
+  (FINANCE, febby→sella, PT. Profita Abadi, 1 invoice, **11.100.000**, Draft); `ids=<id>` → 1 baris;
+  `ids=tidak-ada-id` → 0 baris; `f_status=Draft` → 1 baris. Endpoint daftar ber-halaman `{items:1,total:1}`,
+  endpoint cetak mengembalikan 1 item + 8 kunci checklist + company. `_filters_applied` hanya memuat Status.
+- Layout cetak dirender dari payload nyata dan diperiksa visual: landscape, 6 kolom identitas + grup
+  Checklist Kelengkapan (5 sub-kolom), 5 tanda ✓, TOTAL 11,100,000, kolom tanda tangan.
+- Tidak diuji: cetak fisik/pratinjau PDF di browser dengan sesi login; build image Docker.
+
+### Catatan
+- Tanpa env/skema baru. Redeploy: **backend lalu frontend**.
+- Data production tidak diubah (semua verifikasi read-only; tidak ada export yang dijalankan ke server sehingga
+  tidak ada baris audit baru).

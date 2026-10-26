@@ -110,6 +110,39 @@ class _FakeServer:
         return True
 
 
+# ---------------------------------------------------------------- export daftar (Excel) Transmittal
+import asyncio  # noqa: E402
+
+import reporting.reports_txn as RTX  # noqa: E402,F401  (mendaftarkan ReportSpec export daftar transaksi)
+from reporting.registry import REGISTRY  # noqa: E402
+
+_spec = REGISTRY.get("txn-transmittal")
+check(_spec is not None, "Laporan export txn-transmittal terdaftar")
+check(_spec is not None and _spec.permission == "transmittal.view", "Export transmittal memakai izin transmittal.view")
+check(_spec is not None and _spec.catalog is False, "Laporan export tidak tampil di katalog Pusat Laporan")
+check(_spec is not None and "ids" in {f.key for f in _spec.filters}, "Filter ids (export baris terpilih) tersedia")
+check(_spec is not None and {c.key for c in _spec.columns} == {"no", "date", "destination", "sender_name", "receiver_name",
+                                                              "suppliers", "invoice_count", "total_amount", "status"},
+      "Kolom export sama dengan daftar transmittal")
+
+
+class _TxnServer:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    async def TXN_LIST_ROWS(self, module, user, p):
+        self.calls.append((module, p.get("ids")))
+        return [dict(r) for r in self.rows]
+
+
+_tsrv = _TxnServer([{"id": "t1", "no": "TRN/1"}, {"id": "t2", "no": "TRN/2"}])
+_all = asyncio.run(_spec.builder(_tsrv, {"email": "x"}, {"ids": ""}))
+check([r["id"] for r in _all] == ["t1", "t2"], "Tanpa ids -> seluruh baris transmittal")
+_pick = asyncio.run(_spec.builder(_tsrv, {"email": "x"}, {"ids": "t2"}))
+check([r["id"] for r in _pick] == ["t2"], "ids -> hanya baris terpilih (export 1 transaksi)")
+check(_tsrv.calls[0][0] == "transmittal", "Export memakai jalur daftar transmittal (cakupan & izin sama)")
+
 srv = _FakeServer()
 TRN.install(srv)
 routes = {(getattr(r, "path", ""), tuple(sorted(getattr(r, "methods", []) or []))) for r in srv.app.routes}
