@@ -29,7 +29,32 @@ SETTLE = ("Belum Lunas", "Lunas")   # Status Hutang: apakah kewajiban Invoice ma
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _LOCK = asyncio.Lock()
 ATT_ENTITIES = {"invoice", "invoice_payment"}
+# Kelengkapan dokumen: status checklist dicatat TERPISAH dari keberadaan file digital
+# (dokumen fisik bisa sudah diterima walau file belum diunggah).
+CHECK_KEYS = ("invoice", "faktur_pajak", "po", "do", "bukti_penerimaan", "kwitansi", "bast", "kontrak")
+CHECK_VALUES = ("Lengkap", "Belum Lengkap", "Tidak Berlaku")
+CHECK_DEFAULT = "Belum Lengkap"
+CHECK_CATEGORIES = {"invoice": "Invoice", "faktur_pajak": "Faktur Pajak", "po": "Purchase Order", "do": "Delivery Order",
+                    "bukti_penerimaan": "Bukti Penerimaan Barang", "kwitansi": "Kwitansi", "bast": "BAST/Timesheet",
+                    "kontrak": "Kontrak Kerja"}
 mariadb_motor.STRICT_PK_COLLECTIONS.add("vendor_invoice_keys")
+
+
+def norm_checklist(raw):
+    """Normalisasi checklist 8 jenis dokumen; nilai tidak dikenal -> 'Belum Lengkap' (aditif, aman untuk data lama)."""
+    raw = raw if isinstance(raw, dict) else {}
+    return {k: (str(raw.get(k) or "").strip() if str(raw.get(k) or "").strip() in CHECK_VALUES else CHECK_DEFAULT) for k in CHECK_KEYS}
+
+
+def doc_fields(body, cur):
+    """Field dokumen tambahan (faktur pajak + checklist). Tidak menyentuh nilai/DP/pembayaran."""
+    body = body or {}
+    tax_no = str(body.get("tax_invoice_no", cur.get("tax_invoice_no")) or "").strip()[:60]
+    tax_date = str(body.get("tax_invoice_date", cur.get("tax_invoice_date")) or "").strip()[:10]
+    if tax_date and not DATE_RE.match(tax_date):
+        raise HTTPException(400, "Tanggal Faktur Pajak tidak valid")
+    checklist = norm_checklist(body.get("doc_checklist") if "doc_checklist" in body else cur.get("doc_checklist"))
+    return {"tax_invoice_no": tax_no, "tax_invoice_date": tax_date, "doc_checklist": checklist}
 
 
 def money(v, label):
@@ -169,11 +194,35 @@ def install(server):
             vals += [x.strip() for x in str(t.get(key) or "").split(",") if x.strip()]
         return ", ".join(dict.fromkeys(vals))
 
+    async def transmittal_map(invoice_ids):
+        """Status/nomor Transmittal per invoice untuk kolom & filter daftar.
+        Transmittal aktif (Draft/Dikirim) diprioritaskan, lalu yang terbaru. Murni informasi: tidak memengaruhi
+        payment_status/remaining/settlement_status."""
+        ids = list(dict.fromkeys([i for i in (invoice_ids or []) if i]))
+        if not ids:
+            return {}
+        items = await db().invoice_transmittal_items.find({"invoice_id": {"$in": ids}}, {"_id": 0, "invoice_id": 1, "transmittal_id": 1}).to_list(200000)
+        if not items:
+            return {}
+        tids = list({i["transmittal_id"] for i in items if i.get("transmittal_id")})
+        trs = {t["id"]: t for t in await db().invoice_transmittals.find({"id": {"$in": tids}}, {"_id": 0}).to_list(len(tids) + 5)}
+        best = {}
+        for it in items:
+            t = trs.get(it.get("transmittal_id"))
+            if not t:
+                continue
+            rank = (0 if str(t.get("status") or "") in ("Draft", "Dikirim") else 1, str(t.get("created_at") or ""))
+            cur = best.get(it["invoice_id"])
+            if cur is None or rank > cur[0]:
+                best[it["invoice_id"]] = (rank, t)
+        return {k: v[1] for k, v in best.items()}
+
     async def enrich(invs):
         do_ids = sorted({d for i in invs for d in i.get("do_ids") or []})
         dos = await db().do.find({"id": {"$in": do_ids}}, {"_id": 0}).to_list(len(do_ids) + 5) if do_ids else []
         tr = await traces(dos)
         sups = {s["id"]: s for s in await db().suppliers.find({}, {"_id": 0, "id": 1, "name": 1, "code": 1}).to_list(5000)}
+        tmap = await transmittal_map([i["id"] for i in invs])
         td = today()
         for i in invs:
             ts = [tr.get(d) or {} for d in i.get("do_ids") or []]
@@ -195,6 +244,11 @@ def install(server):
                 # payment_status = pembayaran Invoice aktual; settlement_status = Status Hutang (saldo kewajiban)
                 "settlement_status": settlement_status(i.get("amount"), i.get("dp_allocated_total"), i.get("paid_total")),
             })
+            t = tmap.get(i["id"]) or {}
+            i["transmittal_status"] = str(t.get("status") or "Belum Transmittal")
+            i["transmittal_no"] = str(t.get("no") or "")
+            i["transmittal_id"] = str(t.get("id") or "")
+            i["doc_checklist"] = norm_checklist(i.get("doc_checklist"))  # invoice lama: 8 kunci 'Belum Lengkap'
         return invs
 
     async def visible_invoices(user):
@@ -223,6 +277,8 @@ def install(server):
                "notes": str(f["notes"] or "").strip(), "diff_reason": str(f["diff_reason"] or "").strip()}
         if out["due_date"] < out["invoice_date"]:
             raise HTTPException(400, "Jatuh Tempo tidak boleh sebelum Tanggal Invoice")
+        # Faktur pajak + checklist kelengkapan dokumen (aditif; tidak memengaruhi nilai/DP/pembayaran).
+        out.update(doc_fields(body, cur))
         amount = money(f["amount"], "Nilai Invoice")
         if amount <= 0:
             raise HTTPException(400, "Nilai Invoice harus lebih dari 0")
@@ -301,7 +357,8 @@ def install(server):
 
     def snap(inv, rows=None, dp_rows=None):
         keep = ("no", "supplier_id", "invoice_no", "invoice_date", "received_date", "due_date", "dpp", "tax_amount", "amount",
-                "alloc_total", "diff", "diff_reason", "notes", "paid_total", "dp_allocated_total", "payment_status")
+                "alloc_total", "diff", "diff_reason", "notes", "paid_total", "dp_allocated_total", "payment_status",
+                "tax_invoice_no", "tax_invoice_date", "doc_checklist")
         s = {k: inv.get(k) for k in keep}
         if rows is not None:
             s["allocations"] = [{"do_no": r["do_no"], "amount": r["amount"]} for r in rows]
@@ -487,6 +544,11 @@ def install(server):
         inv["payments"] = await db().vendor_invoice_payments.find({"invoice_id": iid}, {"_id": 0}).sort("created_at", 1).to_list(10000)
         atts = await db().attachments.find({"invoice_id": iid, "is_deleted": False}, {"_id": 0, "storage_path": 0}).to_list(2000)
         inv["files"] = [a for a in atts if a.get("entity") == "invoice"]
+        by_cat = {}
+        for a in inv["files"]:
+            c = str(a.get("category") or "Lainnya")
+            by_cat[c] = by_cat.get(c, 0) + 1
+        inv["files_by_category"] = by_cat  # keberadaan file digital (terpisah dari status checklist)
         for p in inv["payments"]:
             p["attachments"] = [a for a in atts if a.get("entity") == "invoice_payment" and a.get("entity_id") == p["id"]]
         inv["history"] = await db().audit_logs.find({"entity": "invoice", "entity_id": iid}, {"_id": 0}).sort("at", -1).to_list(500)
@@ -494,6 +556,20 @@ def install(server):
 
     @app.get("/api/vendor-invoices/{iid}", tags=["vendor-invoice"])
     async def get_invoice(iid: str, user=Depends(cu)):
+        return await detail(iid, user)
+
+    @app.put("/api/vendor-invoices/{iid}/document-check", tags=["vendor-invoice"])
+    async def update_document_check(iid: str, body: dict, user=Depends(cu)):
+        """Ubah Faktur Pajak & checklist kelengkapan dokumen saja (tanpa menyentuh alokasi DO/DP/nilai)."""
+        need_any(user, ["invoice.create", "invoice.edit"], "mengubah kelengkapan dokumen")
+        async with _LOCK:
+            cur = await get_inv(iid, user)
+            values = doc_fields(body or {}, cur)
+            await db().vendor_invoices.update_one({"id": iid}, {"$set": {**values, "updated_at": server.now_iso(), "updated_by": user.get("email")}})
+            new = await db().vendor_invoices.find_one({"id": iid}, {"_id": 0}) or {}
+            await server.audit(user, "document_check", "invoice", iid, cur.get("no"),
+                               before={k: cur.get(k) for k in ("tax_invoice_no", "tax_invoice_date", "doc_checklist")},
+                               after={k: new.get(k) for k in ("tax_invoice_no", "tax_invoice_date", "doc_checklist")})
         return await detail(iid, user)
 
     @app.get("/api/vendor-invoices/{iid}/print", tags=["vendor-invoice"])

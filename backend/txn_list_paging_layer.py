@@ -14,9 +14,10 @@ from fastapi.routing import APIRoute
 
 LISTS = {"/api/mro": "mro", "/api/ro": "ro", "/api/po": "po", "/api/do": "do", "/api/mi": "mi",
          "/api/transfers": "transfer", "/api/loans": "loan", "/api/adjustments": "adjustment", "/api/opname": "opname",
-         "/api/vendor-invoices": "invoice", "/api/vendor-invoices/do-billing": "do_billing"}
+         "/api/vendor-invoices": "invoice", "/api/vendor-invoices/do-billing": "do_billing",
+         "/api/invoice-transmittals": "transmittal"}
 SIZES = (25, 50, 100)
-DATE_FIELD = {"invoice": "invoice_date"}
+DATE_FIELD = {"invoice": "invoice_date", "transmittal": "date"}
 NO_SEARCH = {"id", "tenant_id", "items", "lines", "trace_division_ids", "trace_project_ids", "lifecycle"}
 
 

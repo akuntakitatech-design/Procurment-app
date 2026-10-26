@@ -969,3 +969,47 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
   tidak lagi menambah tinggi baris — nama & perusahaan rapat, paraf tetap menempel di kanan huruf terakhir nama.
 - Verifikasi: test cetak PO 58/58 (asresi baru: paraf absolute + line-height 1.2); render Edge headless dengan
   gambar paraf + stempel asli dari produksi.
+
+## Vendor Invoice: Faktur Pajak + Checklist Dokumen & Modul Transmittal (Status: COMPLETED — branch `feat/invoice-transmittal`)
+- Permintaan pemilik: field Nomor/Tanggal Faktur Pajak, checklist kelengkapan 8 dokumen (multi-lampiran per jenis,
+  status terpisah dari file digital), lalu modul **Transmittal Invoice** (Procurement) + integrasi ke daftar invoice.
+
+### Tahap 1 — Vendor Invoice
+- `backend/vendor_invoice_layer.py`: `tax_invoice_no`, `tax_invoice_date`, `doc_checklist` (8 kunci; nilai
+  `Lengkap`/`Belum Lengkap`/`Tidak Berlaku`; nilai tak dikenal -> Belum Lengkap; data lama dinormalisasi).
+  Endpoint baru `PUT /api/vendor-invoices/{id}/document-check` (hanya field dokumen, tidak menyentuh alokasi DO/DP/nilai),
+  audit `document_check`, dan `files_by_category` (jumlah file per kategori) di detail.
+- Frontend: `lib/docChecklist.js`, `components/invoice/DocChecklist.jsx` (status + upload multi-file per jenis + hapus),
+  field baru di form & detail, ringkasan kelengkapan, serta kartu riwayat transmittal di detail invoice.
+
+### Tahap 2 — Transmittal Invoice
+- `backend/invoice_transmittal_layer.py`: koleksi `invoice_transmittals` + `invoice_transmittal_items` (snapshot vendor,
+  no invoice, faktur pajak, PO, nilai, checklist), 11 endpoint, nomor otomatis `TRN/{tahun}/{bulan}/{seq}` (counter atomik).
+- Status `Draft -> Dikirim -> Diterima | Dikembalikan`; guard invoice tidak boleh ada di dua transmittal aktif
+  (409), transmittal non-Draft tidak dapat diubah/dihapus, kirim ulang setelah Dikembalikan tercatat sebagai transmittal baru.
+- Cetak (`GET /{id}/print`) tidak mengubah status; penerimaan menyimpan waktu/user + bukti serah terima (opsional).
+- Permission baru `transmittal.view/create/edit/delete/print/receive` (grup Keuangan) + default role
+  Finance/Purchasing/Director/Manager; cakupan divisi mengikuti DO sumber invoice.
+- Didaftarkan di `txn_list_paging_layer.LISTS` sehingga pencarian/filter/paginasi daftar berjalan di backend.
+
+### Integrasi daftar invoice
+- Kolom **No Faktur Pajak** (kanan No Invoice), **No. Transmittal** + link histori, **Status Transmittal**
+  (`Belum Transmittal/Draft/Dikirim/Diterima/Dikembalikan`), filter status transmittal, checkbox multi-pilih +
+  tombol **Buat Transmittal** (baris dengan transmittal aktif tidak dapat dipilih).
+- Status transmittal TIDAK memengaruhi `payment_status`, `remaining`, maupun `settlement_status`.
+
+### Pengujian
+- `backend/invoice_transmittal_unit_test.py` → **38/38 lulus** (checklist, validasi tanggal, state machine, permission,
+  11 route terdaftar). Tanpa database.
+- `frontend/tests/transmittal_print_test.mjs` → **16/16 lulus** (isi cetak A4, tanda tangan pengirim/penerima, escaping).
+- `CI=true yarn build` → OK; `py_compile` seluruh file backend → OK.
+- Smoke read-only pada backend preview (data production): login admin, daftar invoice mengembalikan
+  `transmittal_status`/`no`, `/invoice-transmittals` 200, `eligible-invoices` 200, `by-invoice` 200.
+- `backend/invoice_transmittal_integrity_test.py` (HTTP, rantai MRO→RO→PO→DO→Invoice + transmittal) **belum dijalankan**:
+  tidak tersedia database uji terpisah (user DB aplikasi hanya punya akses ke database `default`).
+  Test siap dijalankan dengan `TEST_API_URL`/`ADMIN_EMAIL`/`ADMIN_PASSWORD` pada DB uji.
+
+### Catatan
+- Tidak mengubah logika PPN, DP, pembayaran, outstanding, MWA/HPP, maupun stock ledger.
+- Tanpa env/skema baru (koleksi dibuat otomatis). Redeploy: backend lalu frontend.
+- Data production: 2 invoice existing (12345, 123234) belum memiliki nomor faktur pajak; field tersedia untuk diisi.

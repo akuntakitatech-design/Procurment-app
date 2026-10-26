@@ -12,6 +12,7 @@ export const TRANSACTION_TYPES = {
   adjustment: { code: "Penyesuaian", title: "Penyesuaian Stok", numberLabel: "No. Adjustment" },
   opname: { code: "Stock Opname", title: "Stock Opname" },
   invoice: { code: "Invoice Vendor", title: "Invoice Vendor" },
+  transmittal: { code: "Transmittal", title: "Transmittal Invoice", numberLabel: "No. Transmittal" },
   supplier_dp: { code: "DP Supplier", title: "Uang Muka Supplier", numberLabel: "No. DP" },
 };
 

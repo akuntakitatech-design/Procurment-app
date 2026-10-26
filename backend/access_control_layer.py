@@ -37,6 +37,7 @@ GROUPS = [
         ("loan", "Pinjam Antar Gudang", TXN_ACTIONS), ("adjustment", "Penyesuaian Stok", TXN_ACTIONS),
         ("opname", "Stock Opname", TXN_ACTIONS)]),
     ("keuangan", "Keuangan", [("invoice", "Invoice Vendor", CRUD + ["pay", "print"]),
+                              ("transmittal", "Transmittal Invoice", CRUD + ["print", "receive"]),
                               ("supplier_dp", "DP Supplier", ["view", "approve", "print"])]),
     ("procurement", "Master Procurement", [("spk", "SPK", CRUD), ("vendor_contracts", "Kontrak Harga Vendor", CRUD)]),
     ("barang", "Master Barang & Persediaan", [("items", "Barang", CRUD), ("item_categories", "Kategori Barang", CRUD),
@@ -98,6 +99,7 @@ GLOBAL_DIV_ROLES = ("admin", "director", "purchasing", "finance")   # default ca
 FINANCE_DEFAULT = frozenset({
     "supplier_dp.view", "supplier_dp.approve", "supplier_dp.print",
     "invoice.view", "invoice.create", "invoice.edit", "invoice.pay", "invoice.print",
+    "transmittal.view", "transmittal.create", "transmittal.edit", "transmittal.receive", "transmittal.print",
     "po.view", "do.view",
     "suppliers.view", "divisions.view", "projects.view", "units.view",
     "export", "upload_attachment", "view_purchase_price", "view_all_warehouse",
@@ -146,10 +148,11 @@ def legacy_to_granular(perms, role=None) -> set:
     out |= {k for k, _ in SPECIALS if k in p}
     if role in ("director", "purchasing"):
         out |= {f"invoice.{a}" for a in ("view", "create", "edit", "pay", "print")} | ({"invoice.delete"} if "delete" in p else set())
+        out |= {f"transmittal.{a}" for a in ("view", "create", "edit", "receive", "print")} | ({"transmittal.delete"} if "delete" in p else set())
         # DP Supplier TIDAK diturunkan dari permission Invoice Vendor. Default hanya Admin (ALL_KEYS);
         # role/user lain diberikan manual lewat granular permission (supplier_dp.view/approve/print).
     elif role == "manager":
-        out |= {"invoice.view", "invoice.print"}
+        out |= {"invoice.view", "invoice.print", "transmittal.view", "transmittal.print"}
     return out & ALL_KEYS
 
 

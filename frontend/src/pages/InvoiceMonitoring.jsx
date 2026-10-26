@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { TransactionPageHeader } from "@/components/TransactionPageHeader";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { Plus } from "lucide-react";
 const INV_COLS = [
   { key: "supplier_name", label: "Supplier" },
   { key: "invoice_no", label: "No Invoice", mono: true },
+  { key: "tax_invoice_no", label: "No Faktur Pajak", mono: true },
   { key: "trace_po", label: "PO", wrap: true },
   { key: "do_nos", label: "DO", wrap: true },
   { key: "trace_spk", label: "SPK", wrap: true },
@@ -29,6 +30,8 @@ const INV_COLS = [
   { key: "dp_allocated_total", label: "DP Dialokasikan", money: true, num: true },
   { key: "paid_total", label: "Sudah Dibayar", money: true, num: true },
   { key: "remaining", label: "Sisa Hutang", money: true, num: true },
+  { key: "transmittal_no", label: "No. Transmittal", render: (r) => (r.transmittal_no ? <Link to={`/transmittal/${r.transmittal_id}`} onClick={(e) => e.stopPropagation()} className="font-mono text-xs font-semibold text-primary hover:underline" data-testid={`invoice-transmittal-link-${r.invoice_no}`}>{r.transmittal_no}</Link> : "-") },
+  { key: "transmittal_status", label: "Status Transmittal", status: true },
   { key: "status", label: "Status Invoice", status: true },
   { key: "payment_status", label: "Status Pembayaran", status: true },
   { key: "settlement_status", label: "Status Hutang", status: true },
@@ -48,7 +51,7 @@ const DO_COLS = [
 ];
 const F = ({ children }) => <div className="w-44">{children}</div>;
 
-const INV_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["trace_division", 0, "Semua Divisi"], ["trace_project", 0, "Semua Proyek"], ["trace_spk", 0, "Semua SPK"], ["trace_po", 0, "Semua PO"], ["do_nos", 0, "Semua DO"], ["status", 0, "Semua Status Invoice"], ["payment_status", 0, "Semua Status Pembayaran"], ["settlement_status", 0, "Semua Status Hutang"], ["due_state", 0, "Semua Jatuh Tempo"]];
+const INV_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["trace_division", 0, "Semua Divisi"], ["trace_project", 0, "Semua Proyek"], ["trace_spk", 0, "Semua SPK"], ["trace_po", 0, "Semua PO"], ["do_nos", 0, "Semua DO"], ["transmittal_status", 0, "Semua Status Transmittal"], ["status", 0, "Semua Status Invoice"], ["payment_status", 0, "Semua Status Pembayaran"], ["settlement_status", 0, "Semua Status Hutang"], ["due_state", 0, "Semua Jatuh Tempo"]];
 const DO_FILTERS = [["supplier_name", 0, "Semua Supplier"], ["division", 0, "Semua Divisi"], ["project", 0, "Semua Proyek"], ["spk", 0, "Semua SPK"], ["billing_status", 0, "Semua Status Penagihan"]];
 
 function useFilterUI(defs, facets) {
@@ -82,19 +85,23 @@ export default function InvoiceMonitoring() {
   const [tab, setTab] = useState(sp.get("tab") === "do" ? "do" : "invoice");
   const [from, setFrom] = useState(rpt.params.date_from || "");
   const [to, setTo] = useState(rpt.params.date_to || "");
+  const [sel, setSel] = useState([]);
   const { date_from: _df, date_to: _dt, ...rfx } = rpt.params; // tanggal dikelola RangeUI existing
   const rp = { from, to, setFrom, setTo };
   return (
     <div className="space-y-5" data-testid="invoice-monitoring-page">
       <TransactionPageHeader type="invoice" mode="list">
         {can("invoice.create") && <Button onClick={() => nav("/invoice/new")} data-testid="invoice-create-btn"><Plus className="mr-2 h-4 w-4" />Catat Invoice</Button>}
+        {can("transmittal.create") && <Button variant="outline" disabled={!sel.length} onClick={() => nav(`/transmittal/new?ids=${sel.join(",")}`)} data-testid="invoice-bulk-transmittal">Buat Transmittal{sel.length ? ` (${sel.length})` : ""}</Button>}
       </TransactionPageHeader>
       <InvoiceSummary />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="h-auto w-full sm:w-auto flex-wrap justify-start"><TabsTrigger value="invoice" data-testid="tab-invoice">Invoice Vendor</TabsTrigger><TabsTrigger value="do" data-testid="tab-do-billing">Status Penagihan DO</TabsTrigger></TabsList>
         <TabsContent value="invoice" className="mt-4">
-          <ServerTable url="/vendor-invoices" extra={tab === "invoice" ? rfx : {}} chip={tab === "invoice" && rpt.chip} defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={1700}
-            emptyText="Belum ada invoice" searchPlaceholder="Cari supplier, no invoice, PO, DO, SPK, proyek..." onOpen={(r) => nav(`/invoice/${r.id}`)} />
+          <ServerTable url="/vendor-invoices" extra={tab === "invoice" ? rfx : {}} chip={tab === "invoice" && rpt.chip} defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={1950}
+            emptyText="Belum ada invoice" searchPlaceholder="Cari supplier, no invoice, PO, DO, SPK, proyek..." onOpen={(r) => nav(`/invoice/${r.id}`)}
+            selectable selected={sel} onToggleAll={setSel} onToggle={(id) => setSel((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
+            canSelect={(r) => !["Draft", "Dikirim"].includes(r.transmittal_status)} />
         </TabsContent>
         <TabsContent value="do" className="mt-4">
           {tab === "do" && <ServerTable url="/vendor-invoices/do-billing" extra={rfx} chip={rpt.chip} defs={DO_FILTERS} cols={DO_COLS} {...rp} testidPrefix="do-billing" countLabel="DO" minWidth={1400}

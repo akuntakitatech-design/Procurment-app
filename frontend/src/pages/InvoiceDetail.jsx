@@ -9,9 +9,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { PaymentPanel } from "@/components/invoice/PaymentPanel";
 import { AttachmentPanel } from "@/components/DocMeta";
+import { DocChecklist } from "@/components/invoice/DocChecklist";
+import { checklistSummary, normalizeChecklist } from "@/lib/docChecklist";
 import { rupiah, fmtDateTime } from "@/lib/format";
 import { fmtD } from "@/lib/invoice";
-import { ArrowLeft, Pencil, Printer, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Printer, Trash2, Truck } from "lucide-react";
 import { toast } from "sonner";
 
 const ACT = { create: "Invoice dicatat", edit: "Invoice diubah", delete: "Invoice dihapus", payment: "Pembayaran dicatat", payment_cancel: "Pembayaran dibatalkan", upload_file: "Lampiran diunggah", delete_file: "Lampiran dihapus" };
@@ -74,12 +76,22 @@ export default function InvoiceDetail() {
   const { can } = useAuth();
   const [inv, setInv] = useState(null);
   const [del, setDel] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [trs, setTrs] = useState([]);
   const load = useCallback(() => api.get(`/vendor-invoices/${id}`).then((r) => setInv(r.data)).catch((e) => { setInv(false); toast.error(apiError(e.response?.data?.detail)); }), [id]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { api.get(`/invoice-transmittals/by-invoice/${id}`).then((r) => setTrs(r.data || [])).catch(() => setTrs([])); }, [id]);
+  const saveCheck = async () => {
+    try {
+      await api.put(`/vendor-invoices/${id}/document-check`, { doc_checklist: normalizeChecklist(inv.doc_checklist) });
+      toast.success("Kelengkapan dokumen disimpan"); setDirty(false); load();
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
+  };
   const print = async () => { try { await api.get(`/vendor-invoices/${id}/print`); window.print(); } catch (e) { toast.error(apiError(e.response?.data?.detail)); } };
   const remove = async () => { try { await api.delete(`/vendor-invoices/${id}`); toast.success("Invoice Vendor dihapus"); nav("/invoice"); } catch (e) { toast.error(apiError(e.response?.data?.detail)); setDel(false); } };
   if (inv === false) return <div className="p-8 text-muted-foreground" data-testid="invoice-detail-error">Invoice tidak dapat ditampilkan.</div>;
   if (!inv) return <div className="p-8 text-muted-foreground">Memuat...</div>;
+  const summary = checklistSummary(inv.doc_checklist);
   return (
     <div className="space-y-4" data-testid="invoice-detail-page">
       <TransactionPageHeader type="invoice" mode="view" number={inv.no || inv.invoice_no} subtitle={<span className="flex flex-wrap items-center gap-2">{inv.invoice_no && <span data-testid="invoice-detail-vendor-no">No. Faktur {inv.invoice_no}</span>}{inv.invoice_no && " · "}<StatusBadge status={inv.status} /><span className="inline-flex items-center gap-1 text-xs text-muted-foreground" data-testid="invoice-detail-payment-status">Pembayaran <StatusBadge status={inv.payment_status} /></span><span className="inline-flex items-center gap-1 text-xs text-muted-foreground" data-testid="invoice-detail-settlement-status">Status Hutang <StatusBadge status={inv.settlement_status} /></span>{["Lewat Jatuh Tempo", "Jatuh Tempo"].includes(inv.due_state) && <StatusBadge status={inv.due_state} />}</span>}>
@@ -100,6 +112,8 @@ export default function InvoiceDetail() {
         <Info label="Tanggal Invoice">{fmtD(inv.invoice_date)}</Info>
         <Info label="Tanggal Invoice Diterima">{fmtD(inv.received_date)}</Info>
         <Info label="Jatuh Tempo" tid="invoice-detail-due">{fmtD(inv.due_date)}</Info>
+        <Info label="No. Faktur Pajak" tid="invoice-detail-tax-no">{inv.tax_invoice_no}</Info>
+        <Info label="Tanggal Faktur Pajak" tid="invoice-detail-tax-date">{fmtD(inv.tax_invoice_date)}</Info>
         <Info label="PO">{inv.trace_po}</Info>
         <Info label="DO">{inv.do_nos}</Info>
         <Info label="SPK">{inv.trace_spk}</Info>
@@ -115,6 +129,35 @@ export default function InvoiceDetail() {
       <Card><CardContent className="space-y-3 pt-6"><h3 className="font-head text-sm font-semibold">Alokasi DO & Traceability (Invoice → DO → PO → RO → MRO)</h3><Allocations rows={inv.allocations || []} /></CardContent></Card>
       {(inv.dp_allocations || []).length > 0 && <Card><CardContent className="space-y-3 pt-6"><h3 className="font-head text-sm font-semibold">Alokasi DP Supplier</h3><DpAllocations rows={inv.dp_allocations} canOpen={can("supplier_dp.view")} /></CardContent></Card>}
       <Card><CardContent className="pt-6"><PaymentPanel inv={inv} canPay={can("invoice.pay")} onChanged={load} /></CardContent></Card>
+      <Card className="no-print"><CardContent className="space-y-3 pt-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-head text-sm font-semibold">Kelengkapan Dokumen</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={summary.complete ? "Lengkap" : "Belum Lengkap"} />
+            <span className="text-xs text-muted-foreground" data-testid="invoice-checklist-progress">{summary.done}/{summary.required} wajib lengkap</span>
+            {can("invoice.edit") && dirty && <Button size="sm" onClick={saveCheck} data-testid="invoice-checklist-save">Simpan Kelengkapan</Button>}
+          </div>
+        </div>
+        <DocChecklist invoiceId={inv.id} value={inv.doc_checklist} canEdit={can("invoice.edit")}
+          onStatus={(k, v) => { setInv((cur) => ({ ...cur, doc_checklist: { ...normalizeChecklist(cur.doc_checklist), [k]: v } })); setDirty(true); }} />
+      </CardContent></Card>
+      <Card className="no-print"><CardContent className="space-y-3 pt-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-head text-sm font-semibold">Transmittal Dokumen</h3>
+          {can("transmittal.create") && <Button size="sm" variant="outline" onClick={() => nav(`/transmittal/new?ids=${inv.id}`)} data-testid="invoice-create-transmittal"><Truck className="mr-1.5 h-4 w-4" />Buat Transmittal</Button>}
+        </div>
+        {trs.length === 0 ? <p className="text-sm text-muted-foreground" data-testid="invoice-transmittal-empty">Belum pernah dikirim melalui Transmittal.</p> : (
+          <div className="space-y-2" data-testid="invoice-transmittal-history">
+            {trs.map((t) => (
+              <div key={t.id} className="flex flex-wrap items-center gap-2 rounded-lg border p-2.5 text-sm" data-testid={`invoice-transmittal-row-${t.no}`}>
+                <Link to={`/transmittal/${t.id}`} className="font-mono text-xs font-semibold text-primary hover:underline">{t.no}</Link>
+                <StatusBadge status={t.status} />
+                <span className="text-xs text-muted-foreground">{fmtD(t.date)} · {t.destination}</span>
+                {t.return_reason && <span className="text-xs text-rose-600">Alasan: {t.return_reason}</span>}
+              </div>))}
+          </div>
+        )}
+      </CardContent></Card>
       <Card className="no-print"><CardContent className="space-y-3 pt-6"><h3 className="font-head text-sm font-semibold">Lampiran Invoice</h3><div data-testid="invoice-attachments"><AttachmentPanel entity="invoice" entityId={inv.id} multiple canUpload={can("invoice.edit")} canDelete={can("invoice.edit")} /></div></CardContent></Card>
       <Card className="no-print"><CardContent className="space-y-3 pt-6"><h3 className="font-head text-sm font-semibold">Riwayat Perubahan & Pembayaran</h3><History rows={inv.history} /></CardContent></Card>
       <AlertDialog open={del} onOpenChange={setDel}>

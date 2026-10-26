@@ -53,6 +53,8 @@ const VendorContractDetail = lazy(() => import("@/pages/VendorContract").then((m
 const InvoiceMonitoring = lazy(() => import("@/pages/InvoiceMonitoring"));
 const InvoiceForm = lazy(() => import("@/pages/InvoiceForm"));
 const InvoiceDetail = lazy(() => import("@/pages/InvoiceDetail"));
+const InvoiceTransmittal = lazy(() => import("@/pages/InvoiceTransmittal"));
+const InvoiceTransmittalForm = lazy(() => import("@/pages/InvoiceTransmittalForm"));
 const SupplierDp = lazy(() => import("@/pages/SupplierDp"));
 const SupplierDpDetail = lazy(() => import("@/pages/SupplierDpDetail"));
 import Login from "@/pages/Login";
@@ -163,6 +165,9 @@ function App() {
               <Route path="/invoice/new" element={<Protected><InvoiceForm /></Protected>} />
               <Route path="/invoice/:id" element={<Protected><InvoiceDetail /></Protected>} />
               <Route path="/invoice/:id/edit" element={<Protected><InvoiceForm /></Protected>} />
+              <Route path="/transmittal" element={<Protected><InvoiceTransmittal /></Protected>} />
+              <Route path="/transmittal/new" element={<Protected><InvoiceTransmittalForm /></Protected>} />
+              <Route path="/transmittal/:id" element={<Protected><InvoiceTransmittalForm /></Protected>} />
               <Route path="/dp-supplier" element={<Protected><SupplierDp /></Protected>} />
               <Route path="/dp-supplier/:poId" element={<Protected><SupplierDpDetail /></Protected>} />
               <Route path="/users" element={<Protected><Users /></Protected>} />
