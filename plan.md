@@ -1013,3 +1013,36 @@ Branch `feature/p7-performance` → PR #69 ke `main` (`85831df`). Detail lengkap
 - Tidak mengubah logika PPN, DP, pembayaran, outstanding, MWA/HPP, maupun stock ledger.
 - Tanpa env/skema baru (koleksi dibuat otomatis). Redeploy: backend lalu frontend.
 - Data production: 2 invoice existing (12345, 123234) belum memiliki nomor faktur pajak; field tersedia untuk diisi.
+
+---
+
+## Redesign cetak Transmittal Invoice (mengikuti form manual PT REAL) — PR lanjutan
+
+### Tujuan
+Menyesuaikan layout cetak Transmittal Invoice dengan form manual PT REAL: kolom checklist kelengkapan
+dokumen dikelompokkan (satu header "Checklist Kelengkapan" dengan 5 sub-kolom), memakai simbol
+✓ / ✗ / −, logo perusahaan di atas nama perusahaan, dan format nilai ribuan memakai koma.
+
+### Perubahan
+- `frontend/src/lib/transmittalPrint.js`
+  - Orientasi A4 **landscape**, `table-layout: fixed`.
+  - Kolom: No | Nama Vendor | No. Invoice | No. Faktur Pajak | No. PO | Nilai (Inc PPN) |
+    Checklist Kelengkapan (colspan 5: DO, Bukti Penerimaan Barang (PT. REAL), Kwitansi,
+    BAST / Timesheet, Kontrak Kerja (Subcon)).
+  - Export baru `PRINT_CHECKLIST` (5 item) dan `checklistMark()` → `Lengkap="✓"`, `Belum Lengkap="✗"`,
+    `Tidak Berlaku="−"`.
+  - Nilai diformat koma (`Intl.NumberFormat("en-US")`), mis. `1,000,000`.
+  - Logo `<img class="logo">` dirender **di atas** `.company-name`; parameter baru `logoImg`.
+  - Header info (tujuan/pengirim/penerima/status/jumlah/total), keterangan, tanda tangan pengirim &
+    penerima, footer, dan `autoPrint` tetap seperti sebelumnya.
+- `frontend/src/pages/InvoiceTransmittalForm.jsx`
+  - Handler `print()` mengambil logo via `printImage(companyLogoPath(...))` lalu meneruskannya ke
+    `openTransmittalPrint({ ...data, logoImg })`.
+- `frontend/tests/transmittal_print_test.mjs`
+  - Ditulis ulang mengikuti desain baru (22 asersi): kolom, 5 sub-kolom, simbol, urutan logo,
+    format koma, landscape, escaping, dan ringkasan checklist.
+
+### Pengujian
+- `frontend/tests/transmittal_print_test.mjs` → **22/22 lulus** (esbuild bundle + node).
+- `CI=true yarn build` → **OK (30,50 s)**.
+- Tidak ada perubahan backend, env, maupun skema. Redeploy: **frontend saja**.
