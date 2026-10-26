@@ -267,6 +267,10 @@ access_control_layer.install(server)
 source_reservation_layer.install_pulls(server)
 import vendor_invoice_layer  # noqa: E402
 vendor_invoice_layer.install(server)
+
+import invoice_transmittal_layer  # noqa: E402
+# Transmittal Invoice: serah terima dokumen invoice (aditif; tidak menyentuh nilai/DP/pembayaran/stok).
+invoice_transmittal_layer.install(server)
 # DP Supplier: setelah Invoice Vendor (membungkus ulang lampiran/audit/PO cancel-edit) dan sebelum isolasi tenant.
 import supplier_dp_layer  # noqa: E402
 import po_approval2_layer  # noqa: E402

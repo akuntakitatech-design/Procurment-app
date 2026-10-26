@@ -17,10 +17,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { rupiah, toNum } from "@/lib/format";
 import { todayDate, dateOnly, round2, TOL } from "@/lib/invoice";
 import { AttachmentPanel, uploadPendingAttachments } from "@/components/DocMeta";
+import { DocChecklist } from "@/components/invoice/DocChecklist";
+import { emptyChecklist, normalizeChecklist } from "@/lib/docChecklist";
 import { ArrowLeft, HandCoins, Paperclip } from "lucide-react";
 import { toast } from "sonner";
 
-const EMPTY = { supplier_id: "", invoice_no: "", invoice_date: todayDate(), received_date: todayDate(), due_date: "", tax_amount: "", amount: "", diff_reason: "", notes: "" };
+const EMPTY = { supplier_id: "", invoice_no: "", invoice_date: todayDate(), received_date: todayDate(), due_date: "", tax_amount: "", amount: "", tax_invoice_no: "", tax_invoice_date: "", diff_reason: "", notes: "", doc_checklist: emptyChecklist() };
 
 function DpSummary({ amount, dp, paid }) {
   const rem = round2(amount - dp - paid);
@@ -66,7 +68,7 @@ export default function InvoiceForm() {
     if (!id) return;
     api.get(`/vendor-invoices/${id}`).then((r) => {
       const d = r.data;
-      setH({ ...EMPTY, ...d, invoice_date: dateOnly(d.invoice_date), received_date: dateOnly(d.received_date), due_date: dateOnly(d.due_date) });
+      setH({ ...EMPTY, ...d, invoice_date: dateOnly(d.invoice_date), received_date: dateOnly(d.received_date), due_date: dateOnly(d.due_date), tax_invoice_date: dateOnly(d.tax_invoice_date), doc_checklist: normalizeChecklist(d.doc_checklist) });
       setAlloc(Object.fromEntries((d.allocations || []).map((a) => [a.do_id, a.amount])));
       setDpAlloc(Object.fromEntries((d.dp_allocations || []).map((a) => [a.po_id, a.amount])));
       setPaidTotal(round2(d.paid_total));
@@ -106,6 +108,7 @@ export default function InvoiceForm() {
     if (Math.abs(diff) >= TOL && !String(h.diff_reason || "").trim()) return toast.error("Total Alokasi DO berbeda dengan Nilai Invoice. Alasan Selisih wajib diisi.");
     const body = { supplier_id: h.supplier_id, invoice_no: h.invoice_no, invoice_date: h.invoice_date, received_date: h.received_date, due_date: h.due_date,
       amount, tax_amount: tax, dpp: round2(amount - tax), diff_reason: h.diff_reason, notes: h.notes,
+      tax_invoice_no: h.tax_invoice_no, tax_invoice_date: h.tax_invoice_date, doc_checklist: normalizeChecklist(h.doc_checklist),
       allocations: Object.entries(alloc).map(([do_id, v]) => ({ do_id, amount: round2(v) })),
       dp_allocations: Object.entries(dpAlloc).map(([po_id, v]) => ({ po_id, amount: round2(v) })) };
     setSaving(true);
@@ -133,6 +136,8 @@ export default function InvoiceForm() {
           <Field label="Tanggal Invoice"><Input type="date" value={h.invoice_date} onChange={set("invoice_date")} data-testid="invoice-date-input" /></Field>
           <Field label="Tanggal Invoice Diterima"><Input type="date" value={h.received_date} onChange={set("received_date")} data-testid="invoice-received-date-input" /></Field>
           <Field label="Jatuh Tempo"><Input type="date" value={h.due_date} onChange={set("due_date")} data-testid="invoice-due-date-input" /></Field>
+          <Field label="Nomor Faktur Pajak"><Input value={h.tax_invoice_no} onChange={set("tax_invoice_no")} placeholder="Opsional" data-testid="invoice-tax-no-input" /></Field>
+          <Field label="Tanggal Faktur Pajak"><Input type="date" value={h.tax_invoice_date} onChange={set("tax_invoice_date")} data-testid="invoice-tax-date-input" /></Field>
           <Field label="Pajak (bila relevan)"><Input type="number" step="0.01" value={h.tax_amount} onChange={setMoney("tax_amount")} data-testid="invoice-tax-input" /></Field>
           <Field label="Nilai Invoice (sesuai faktur vendor)"><Input type="number" step="0.01" value={h.amount} onChange={setMoney("amount")} data-testid="invoice-amount-input" /></Field>
           <Field label="DPP"><Input value={rupiah(round2(amount - tax))} disabled data-testid="invoice-dpp" /></Field>
@@ -150,6 +155,11 @@ export default function InvoiceForm() {
         <DpSummary amount={amount} dp={dpTotal} paid={paidTotal} />
         {Math.abs(diff) >= TOL && <Field label="Alasan Selisih (wajib)"><Textarea value={h.diff_reason} onChange={set("diff_reason")} data-testid="invoice-diff-reason" /></Field>}
         <Field label="Catatan"><Textarea value={h.notes} onChange={set("notes")} data-testid="invoice-notes" /></Field>
+        <div className="rounded-lg border bg-muted/10 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold">Kelengkapan Dokumen</div>
+          <p className="mb-3 text-xs text-muted-foreground">Status checklist dicatat terpisah dari file digital. Lampiran per jenis dokumen dapat diunggah dari halaman detail invoice setelah transaksi tersimpan.</p>
+          <DocChecklist value={h.doc_checklist} onStatus={(k, v) => setH((c) => ({ ...c, doc_checklist: { ...normalizeChecklist(c.doc_checklist), [k]: v } }))} />
+        </div>
         <div className="rounded-lg border bg-muted/10 p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold"><Paperclip className="h-4 w-4 text-muted-foreground" />Lampiran Invoice (Invoice, Faktur Pajak, Rekap Tagihan, Surat Jalan, dll.)</div>
           <AttachmentPanel entity="invoice" entityId={id} pending={pending} onPendingChange={setPending} multiple />

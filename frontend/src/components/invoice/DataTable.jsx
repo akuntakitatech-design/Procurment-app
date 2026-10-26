@@ -20,7 +20,7 @@ function cell(c, r) {
   return v === null || v === undefined || v === "" ? "-" : v;
 }
 
-export function DataTable({ columns, rows, testidPrefix, onOpen, filters, emptyText = "Belum ada data", searchPlaceholder, minWidth = 1100, countLabel = "data", server }) {
+export function DataTable({ columns, rows, testidPrefix, onOpen, filters, emptyText = "Belum ada data", searchPlaceholder, minWidth = 1100, countLabel = "data", server, selectable = false, selected = [], onToggle, onToggleAll, canSelect, rowId = (r) => r.id }) {
   const [lq, setLq] = useState("");
   const [ls, setLs] = useState(null);
   const q = server ? server.q : lq, setQ = server ? server.setQ : setLq;
@@ -28,6 +28,11 @@ export function DataTable({ columns, rows, testidPrefix, onOpen, filters, emptyT
   const view = useMemo(() => (server ? server.rows : sortRows(searchRows(rows || [], columns, lq), columns, ls)), [server, rows, columns, lq, ls]);
   const total = server ? server.total : view.length;
   const pages = server ? Math.max(1, Math.ceil(server.total / server.pageSize)) : 1;
+  const selectableRows = selectable ? view.filter((r) => !canSelect || canSelect(r)) : [];
+  const allSelected = selectableRows.length > 0 && selectableRows.every((r) => selected.includes(rowId(r)));
+  const toggleAll = () => onToggleAll?.((cur) => (selectableRows.every((r) => cur.includes(rowId(r)))
+    ? cur.filter((id) => !selectableRows.some((r) => rowId(r) === id))
+    : [...new Set([...cur, ...selectableRows.map(rowId)])]));
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -41,13 +46,17 @@ export function DataTable({ columns, rows, testidPrefix, onOpen, filters, emptyT
       <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
         <table className="w-full text-sm zebra m-stack m-cards" style={{ minWidth }}>
           <thead className="bg-muted"><tr className="text-left text-xs font-semibold text-muted-foreground">
+            {selectable && <th className="p-3 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Pilih semua baris" data-testid={`${testidPrefix}-select-all`} /></th>}
             {columns.map((c) => <th key={c.key} className={`p-3 ${c.num || c.money ? "text-right" : ""}`}>
               <button type="button" onClick={() => setSort((s) => nextSort(s, c.key))} className="inline-flex items-center gap-1 uppercase tracking-wider transition-colors hover:text-foreground" data-testid={`${testidPrefix}-sort-${c.key}`}>
                 {c.label}<span className="w-3 text-[10px]">{sort?.key === c.key ? (sort.dir === "asc" ? "↑" : "↓") : ""}</span></button></th>)}
           </tr></thead>
           <tbody>
-            {view.length === 0 && <tr><td colSpan={columns.length} className="p-8 text-center text-muted-foreground" data-testid={`${testidPrefix}-empty`}>{server?.loading ? "Memuat..." : emptyText}</td></tr>}
+            {view.length === 0 && <tr><td colSpan={columns.length + (selectable ? 1 : 0)} className="p-8 text-center text-muted-foreground" data-testid={`${testidPrefix}-empty`}>{server?.loading ? "Memuat..." : emptyText}</td></tr>}
             {view.map((r) => <tr key={r.id || r.do_id} onClick={() => onOpen?.(r)} data-testid={`${testidPrefix}-row-${r.invoice_no || r.do_no || r.id}`} className={`border-t transition-colors hover:bg-accent/40 ${onOpen ? "cursor-pointer" : ""}`}>
+              {selectable && <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" checked={selected.includes(rowId(r))} disabled={!!canSelect && !canSelect(r)} onChange={() => onToggle?.(rowId(r))} aria-label={`Pilih ${r.invoice_no || r.no || r.id}`} data-testid={`${testidPrefix}-select-${r.invoice_no || r.no || r.id}`} />
+              </td>}
               {columns.map((c, ci) => <td key={c.key} data-label={ci === 0 ? undefined : c.label} className={`p-3 ${ci === 0 ? "m-title" : ""} ${c.mono ? "font-mono text-xs font-semibold" : ""} ${c.num || c.money ? "text-right tabular-nums" : ""} ${c.wrap ? "max-w-[200px] text-xs" : ""}`}>{cell(c, r)}</td>)}
             </tr>)}
           </tbody>
