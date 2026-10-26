@@ -104,7 +104,7 @@ async def _filters_applied(server, spec, p, q, user=None, sort=None, cols=()):
     if p.get("date_from") or p.get("date_to"):
         out.append({"key": "period", "label": "Periode", "value": f"{fmt_day(p.get('date_from')) or 'awal'} s/d {fmt_day(p.get('date_to')) or 'akhir'}"})
     for k, v in p.items():
-        if not v or k in ("date_from", "date_to"):
+        if not v or k in ("date_from", "date_to", "ids"):  # ids = pilihan baris (bukan filter pengguna)
             continue
         f = labels.get(k)
         val = v

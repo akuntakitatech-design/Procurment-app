@@ -207,3 +207,21 @@ _spec("txn-supplier-dp", "hutang", "Daftar DP Supplier", "supplier_dp.view", [
     _t("division_name", "Divisi"), _m("po_value", "Nilai PO", price=True), _t("dp_terms", "Ketentuan DP", 16), _m("dp_amount", "Nilai DP"),
     _m("paid_amount", "Sudah Dibayar"), _t("status_label", "Status", 14)], _dp, filters=(), passthrough=("q", "tab"),
     labels=(("tab", "Tab"),), basis="Tanggal PO")
+
+
+# ---------------------------------------------------------------- Transmittal Invoice
+async def _transmittal(server, user, p):
+    """Daftar Transmittal lewat jalur daftar yang sama; `ids` (dipisah koma) membatasi ke baris terpilih."""
+    with list_cap.raised(EXPORT_ALL):
+        rows = await server.TXN_LIST_ROWS("transmittal", user, p)
+    ids = {x.strip() for x in str(p.get("ids") or "").split(",") if x.strip()}
+    return _flatten([dict(r) for r in rows if not ids or r.get("id") in ids])
+
+
+_spec("txn-transmittal", "hutang", "Daftar Transmittal Invoice", "transmittal.view", [
+    _no("No. Transmittal"), _date("Tanggal"), _t("destination", "Tujuan / Departemen", 22),
+    _t("sender_name", "Pengirim", 16), _t("receiver_name", "Penerima", 16), _t("suppliers", "Supplier", 24),
+    _int("invoice_count", "Jml Invoice"), _m("total_amount", "Total Nilai"), _t("status", "Status", 12)], _transmittal,
+    filters=DATE + (Filter("ids", "ID Terpilih", "text", hidden=True),),
+    passthrough=("q", "sort", "dir", "date_field", "f_", "ids"),
+    labels=(("f_status", "Status"),), basis="Tanggal transmittal")

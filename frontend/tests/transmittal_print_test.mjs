@@ -1,6 +1,6 @@
 // Uji template cetak Transmittal Invoice (murni HTML, tanpa jaringan).
 // Jalankan: cd frontend && npx esbuild tests/transmittal_print_test.mjs --bundle --platform=node --format=cjs --loader:.js=jsx --outfile=./tmp-transmittal.cjs --log-level=error && node ./tmp-transmittal.cjs
-import { buildTransmittalHtml, checklistMark, PRINT_CHECKLIST } from "../src/lib/transmittalPrint.js";
+import { buildTransmittalHtml, buildTransmittalMultiHtml, checklistMark, PRINT_CHECKLIST } from "../src/lib/transmittalPrint.js";
 import { checklistSummary, emptyChecklist } from "../src/lib/docChecklist.js";
 
 let pass = 0, fail = 0;
@@ -63,6 +63,20 @@ const sumPartial = checklistSummary(partial);
 check("ringkasan checklist: mendeteksi 2 dokumen belum lengkap", !sumPartial.complete && sumPartial.pending.length === 2, sumPartial.pending);
 const sumEmpty = checklistSummary(emptyChecklist());
 check("invoice tanpa checklist -> belum lengkap semua (8 wajib)", !sumEmpty.complete && sumEmpty.required === 8, sumEmpty);
+
+// Export PDF massal: satu halaman per transmittal
+const doc2 = { ...doc, no: "TRN/2026/10/00008", destination: "Gudang", items: [] };
+const multi = buildTransmittalMultiHtml({ docs: [doc, doc2], autoPrint: false, logoImg: LOGO });
+check("multi: dua bagian dokumen + semua nomor tercetak",
+  (multi.match(/<section class="doc">/g) || []).length === 2 && multi.includes("TRN/2026/10/00007") && multi.includes("TRN/2026/10/00008"));
+check("multi: satu transmittal per halaman (page break)", multi.includes(".doc + .doc{break-before:page;page-break-before:always}"));
+check("multi: judul ringkas jumlah dokumen", multi.includes("<title>Transmittal Invoice (2)</title>"));
+check("multi: dokumen tanpa invoice tetap punya placeholder", multi.includes("Tidak ada invoice"));
+check("multi: satu window.print untuk seluruh halaman",
+  (buildTransmittalMultiHtml({ docs: [doc, doc2], autoPrint: true }).match(/window\.print\(\)/g) || []).length === 1);
+check("multi: escaping tetap berlaku",
+  !buildTransmittalMultiHtml({ docs: [{ ...doc, destination: "<b>x</b>" }], autoPrint: false }).includes("<b>x</b>"));
+check("multi: landscape sama dengan cetak tunggal", buildTransmittalMultiHtml({ docs: [doc], autoPrint: false }).includes("@page{size:A4 landscape;margin:10mm}"));
 
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);
