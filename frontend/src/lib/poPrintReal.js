@@ -4,12 +4,12 @@
 // - tidak ada request/tulis data. A4 formal hitam-putih, header tabel berulang per halaman, ringkasan tidak terulang.
 import { num, fmtDate } from "@/lib/format";
 import { dpRows, fmtPct } from "@/lib/poDp";
-import { isPoV2, poV2SummaryRows, poTaxGroupRows, fmtIdr, fmtIdr0 } from "@/lib/poTaxPrint";
+import { isPoV2, poV2SummaryRows, poTaxGroupRows, fmtIdr } from "@/lib/poTaxPrint";
 import { layoutMargins, cssMargin, PRINT_DIALOG_HINT } from "@/lib/printMargins";
 
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const nl2br = (v) => esc(v || "").replace(/\r?\n/g, "<br/>");
-const idrPlain = (v) => new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(Number(v || 0));
+const idrPlain = (v) => new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Math.round(Number(v || 0)));
 const MONTHS_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 export const longDateId = (v) => {
   if (!v) return "";
@@ -114,7 +114,7 @@ function summaryRows(doc, lines) {
     return rows.filter((r) => !(plain && r.key === "gross")).map((r) => ({
       cls: r.grand ? "grand" : r.sub ? "sum-sub" : r.strong ? "sum-strong" : "", key: r.key,
       label: `${r.sub ? "&#8627; " : ""}${esc(r.key === "ppn" ? ppnLabel(doc) : r.label)}${r.hint && r.key !== "dpp_other" ? `<div class="sum-hint">${esc(r.hint)}</div>` : ""}`,
-      value: `${r.neg && r.value ? "- " : ""}${r.key === "ppn_facility" ? `(${fmtIdr(r.value)})` : r.key === "dpp_other" ? fmtIdr0(r.value) : fmtIdr(r.value)}`,
+      value: `${r.neg && r.value ? "- " : ""}${r.key === "ppn_facility" ? `(${fmtIdr(r.value)})` : fmtIdr(r.value)}`,
     }));
   }
   // PO lama (v1): baris & angka identik dengan cetak sebelumnya.
@@ -204,7 +204,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
   const groups = showPrice && v2 ? poTaxGroupRows(doc) : [];
   const nonPpn = Number(doc.non_ppn_total || 0);
   const combo = groups.length > 1 || groups.some((g) => g.facility) || (groups.length && nonPpn);
-  const taxGroups = combo ? `<div class="tax-groups keep" data-section="tax-groups"><div class="sec-title">Rincian Pajak per Kelompok</div><table><thead><tr><th>Kelompok</th><th class="r">DPP</th><th class="r">DPP Nilai Lain</th><th class="r">PPN</th></tr></thead><tbody>${groups.map((x) => `<tr><td>${esc(x.label)}${x.facility ? " — tidak ditagih" : ""}</td><td class="r">${fmtIdr(x.dpp)}</td><td class="r">${fmtIdr0(x.dpp_other)}</td><td class="r">${x.facility ? `0 (${fmtIdr(x.facility)})` : fmtIdr(x.ppn)}</td></tr>`).join("")}${nonPpn ? `<tr><td>Barang Tanpa PPN</td><td class="r">${fmtIdr(nonPpn)}</td><td class="r">–</td><td class="r">–</td></tr>` : ""}</tbody></table></div>` : "";
+  const taxGroups = combo ? `<div class="tax-groups keep" data-section="tax-groups"><div class="sec-title">Rincian Pajak per Kelompok</div><table><thead><tr><th>Kelompok</th><th class="r">DPP</th><th class="r">DPP Nilai Lain</th><th class="r">PPN</th></tr></thead><tbody>${groups.map((x) => `<tr><td>${esc(x.label)}${x.facility ? " — tidak ditagih" : ""}</td><td class="r">${fmtIdr(x.dpp)}</td><td class="r">${fmtIdr(x.dpp_other)}</td><td class="r">${x.facility ? `0 (${fmtIdr(x.facility)})` : fmtIdr(x.ppn)}</td></tr>`).join("")}${nonPpn ? `<tr><td>Barang Tanpa PPN</td><td class="r">${fmtIdr(nonPpn)}</td><td class="r">–</td><td class="r">–</td></tr>` : ""}</tbody></table></div>` : "";
   // Garis penutup tabel barang: <tfoot> kosong berulang di dasar SETIAP halaman (tabel tidak "terbuka" saat terpotong halaman).
   const pageClose = `<tfoot class="page-close"><tr>${emptyCells(cols)}</tr></tfoot>`;
   // Ringkasan = tabel terpisah (kolom sama) -> tidak ikut berulang per halaman & tidak terbelah.

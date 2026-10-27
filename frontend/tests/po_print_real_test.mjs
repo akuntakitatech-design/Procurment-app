@@ -59,7 +59,7 @@ const inc = { ...v2, dp_enabled: false, gross_total: 1000000, subtotal_after_dis
   tax_groups: [{ group: "01|NORMAL|12|1|1", dpp: 892857.14, dpp_other: 892857.14, ppn: 107142.86 }], tax_rules_snapshot: [{ group: "01|NORMAL|12|1|1", tax_rate: 12 }],
   lines: [{ id: "x", item_name: "Oli", qty: 1, price: 1000000, dpp: 892857.14, tax_mode: "INCLUDE", tax_code: "P01", tax_name: "PPN 12%", tax_trx_code: "01" }] };
 const hi = H(inc), si = sum(hi);
-check("PPN Include: 'Total Setelah Diskon' (harga termasuk PPN) + Nilai Sebelum PPN + PPN 12%", si.some((r) => r[0] === "after_disc" && /harga Include sudah termasuk PPN/.test(r[1])) && si.some((r) => r[0] === "before_ppn" && r[2] === "892.857,14") && si.some((r) => r[1] === "PPN 12%"), si);
+check("PPN Include: 'Total Setelah Diskon' (harga termasuk PPN) + Nilai Sebelum PPN + PPN 12%", si.some((r) => r[0] === "after_disc" && /harga Include sudah termasuk PPN/.test(r[1])) && si.some((r) => r[0] === "before_ppn" && r[2] === "892.857") && si.some((r) => r[1] === "PPN 12%"), si);
 check("tanpa DP: tidak ada baris DP / Sisa Pembayaran", !hi.includes("Sisa Pembayaran") && !hi.includes('data-sum="dp"'));
 check("tidak ada keterangan Include/Exclude/Tanpa PPN per barang", !hi.includes("tax-note") && !/Include ·|Exclude ·|· PPN/.test(hi) && !h.includes("tax-note"));
 const none = { ...inc, dpp_total: 0, non_ppn_total: 500000, tax_total: 0, grand_total: 500000, gross_total: 500000, subtotal_after_discount: 500000, tax_groups: [], tax_rules_snapshot: [],
