@@ -1255,3 +1255,32 @@ Istilah pada form Penerimaan Barang disamakan: field `supplier_invoice` berlabel
 - PO multi-halaman: halaman ke-2 dst. tidak lagi memiliki margin atas/bawah dari browser (konsekuensi
   menghilangkan header/footer) — sama seperti cetak DO saat ini.
 - Redeploy: **frontend saja**.
+
+---
+
+## Traceability: rantai sampai Invoice & Pembayaran + tanggal tiap transaksi
+
+### Tujuan
+1. Rantai traceability diperpanjang: **MRO → RO → PO → DO → MI → Invoice → Pembayaran**.
+2. Setiap kartu tahap menampilkan **tanggal transaksi** di bawah nomor dokumen (Invoice juga menampilkan nilai).
+
+### Perubahan
+- `backend/doc_reports.py` — `/api/traceability/{mro_id|no}`:
+  - Node RO/PO/DO/MI kini membawa `date` (sebelumnya hanya `id` + `no`).
+  - Invoice dicari dari `vendor_invoices.do_ids` yang beririsan dengan DO pada rantai
+    (`no` = nomor invoice vendor, `internal_no`, `date` = `invoice_date`, `amount`, `status`).
+  - Pembayaran dari `vendor_invoice_payments` berstatus `Aktif` untuk invoice tersebut
+    (`no` = referensi pembayaran, `date`, `amount`, `invoice_no`), diurutkan menurut tanggal.
+- `frontend/src/pages/Traceability.jsx`
+  - Tahap **INVOICE** dan **PEMBAYARAN** ditambahkan pada rantai; kartu invoice dapat diklik ke detail invoice.
+  - Tanggal (`fmtDate`) tampil di bawah setiap nomor; nilai (`rupiah`) tampil untuk invoice & pembayaran.
+  - Subjudul halaman diperbarui.
+
+### Pengujian
+- Read-only data nyata (tenant PT REAL):
+  - MRO `3654` → RO/2026/10/00009 (23-10-2026), PO/2026/10/00010 (26-10-2026), DO/2026/10/00007 (26-10-2026),
+    MI 0, **INVOICE 1** `675-673` (26-10-2026, Rp 33.300, Belum Dibayar), PAYMENT 0.
+  - MRO ber-invoice dibayar: `INV-002` (01-06-2026, Rp 12.000.000, Dibayar Sebagian) + pembayaran
+    `TRF-1` (10-06-2026, Rp 5.000.000) dan `TRF-3` (13-06-2026, Rp 1.000); MRO lain `INV-001` + `OV`.
+- `CI=true yarn build` -> **Compiled successfully (24,42 s)**.
+- Tidak ada perubahan skema/env; read-only (tidak ada baris DB ditulis). Redeploy: backend lalu frontend.

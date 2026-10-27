@@ -106,7 +106,7 @@ async def traceability(mro_id: str, user=Depends(current_user)):
         qty_ro = sum(a["qty"] for a in ro_allocs)
         for a in ro_allocs:
             rh = await db.ro.find_one({"id": a["target_doc_id"]}, {"_id": 0})
-            if rh: ro_set[rh["id"]] = rh["no"]
+            if rh: ro_set[rh["id"]] = rh
         # PO + received via ro
         qty_po = 0; qty_recv = 0; spks = set()
         for a in ro_allocs:
@@ -114,26 +114,47 @@ async def traceability(mro_id: str, user=Depends(current_user)):
             for pa in po_allocs:
                 qty_po += min(a["qty"], pa["qty"])
                 ph = await db.po.find_one({"id": pa["target_doc_id"]}, {"_id": 0})
-                if ph: po_set[ph["id"]] = ph["no"]
+                if ph: po_set[ph["id"]] = ph
                 pline = await db.po_lines.find_one({"id": pa["target_line_id"]}, {"_id": 0})
                 if pline and pline.get("spk"): spks.add(pline["spk"])
                 do_allocs = await db.allocations.find({"source_line_id": pa["target_line_id"], "target_type": "do"}, {"_id": 0}).to_list(100)
                 for da in do_allocs:
                     qty_recv += da["qty"]
                     dh = await db.do.find_one({"id": da["target_doc_id"]}, {"_id": 0})
-                    if dh: do_set[dh["id"]] = dh["no"]
+                    if dh: do_set[dh["id"]] = dh
         # MI
         mi_allocs = await db.allocations.find({"source_line_id": l["id"], "target_type": "mi"}, {"_id": 0}).to_list(100)
         qty_mi = sum(a["qty"] for a in mi_allocs)
         for a in mi_allocs:
             mih = await db.mi.find_one({"id": a["target_doc_id"]}, {"_id": 0})
-            if mih: mi_set[mih["id"]] = mih["no"]
+            if mih: mi_set[mih["id"]] = mih
         rows.append({"item_code": it.get("code"), "item_name": it.get("name"), "unit": it.get("unit"),
             "request": l.get("qty", 0), "qty_ro": qty_ro, "qty_po": qty_po, "qty_received": qty_recv,
             "qty_mi": qty_mi, "spk": sorted(spks), "outstanding": max(0, l.get("qty", 0) - qty_mi)})
-    def dl(s, t): return [{"id": k, "no": v, "type": t} for k, v in s.items()]
+    # Invoice & pembayaran: invoice yang menagihkan DO pada rantai ini + pembayaran aktifnya.
+    inv_set, pay_set = {}, {}
+    if do_set:
+        invs = await db.vendor_invoices.find({"do_ids": {"$in": list(do_set)}}, {"_id": 0}).to_list(5000)
+        for inv in invs:
+            inv_set[inv["id"]] = inv
+        if inv_set:
+            pays = await db.vendor_invoice_payments.find(
+                {"invoice_id": {"$in": list(inv_set)}, "status": "Aktif"}, {"_id": 0}).sort("date", 1).to_list(10000)
+            for p in pays:
+                pay_set[p["id"]] = p
+
+    def dl(s, t):
+        return [{"id": k, "no": v.get("no"), "type": t, "date": v.get("date")} for k, v in s.items()]
+
+    invoices = [{"id": i["id"], "no": i.get("invoice_no") or i.get("no"), "internal_no": i.get("no"),
+                 "date": i.get("invoice_date"), "amount": i.get("amount"), "status": i.get("payment_status")}
+                for i in sorted(inv_set.values(), key=lambda x: str(x.get("invoice_date") or ""))]
+    payments = [{"id": p["id"], "no": p.get("reference") or "Pembayaran", "date": p.get("date"), "amount": p.get("amount"),
+                 "invoice_no": (inv_set.get(p.get("invoice_id")) or {}).get("invoice_no") or (inv_set.get(p.get("invoice_id")) or {}).get("no")}
+                for p in sorted(pay_set.values(), key=lambda x: str(x.get("date") or ""))]
     return {"mro": {"id": mh["id"], "no": mh["no"], "date": mh.get("date")}, "rows": rows,
-            "documents": {"RO": dl(ro_set, "ro"), "PO": dl(po_set, "po"), "DO": dl(do_set, "do"), "MI": dl(mi_set, "mi")}}
+            "documents": {"RO": dl(ro_set, "ro"), "PO": dl(po_set, "po"), "DO": dl(do_set, "do"), "MI": dl(mi_set, "mi"),
+                          "INVOICE": invoices, "PAYMENT": payments}}
 
 
 @api.get("/reports/mro-traceability")
