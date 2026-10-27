@@ -74,7 +74,7 @@ check("ringkasan: tanpa diskon -> baris diskon tidak tampil (cetak/detail)", !R.
 check("ringkasan: form selalu tampil baris diskon", R.poV2SummaryRows({ ...doc, item_discount_total: 0, final_discount_amount: 0 }, { form: true }).filter((r) => r.key.endsWith("_disc") && r.key !== "after_disc").length === 2);
 const grp = R.poTaxGroupRows(doc);
 check("kelompok: label dari snapshot + fasilitas tidak ditagih = 0", grp[0].label === "PPN 12% × 11/12 (Kode 04)" && grp[1].ppn === 0 && grp[1].facility === 11 && /Tidak Dipungut/.test(grp[1].label));
-check("format: sama di semua tampilan (sen hanya bila ada)", R.fmtIdr(52520000) === "52.520.000" && R.fmtIdr(916666.67) === "916.666,67" && R.fmtIdr(null) === "–");
+check("format: sama di semua tampilan (rupiah dibulatkan, tanpa desimal)", R.fmtIdr(52520000) === "52.520.000" && R.fmtIdr(916666.67) === "916.667" && R.fmtIdr(0.4) === "0" && R.fmtIdr(null) === "–");
 check("baris: Jumlah Sebelum PPN = DPP baris backend", R.poLineAmount({ dpp: 190000, total: 210900 }) === 190000 && R.LINE_AMOUNT_LABEL === "Jumlah Sebelum PPN");
 
 // ---- DP = Ketentuan Pembayaran (syarat, bukan pembayaran aktual)

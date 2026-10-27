@@ -1284,3 +1284,28 @@ Istilah pada form Penerimaan Barang disamakan: field `supplier_invoice` berlabel
     `TRF-1` (10-06-2026, Rp 5.000.000) dan `TRF-3` (13-06-2026, Rp 1.000); MRO lain `INV-001` + `OV`.
 - `CI=true yarn build` -> **Compiled successfully (24,42 s)**.
 - Tidak ada perubahan skema/env; read-only (tidak ada baris DB ditulis). Redeploy: backend lalu frontend.
+
+---
+
+## Semua nilai rupiah pada PO dibulatkan (tanpa desimal)
+
+### Tujuan
+Nilai pada dokumen PO (Amount/DPP/DPP Nilai Lain/PPN/Grand Total, termasuk ringkasan di layar) tidak lagi
+menampilkan desimal — dibulatkan ke rupiah.
+
+### Perubahan
+- `frontend/src/lib/poTaxPrint.js` — `fmtIdr` memakai `maximumFractionDigits: 0` + `Math.round`
+  (formatter bersama untuk form, detail, dan cetak PO). Helper `fmtIdr0` dihapus karena menjadi duplikat.
+- `frontend/src/lib/poPrintReal.js` — `idrPlain` (PO v1 & kolom harga/diskon) juga dibulatkan; kolom
+  DPP Nilai Lain memakai `fmtIdr`.
+- `frontend/src/components/po/PoTaxV2.jsx` — memakai `fmtIdr` (tanpa `fmtIdr0`).
+- Test: `src/lib/poTaxV2.test.mjs` (ekspektasi `916.667`) dan `tests/po_print_real_test.mjs`
+  (Nilai Sebelum PPN Include `892.857`) disesuaikan.
+
+### Pengujian
+- `tests/po_print_real_test.mjs` -> **58/58**; `tests/po_print_margin_test.mjs` -> **53/53**;
+  `tests/po_dp_print_test.mjs` -> **15/15**.
+- `CI=true yarn build` -> **Compiled successfully (22,26 s)**.
+- `src/lib/poTaxV2.test.mjs` tidak dapat dijalankan di Windows (harness lama memakai `import()` dengan path
+  Windows -> `ERR_UNSUPPORTED_ESM_URL_SCHEME`); ekspektasi angka sudah disesuaikan.
+- Nilai tersimpan (DPP/PPN/grand total) tidak diubah; hanya format tampilan/cetak. Redeploy frontend saja.
