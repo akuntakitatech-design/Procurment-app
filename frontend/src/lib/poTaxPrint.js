@@ -12,6 +12,9 @@ const pct = (v) => String(v ?? "").replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "
 /** Format uang PO v2 — SAMA di form, detail, dan cetak (id-ID, sen hanya bila ada). */
 export const fmtIdr = (v) => (v == null || v === "" ? "–" : new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(n(v)));
 
+/** Rupiah tanpa desimal — dipakai untuk DPP Nilai Lain (dibulatkan pada dokumen). */
+export const fmtIdr0 = (v) => (v == null || v === "" ? "–" : new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(Math.round(n(v))));
+
 /** Label kolom nilai baris PO v2 (form, detail, cetak). */
 export const LINE_AMOUNT_LABEL = "Jumlah Sebelum PPN";
 /** Nilai baris sebelum PPN = DPP baris dari backend (setelah diskon item & bagian diskon final; harga Include dikeluarkan PPN-nya). */

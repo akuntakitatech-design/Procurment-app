@@ -10,7 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Combobox } from "@/components/Combobox";
 import { buildTaxPreviewPayload, mapPreviewByIndex } from "@/lib/poTaxPayload";
-import { poV2SummaryRows, poTaxGroupRows, fmtIdr, LINE_AMOUNT_LABEL } from "@/lib/poTaxPrint";
+import { poV2SummaryRows, poTaxGroupRows, fmtIdr, fmtIdr0, LINE_AMOUNT_LABEL } from "@/lib/poTaxPrint";
 import { ChevronDown, RefreshCw, Lock } from "lucide-react";
 
 export const MODE_LABEL = { EXCLUDE: "Exclude", INCLUDE: "Include", NONE: "Tanpa PPN" };
@@ -140,7 +140,7 @@ export function PoTaxLineDetail({ v, line }) {
   return <div className="mb-2 grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2" data-testid="po-tax-line-detail">
     <Row k="Nilai setelah diskon" val={fmtIdr(v.net_amount)} />
     <Row k={LINE_AMOUNT_LABEL} note={line.tax_mode === "INCLUDE" ? "(dikeluarkan dari harga Include)" : ""} val={fmtIdr(v.dpp)} />
-    {v.taxable && <Row k="DPP Nilai Lain" note={`DPP × ${f}`} val={fmtIdr(v.dpp_other)} />}
+    {v.taxable && <Row k="DPP Nilai Lain" note={`DPP × ${f}`} val={fmtIdr0(v.dpp_other)} />}
     {v.taxable && <Row k="PPN" note={`DPP Nilai Lain × ${v.tax_rate}%${Number(v.tax_facility_amount) ? " — fasilitas, tidak ditagih" : ""}`} val={fmtIdr(Number(v.tax_facility_amount) ? v.tax_facility_amount : v.tax_amount)} />}
     <Row k="Jumlah termasuk PPN" val={fmtIdr(v.total)} />
     <Row k="Dasar biaya perolehan (DO)" note="= DPP; PPN tidak dikapitalisasi" val={fmtIdr(v.dpp)} />
@@ -155,7 +155,7 @@ export function PoTaxSummary({ totals, loading, error, onRetry, finalDiscount, s
   const busy = loading && !totals;
   const rows = poV2SummaryRows(t, { form: !!finalDiscount });
   const groups = poTaxGroupRows(t);
-  const val = (r) => (busy ? <Skeleton className={r.grand ? "h-5 w-32" : "h-4 w-24"} /> : totals == null ? "–" : `${r.neg && r.value ? "−" : ""}${fmtIdr(r.value)}`);
+  const val = (r) => (busy ? <Skeleton className={r.grand ? "h-5 w-32" : "h-4 w-24"} /> : totals == null ? "–" : `${r.neg && r.value ? "−" : ""}${r.key === "dpp_other" ? fmtIdr0(r.value) : fmtIdr(r.value)}`);
   return <div className="w-full rounded-lg border bg-card p-4 text-sm shadow-sm space-y-1.5" data-testid="po-total-summary" aria-busy={loading}>
     <div className="mb-1 flex items-center justify-between gap-2"><span className="font-head font-semibold">Ringkasan PO</span><span className="text-[11px] text-muted-foreground" data-testid="po-tax-source">{stored ? "Nilai tersimpan · IDR" : loading ? "Menghitung di server…" : "Dihitung server · IDR"}</span></div>
     {error && <div className="flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive" role="alert" data-testid="po-tax-preview-error"><span>{error}</span>{onRetry && <Button type="button" size="sm" variant="ghost" className="h-7 px-2" onClick={onRetry} data-testid="po-tax-retry"><RefreshCw className="mr-1 h-3 w-3" />Ulangi</Button>}</div>}
@@ -169,7 +169,7 @@ export function PoTaxSummary({ totals, loading, error, onRetry, finalDiscount, s
     })}
     {groups.length > 0 && <Collapsible><CollapsibleTrigger className="mt-2 flex w-full items-center justify-between rounded-md border px-3 py-2 text-xs font-semibold transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="po-tax-groups-toggle">Rincian pajak per kelompok<ChevronDown className="h-4 w-4" /></CollapsibleTrigger>
       <CollapsibleContent className="mt-2 overflow-x-auto"><table className="w-full text-xs" data-testid="po-tax-groups"><thead><tr className="text-left text-muted-foreground"><th className="py-1 pr-2">Kelompok</th><th className="py-1 pr-2 text-right">DPP</th><th className="py-1 pr-2 text-right">DPP Nilai Lain</th><th className="py-1 text-right">PPN</th></tr></thead>
-        <tbody>{groups.map((g) => <tr key={g.key} className="border-t"><td className="py-1 pr-2">{g.label}</td><td className="py-1 pr-2 text-right tabular-nums">{fmtIdr(g.dpp)}</td><td className="py-1 pr-2 text-right tabular-nums">{fmtIdr(g.dpp_other)}</td><td className="py-1 text-right tabular-nums">{g.facility ? <span title="Fasilitas — tidak ditagih">0 <span className="text-muted-foreground">({fmtIdr(g.facility)})</span></span> : fmtIdr(g.ppn)}</td></tr>)}
+        <tbody>{groups.map((g) => <tr key={g.key} className="border-t"><td className="py-1 pr-2">{g.label}</td><td className="py-1 pr-2 text-right tabular-nums">{fmtIdr(g.dpp)}</td><td className="py-1 pr-2 text-right tabular-nums">{fmtIdr0(g.dpp_other)}</td><td className="py-1 text-right tabular-nums">{g.facility ? <span title="Fasilitas — tidak ditagih">0 <span className="text-muted-foreground">({fmtIdr(g.facility)})</span></span> : fmtIdr(g.ppn)}</td></tr>)}
           {Number(t.non_ppn_total) > 0 && <tr className="border-t text-muted-foreground"><td className="py-1 pr-2">Barang Tanpa PPN</td><td className="py-1 pr-2 text-right tabular-nums">{fmtIdr(t.non_ppn_total)}</td><td className="py-1 pr-2 text-right">–</td><td className="py-1 text-right">–</td></tr>}</tbody></table>
         <p className="mt-2 text-[11px] text-muted-foreground">PO dihitung presisi sen (HALF_UP). Pembulatan faktur pajak ke rupiah dilakukan pada tahap Invoice.</p></CollapsibleContent></Collapsible>}
   </div>;
