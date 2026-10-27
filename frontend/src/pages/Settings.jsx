@@ -103,7 +103,7 @@ function Numbering() {
   const [n, setN] = useState({ formats: {} });
   useEffect(() => { api.get("/settings/numbering").then((r) => setN(r.data)); }, []);
   const save = async () => { await api.put("/settings/numbering", n); toast.success("Tersimpan"); };
-  return <Card><CardContent className="pt-6 space-y-4"><p className="text-sm text-muted-foreground">Placeholder: <code>{"{year}"}</code>, <code>{"{month}"}</code>, <code>{"{seq}"}</code></p><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{Object.entries(n.formats || {}).map(([k, v]) => <Field key={k} label={k}><Input value={v} onChange={(e) => setN({ ...n, formats: { ...n.formats, [k]: e.target.value } })} className="font-mono" /></Field>)}</div><Button onClick={save}><Save className="h-4 w-4 mr-2" />Simpan</Button></CardContent></Card>;
+  return <Card><CardContent className="pt-6 space-y-4"><p className="text-sm text-muted-foreground">Placeholder: <code>{"{year}"}</code>, <code>{"{month}"}</code>, <code>{"{roman_month}"}</code> (I–XII), <code>{"{seq}"}</code> (5 digit), <code>{"{seq:3}"}</code> (minimal 3 digit), <code>{"{project}"}</code> (kode project header; dihapus bila kosong)</p><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{Object.entries(n.formats || {}).map(([k, v]) => <Field key={k} label={k}><Input value={v} onChange={(e) => setN({ ...n, formats: { ...n.formats, [k]: e.target.value } })} className="font-mono" /></Field>)}</div><Button onClick={save}><Save className="h-4 w-4 mr-2" />Simpan</Button></CardContent></Card>;
 }
 
 const APPROVAL_MODULES = [

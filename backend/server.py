@@ -4,7 +4,7 @@ from pathlib import Path
 load_dotenv(Path(__file__).parent / '.env')
 
 from starlette.middleware.cors import CORSMiddleware
-import os, uuid, logging, asyncio
+import os, uuid, logging, asyncio, re
 from datetime import datetime, timezone
 from typing import Optional, List
 from pydantic import BaseModel
@@ -91,7 +91,7 @@ async def notify(title, message, category, scope_division=None):
         "division": scope_division, "read": False, "at": now_iso(),
     })
 
-async def next_number(doc_type):
+async def next_number(doc_type, project_id=None):
     ym = datetime.now(timezone.utc)
     key = f"{doc_type}-{ym.year}-{ym.month:02d}"
     cfg = await db.settings.find_one({"id": "numbering"}) or {}
@@ -99,8 +99,60 @@ async def next_number(doc_type):
     res = await db.counters.find_one_and_update(
         {"id": key}, {"$inc": {"seq": 1}}, upsert=True, return_document=True)
     seq = res["seq"] if res else 1
-    return (fmt.replace("{year}", str(ym.year)).replace("{month}", f"{ym.month:02d}")
-            .replace("{seq}", f"{seq:05d}").replace("{type}", doc_type))
+    code = ""
+    if "{project}" in fmt and project_id:  # kode project hanya diambil bila format memintanya
+        code = project_number_code(await db.projects.find_one({"id": project_id}, {"_id": 0, "code": 1, "name": 1}))
+    return fill_number_format(fmt, doc_type=doc_type, ym=ym, seq=seq, project_code=code)
+
+
+ROMAN_MONTHS = ("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII")
+
+NUMBERING_VERSION = 2
+PO_FORMAT_V2 = "PO/{project}/{seq:3}/{roman_month}/{year}"
+
+
+def numbering_upgrade(num):
+    """Field `$set` untuk migrasi format penomoran ke versi terbaru (None bila sudah versi terbaru).
+
+    v2: nomor PO memuat kode project + bulan Romawi. Format PO yang sudah dikustom pengguna tidak ditimpa.
+    """
+    num = num or {}
+    try:
+        version = int(num.get("numbering_version") or 1)
+    except (TypeError, ValueError):
+        version = 1
+    if version >= NUMBERING_VERSION:
+        return None
+    formats = dict(num.get("formats") or {})
+    if formats.get("PO") in (None, "", "PO/{year}/{month}/{seq}"):
+        formats["PO"] = PO_FORMAT_V2
+    return {"formats": formats, "numbering_version": NUMBERING_VERSION}
+
+
+def project_number_code(project):
+    """Kode project untuk nomor dokumen: pakai `code` (fallback `name`), huruf besar, selain A-Z/0-9 -> '-'.
+
+    Contoh: 'WUR MD' atau 'wur-md' -> 'WUR-MD'. Kosong bila project tidak punya kode/nama.
+    """
+    raw = str((project or {}).get("code") or (project or {}).get("name") or "").strip().upper()
+    return re.sub(r"[^A-Z0-9]+", "-", raw).strip("-")[:24]
+
+
+def fill_number_format(fmt, *, doc_type, ym, seq, project_code=""):
+    """Isi placeholder nomor dokumen: {year} {month} {roman_month} {seq} {seq:N} {project} {type}.
+
+    `{seq}` tetap 5 digit (perilaku lama); `{seq:N}` = minimal N digit (mis. `{seq:3}` -> 193/007).
+    Bila dokumen tidak punya project, segmen `{project}` dihapus tanpa menyisakan '//'.
+    """
+    out = fmt
+    if project_code:
+        out = out.replace("{project}", project_code)
+    else:
+        out = out.replace("/{project}", "").replace("{project}/", "").replace("{project}", "")
+    out = out.replace("{roman_month}", ROMAN_MONTHS[ym.month - 1])
+    out = re.sub(r"\{seq(?::(\d+))?\}", lambda m: f"{seq:0{int(m.group(1) or 5)}d}", out)
+    return (out.replace("{year}", str(ym.year)).replace("{month}", f"{ym.month:02d}")
+            .replace("{type}", doc_type))
 
 # ---- allocation helpers ----
 async def alloc_out(source_line_id, target_type):
@@ -720,8 +772,8 @@ async def seed_defaults():
         for c, n in [("SPR","Sparepart"),("CON","Consumable"),("AST","Asset"),("ATK","ATK"),("GEN","General")]:
             await db.divisions.insert_one({"id": gid(), "code": c, "name": n, "is_active": True, "created_at": now_iso()})
     if await db.settings.find_one({"id": "numbering"}) is None:
-        await db.settings.insert_one({"id": "numbering", "formats": {
-            "MRO":"MRO/{year}/{month}/{seq}","RO":"RO/{year}/{month}/{seq}","PO":"PO/{year}/{month}/{seq}",
+        await db.settings.insert_one({"id": "numbering", "numbering_version": 2, "formats": {
+            "MRO":"MRO/{year}/{month}/{seq}","RO":"RO/{year}/{month}/{seq}","PO":"PO/{project}/{seq:3}/{roman_month}/{year}",
             "DO":"DO/{year}/{month}/{seq}","MI":"MI/{year}/{month}/{seq}","TRF":"TRF/{year}/{month}/{seq}",
             "LOAN":"LOAN/{year}/{month}/{seq}","RET":"RET/{year}/{month}/{seq}","ADJ":"ADJ/{year}/{month}/{seq}",
             "OPN":"OPN/{year}/{month}/{seq}"}})
