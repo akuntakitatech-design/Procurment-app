@@ -1200,3 +1200,23 @@ Format nomor PO mengikuti form manual PT REAL: `PO/{kode project}/{seq}/{bulan R
 - Nomor dokumen lama tidak berubah (hanya dokumen baru memakai format baru).
 - Sequence tetap penghitung bulanan per jenis dokumen (global per tenant), bukan per project.
 - Redeploy: **backend lalu frontend**. Tanpa env baru.
+
+---
+
+## Label "No Invoice (Opsional)" pada form Penerimaan Barang (DO)
+
+### Tujuan
+Istilah pada form Penerimaan Barang disamakan: field `supplier_invoice` berlabel **No Invoice (Opsional)**
+(sebelumnya "No. Faktur (opsional)"), agar tidak tertukar dengan Faktur Pajak.
+
+### Perubahan
+- `frontend/src/pages/Do.jsx` — label Field `supplier_invoice` pada form DO baru/ubah.
+
+### Pengujian
+- `CI=true yarn build` -> **Compiled successfully (30,19 s)**.
+- UI lokal (`/do/new`): label terbaca **NO INVOICE (OPSIONAL)**; tidak ada perubahan pada nilai yang disimpan
+  (tetap `supplier_invoice`) maupun API.
+- Tidak diuji: daftar DO masih memakai judul kolom "No. Faktur" (di luar permintaan; dapat disamakan bila diminta).
+
+### Catatan
+- Redeploy: **frontend saja**. Tanpa env/skema/data.
