@@ -1220,3 +1220,38 @@ Istilah pada form Penerimaan Barang disamakan: field `supplier_invoice` berlabel
 
 ### Catatan
 - Redeploy: **frontend saja**. Tanpa env/skema/data.
+
+---
+
+## Cetak PO: tanpa header/footer browser + DPP Nilai Lain dibulatkan
+
+### Tujuan
+1. Menghilangkan baris kecil di atas kertas PO (tanggal/jam, nomor PO) dan baris bawah (URL `about:blank`, `1/1`) —
+   keduanya header/footer bawaan browser saat mencetak.
+2. Nilai **DPP Nilai Lain** dicetak tanpa desimal (dibulatkan ke rupiah).
+
+### Perubahan
+- `frontend/src/lib/poPrintReal.js`
+  - `@page{size:...;margin:0}` + `@media print{.sheet{padding:<margin layout>;min-height:<tinggi kertas>}}`
+    (pola yang sudah dipakai cetak DO). Dengan margin halaman 0, Chrome tidak lagi menggambar header/footer
+    bawaan; margin dokumen tetap sesuai Layout Dokumen karena dipindah ke padding sheet.
+  - Pratinjau layar tetap memakai `body{padding:<margin>}` sehingga tampilan tidak berubah.
+  - Baris ringkasan `dpp_other` dan kolom **DPP Nilai Lain** pada tabel rincian pajak memakai `fmtIdr0`.
+- `frontend/src/lib/poTaxPrint.js` — helper baru `fmtIdr0` (rupiah tanpa desimal, `Math.round`).
+- `frontend/src/components/po/PoTaxV2.jsx` — DPP Nilai Lain pada detail baris, ringkasan, dan tabel kelompok
+  ikut dibulatkan (konsisten dengan cetak).
+- Test: `tests/po_print_margin_test.mjs` (53 asersi) dan `tests/po_print_real_test.mjs` (58 asersi) disesuaikan
+  dengan pola `@page margin 0 + padding sheet`.
+
+### Pengujian
+- `tests/po_print_margin_test.mjs` -> **53/53 lulus**; `tests/po_print_real_test.mjs` -> **58/58 lulus**;
+  `tests/po_dp_print_test.mjs` -> **15/15 lulus**.
+- `CI=true yarn build` -> **Compiled successfully (23,91 s)**.
+- `src/lib/poTaxV2.test.mjs` tidak dapat dijalankan dari akar `frontend` (harness memuat file via path relatif —
+  masalah lama, bukan akibat perubahan ini).
+
+### Catatan
+- Perubahan hanya presentasi (margin & format angka); nilai tersimpan (DPP, PPN, grand total) tidak diubah.
+- PO multi-halaman: halaman ke-2 dst. tidak lagi memiliki margin atas/bawah dari browser (konsekuensi
+  menghilangkan header/footer) — sama seperti cetak DO saat ini.
+- Redeploy: **frontend saja**.
