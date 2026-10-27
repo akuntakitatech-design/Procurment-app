@@ -72,10 +72,11 @@ async def production_seed_defaults():
     if await server.db.settings.find_one({"id": "numbering"}) is None:
         await server.db.settings.insert_one({
             "id": "numbering",
+            "numbering_version": 2,
             "formats": {
                 "MRO": "MRO/{year}/{month}/{seq}",
                 "RO": "RO/{year}/{month}/{seq}",
-                "PO": "PO/{year}/{month}/{seq}",
+                "PO": "PO/{project}/{seq:3}/{roman_month}/{year}",
                 "DO": "DO/{year}/{month}/{seq}",
                 "MI": "MI/{year}/{month}/{seq}",
                 "TRF": "TRF/{year}/{month}/{seq}",
@@ -85,6 +86,12 @@ async def production_seed_defaults():
                 "OPN": "OPN/{year}/{month}/{seq}",
             },
         })
+
+    # Migrasi format penomoran v2: kode project + bulan Romawi pada PO (tidak menimpa format yang sudah dikustom).
+    _num = await server.db.settings.find_one({"id": "numbering"}, {"_id": 0}) or {}
+    _patch = server.numbering_upgrade(_num)
+    if _patch:
+        await server.db.settings.update_one({"id": "numbering"}, {"$set": _patch})
 
     if await server.db.settings.find_one({"id": "approval_rules"}) is None:
         await server.db.settings.insert_one({"id": "approval_rules", "rules": []})

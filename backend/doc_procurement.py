@@ -674,7 +674,7 @@ async def create_po(body: dict, user=Depends(current_user)):
     await assert_line_unit_prices(lines_in)
     computed, totals = compute_po_totals(body, lines_in)
     dp = compute_po_dp(body, totals["grand_total"])  # validasi sebelum nomor/tulis apa pun
-    did = gid(); no = await next_number("PO")
+    did = gid(); no = await next_number("PO", project_id=body.get("default_project_id"))
     for l, c in zip(lines_in, computed):
         l["total"] = c["total"]
     grand = totals["grand_total"]

@@ -218,10 +218,11 @@ def _tenant_defaults(tenant_id: str, company_name: str, address: str | None):
         {
             "id": "numbering",
             "tenant_id": tenant_id,
+            "numbering_version": 2,
             "formats": {
                 "MRO": "MRO/{year}/{month}/{seq}",
                 "RO": "RO/{year}/{month}/{seq}",
-                "PO": "PO/{year}/{month}/{seq}",
+                "PO": "PO/{project}/{seq:3}/{roman_month}/{year}",
                 "DO": "DO/{year}/{month}/{seq}",
                 "MI": "MI/{year}/{month}/{seq}",
                 "TRF": "TRF/{year}/{month}/{seq}",

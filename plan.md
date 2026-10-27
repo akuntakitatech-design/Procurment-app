@@ -1162,3 +1162,41 @@ tanpa harus membuka dokumennya.
 
 ### Catatan
 - Tanpa env/skema baru; data production tidak diubah (hanya membaca). Redeploy: **backend lalu frontend**.
+
+---
+
+## Penomoran PO: kode project + bulan Romawi
+
+### Tujuan
+Format nomor PO mengikuti form manual PT REAL: `PO/{kode project}/{seq}/{bulan Romawi}/{tahun}`, contoh
+**PO/WUR-MD/193/VI/2026**. Kode project diambil otomatis dari project yang dipilih di header PO.
+
+### Perubahan
+- `backend/server.py`
+  - `next_number(doc_type, project_id=None)` + `fill_number_format()`: placeholder baru `{project}`,
+    `{roman_month}` (I–XII), dan `{seq:N}` (minimal N digit; `{seq}` tetap 5 digit seperti sebelumnya).
+  - `project_number_code()`: `code` (fallback `name`) -> huruf besar, karakter selain A-Z/0-9 menjadi `-`,
+    maksimal 24 karakter. Contoh `WUR MD` -> `WUR-MD`.
+  - Dokumen tanpa project: segmen `{project}` dihapus tanpa menyisakan `//`.
+  - `numbering_upgrade()` + `NUMBERING_VERSION = 2` + `PO_FORMAT_V2`.
+- `backend/doc_procurement.py` — pembuatan PO mengirim `default_project_id` ke `next_number("PO", ...)`.
+- `backend/production_bootstrap.py` — default PO baru untuk tenant baru + migrasi ber-versi: hanya
+  menaikkan PO yang masih default lama; format yang sudah dikustom pengguna TIDAK ditimpa.
+- `backend/saas_platform_layer.py` — default tenant baru memakai format PO v2 + `numbering_version: 2`.
+- `backend/numbering_unit_test.py` (baru) — 30 asersi tanpa database.
+- `frontend/src/pages/Settings.jsx` — hint placeholder di tab Penomoran (`{roman_month}`, `{seq:3}`, `{project}`).
+
+### Pengujian
+- `backend/numbering_unit_test.py` -> **30/30 lulus**: `PO/WUR-MD/193/VI/2026`, `{seq:3}` (007), tanpa project
+  (`PO/193/VI/2026`), format lama tetap 5 digit, bulan I/XII/VIII, kode project (spasi/karakter khusus/batas 24),
+  `next_number` dengan DB palsu (project dibaca hanya bila `{project}` ada), dan migrasi ber-versi
+  (default lama -> v2, custom tidak ditimpa, idempoten).
+- `backend/invoice_transmittal_unit_test.py` -> **53/53 lulus** (regresi server.py aman).
+- `CI=true yarn build` -> **Compiled successfully (54,26 s)**.
+- Baseline produksi (read-only): `tenant-pt-real` sudah memakai format v2 dari uji lokal; `numbering_version`
+  belum ada -> setelah deploy migrasi akan menyetel `numbering_version: 2` (bukti backend baru berjalan).
+
+### Catatan
+- Nomor dokumen lama tidak berubah (hanya dokumen baru memakai format baru).
+- Sequence tetap penghitung bulanan per jenis dokumen (global per tenant), bukan per project.
+- Redeploy: **backend lalu frontend**. Tanpa env baru.
