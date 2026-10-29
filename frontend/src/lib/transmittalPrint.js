@@ -11,17 +11,12 @@ const longDate = (v) => {
   if (s.length !== 3 || !y || !m || !d) return String(v || "-");
   return `${d} ${MONTHS[m - 1]} ${y}`;
 };
-const shortDate = (v) => {
-  const s = String(v || "").slice(0, 10);
-  return s.length === 10 ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : "-";
-};
 
 // Form manual PT REAL mencetak minimal 7 baris bernomor (bisa ditulis tangan untuk invoice tambahan).
 export const MIN_ROWS = 7;
 
-// Kolom ✓ pada form: Invoice/PO/Faktur Pajak & No DO sudah jadi kolom sendiri, jadi tidak diulang di sini.
+// Kolom ✓ pada form: Invoice/PO/Faktur Pajak serta No DO (sistem & supplier) sudah jadi kolom sendiri.
 export const PRINT_CHECKLIST = [
-  { key: "bukti_penerimaan", label: "Bukti Penerimaan Barang (PT. REAL)" },
   { key: "kwitansi", label: "Kwitansi" },
   { key: "bast", label: "BAST / Timesheet" },
   { key: "kontrak", label: "Kontrak Kerja (Subcon)" },
@@ -37,8 +32,8 @@ const docBody = ({ doc, company, logoImg }) => {
   const items = doc.items || [];
   const marks = (i) => {
     const c = normalizeChecklist(i.checklist);
-    return `<td class="mark">${checklistMark(c.bukti_penerimaan)}</td>
-      <td class="mono">${esc(i.do_nos || "-")}</td>
+    return `<td class="mono">${esc(i.do_nos || "-")}</td>
+      <td class="mono">${esc(i.do_supplier_nos || "-")}</td>
       <td class="r">${money(i.amount)}</td>
       <td class="mark">${checklistMark(c.kwitansi)}</td>
       <td class="mark">${checklistMark(c.bast)}</td>
@@ -58,9 +53,6 @@ const docBody = ({ doc, company, logoImg }) => {
 
   const companyName = company?.name || "";
   const companyAddress = String(company?.address || "").trim();
-  const receiver = doc.receiver_name || "";
-  const sentAt = doc.sent_at ? shortDate(doc.sent_at) : shortDate(doc.date);
-  const receivedAt = doc.received_at ? shortDate(doc.received_at) : "";
   const notes = String(doc.notes || "").trim();
 
   return `<div class="head">
@@ -78,8 +70,8 @@ const docBody = ({ doc, company, logoImg }) => {
     </div>
     <div class="info">
       <div class="row"><span class="lab">Tujuan / Departemen</span><span class="val">${esc(doc.destination || "-")}</span></div>
-      <div class="row"><span class="lab">Pengirim</span><span class="val">${esc(doc.sender_name || "-")}</span></div>
-      <div class="row"><span class="lab">Penerima</span><span class="val">${esc(receiver || "-")}</span></div>
+      <div class="row"><span class="lab">Pengirim</span><span class="val"></span></div>
+      <div class="row"><span class="lab">Penerima</span><span class="val"></span></div>
       <div class="row"><span class="lab">Total Invoice</span><span class="val">${items.length}</span></div>
     </div>
     <table>
@@ -96,8 +88,8 @@ const docBody = ({ doc, company, logoImg }) => {
           <th rowspan="2" style="width:22mm">Kontrak Kerja (Subcon)</th>
         </tr>
         <tr>
-          <th style="width:27mm">Bukti Penerimaan Barang (PT. REAL)</th>
-          <th style="width:28mm">No DO SUPLIER</th>
+          <th style="width:27mm">No DO Sistem</th>
+          <th style="width:28mm">No. DO Supplier</th>
           <th style="width:26mm">Nilai (Inc PPN)</th>
         </tr>
       </thead>
@@ -108,14 +100,14 @@ const docBody = ({ doc, company, logoImg }) => {
       <div class="box">
         <div class="cap">Dikirim Oleh,</div>
         <div class="space"></div>
-        <div class="line">Nama : ${esc(doc.sender_name || "")}</div>
-        <div class="line">Tanggal : ${esc(sentAt)}</div>
+        <div class="line">Nama :</div>
+        <div class="line">Tanggal :</div>
       </div>
       <div class="box">
         <div class="cap">Diterima Oleh,</div>
         <div class="space"></div>
-        <div class="line">Nama : ${esc(receiver || "")}</div>
-        <div class="line">Tanggal : ${esc(receivedAt)}</div>
+        <div class="line">Nama :</div>
+        <div class="line">Tanggal :</div>
       </div>
     </div>`;
 };
