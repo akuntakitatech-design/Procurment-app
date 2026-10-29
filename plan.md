@@ -1525,3 +1525,31 @@ Tanpa skema/DB baru, tanpa env baru. Perilaku transaksi/status tidak berubah (mu
   `do_nos = DO/2026/10/00003` dan `do_supplier_nos = 121336`.
 - Render HTML dari payload produksi nyata -> sesuai permintaan (bukti: `transmittal-print-v2.png`).
 - `py_compile backend/invoice_transmittal_layer.py` -> OK; `CI=true yarn build` -> Compiled successfully (106,21 s).
+
+---
+
+## 2026-10-29 — Cetak Transmittal: hilangkan header/footer browser & rapikan proporsi
+
+### Tujuan (permintaan pemilik)
+1. Hapus teks kecil di atas hasil cetak (tanggal/jam browser, nomor dokumen, dan "about:blank") — itu header/footer
+   bawaan browser, bukan bagian template.
+2. Angka **Total Invoice** terlalu jauh ke kanan -> didekatkan ke label.
+3. Font blok info (Tujuan/Departemen, Pengirim, Penerima, Total Invoice) ukuran **standar 12px**.
+4. Blok tanda tangan (Dikirim/Diterima + Nama/Tanggal) **di tengah** agar proporsional.
+
+### Perubahan (`frontend/src/lib/transmittalPrint.js`)
+- `@page` margin `10mm` -> **0**, dan margin isi dipindah ke `.doc{padding:10mm}`. Dengan margin halaman 0, Chrome tidak
+  lagi mencetak header/footer otomatis (tanggal/jam, judul dokumen, URL `about:blank`), sementara isi tetap punya
+  margin 10mm. Cetak tunggal kini juga dibungkus `<section class="doc">` agar margin berlaku per halaman
+  (export PDF massal = 1 halaman per transmittal).
+- `.info` -> `font-size:12px`; setiap baris memakai `display:flex` sehingga nilai langsung mengikuti label
+  (`Total Invoice : 1`), tidak lagi di kolom 38mm.
+- `.signs .box` -> `text-align:center` (sebelumnya rata kiri dengan padding 10mm).
+- Layar: latar abu + `.doc` putih (pratinjau lebih jelas); tidak memengaruhi hasil cetak.
+
+### Pengujian
+- `frontend/tests/transmittal_print_test.mjs` -> **48/48 lulus** (termasuk cek `@page{...margin:0}`,
+  `.doc{padding:10mm}`, info 12px + flex, tanda tangan center, satu dokumen dibungkus `.doc`).
+- Render HTML dari payload produksi nyata (`TRN/2026/10/00005`) dengan emulasi media cetak -> sesuai permintaan
+  (bukti: `transmittal-print-v3.png`).
+- `CI=true yarn build` -> Compiled successfully (25,11 s).

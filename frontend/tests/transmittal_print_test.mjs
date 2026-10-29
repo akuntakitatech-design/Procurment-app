@@ -79,7 +79,11 @@ check("Nama & Tanggal pada tanda tangan kosong (diisi manual)",
   (h.match(/Nama :<\/div>/g) || []).length === 2 && (h.match(/Tanggal :<\/div>/g) || []).length === 2);
 
 // --- Cetak
-check("A4 landscape & margin cetak", h.includes("@page{size:A4 landscape;margin:10mm}"));
+check("A4 landscape, margin halaman 0 (header/footer browser tidak tercetak)", h.includes("@page{size:A4 landscape;margin:0}"));
+check("isi dokumen tetap punya margin 10mm lewat .doc", h.includes(".doc{padding:10mm"));
+check("info: font 12px & nilai rapat ke label", h.includes("font-size:12px}") && h.includes(".info .row{display:flex;gap:2mm}"));
+check("tanda tangan di tengah (proporsional)", h.includes(".signs .box{text-align:center}") && !h.includes("padding-left:10mm"));
+check("satu dokumen dibungkus section .doc", (h.match(/<section class="doc">/g) || []).length === 1, (h.match(/<section class="doc">/g) || []).length);
 check("autoPrint=false tidak memicu window.print", !h.includes("window.print()"));
 check("autoPrint=true memicu window.print", buildTransmittalHtml({ doc, company: {}, autoPrint: true }).includes("window.print()"));
 check("HTML di-escape (tidak ada tag mentah dari input)",
@@ -105,7 +109,7 @@ check("multi: satu window.print untuk seluruh halaman",
   (buildTransmittalMultiHtml({ docs: [doc, doc2], autoPrint: true }).match(/window\.print\(\)/g) || []).length === 1);
 check("multi: escaping tetap berlaku",
   !buildTransmittalMultiHtml({ docs: [{ ...doc, destination: "<b>x</b>" }], autoPrint: false }).includes("<b>x</b>"));
-check("multi: landscape sama dengan cetak tunggal", buildTransmittalMultiHtml({ docs: [doc], autoPrint: false }).includes("@page{size:A4 landscape;margin:10mm}"));
+check("multi: landscape sama dengan cetak tunggal", buildTransmittalMultiHtml({ docs: [doc], autoPrint: false }).includes("@page{size:A4 landscape;margin:0}"));
 
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);
