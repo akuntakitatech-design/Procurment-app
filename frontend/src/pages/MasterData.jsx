@@ -307,6 +307,15 @@ export function MasterFormDialog({ name, open, onOpenChange, form, setForm, refs
           </div>
 
           {name === "taxes" && taxMasterIssues(form).length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" data-testid="tax-master-incomplete-note">Belum lengkap untuk PO: {taxMasterIssues(form).join(", ")}. Jenis PPN ini tidak dapat dipilih pada PO baru sampai dilengkapi Accounting.</div>}
+          {name === "items" && <div className="mt-3 rounded-xl border bg-muted/20 p-4" data-testid="master-items-without-stock-block">
+            <label className="flex cursor-pointer items-start gap-3">
+              <Checkbox checked={!!form.without_stock} onCheckedChange={(v) => setForm({ ...form, without_stock: !!v })} aria-label="Tanpa Stok" data-testid="master-items-field-without_stock" className="mt-0.5" />
+              <span className="text-sm">
+                <span className="font-head font-semibold">Tanpa Stok</span>
+                <span className="mt-1 block text-xs text-muted-foreground">Untuk barang jasa / sewa / perizinan. Barang bertanda ini dipisahkan dari hitungan Stok Habis, Stok Menipis, dan Overstock. Transaksi MRO/RO/PO/DO tetap berjalan seperti biasa.</span>
+              </span>
+            </label>
+          </div>}
           {name === "items" && <div className="mt-2 rounded-xl border bg-muted/20 p-4 space-y-3">
             <div className="flex items-start justify-between gap-3"><div><h3 className="font-head font-semibold">Multi Satuan Barang</h3><p className="text-xs text-muted-foreground mt-1">Satuan dasar selalu bernilai 1. Tambahkan satuan transaksi dan isi berapa satuan dasar di dalam 1 satuan tersebut.</p></div><Button type="button" variant="outline" size="sm" onClick={addUom}><Plus className="h-4 w-4 mr-2" />Tambah Satuan</Button></div>
             <div className="rounded-lg border bg-background p-3 text-sm"><span className="text-muted-foreground">Satuan dasar:</span> <span className="font-semibold">{refName("uoms", form.base_uom_id)}</span><span className="ml-2 text-xs text-muted-foreground">= 1</span></div>

@@ -229,6 +229,29 @@ def main():
     after = page("page=1&page_size=100&active=Aktif")[1]
     check("Hapus Massal barang tanpa dependensi -> berhasil", sc == 200 and after.get("total") == 44, f"{sc} {res} {after.get('total')}")
 
+    # --- Tanpa Stok (without_stock): dipisahkan dari status stok; transaksi tidak berubah
+    before = page("page=1&page_size=100")[1]["summary"]
+    ws = call("POST", "master/items", {"code": f"MS{u}-WS", "name": f"Sewa Alat {u}", "unit": "PCS", "is_active": True,
+                                        "base_uom_id": uom["id"], "category_id": cats[0]["id"], "division_id": dA["id"],
+                                        "without_stock": True}, 200)[1]
+    check("Tanpa Stok: flag tersimpan sebagai boolean true", ws.get("without_stock") is True, ws.get("without_stock"))
+    sc, r = page("page=1&page_size=100")
+    after = r["summary"]
+    check("Tanpa Stok: tidak menambah Stok Habis / belum ada catatan stok, punya hitungan sendiri",
+          after["out_of_stock"] == before["out_of_stock"] and after["no_stock"] == before["no_stock"]
+          and after["without_stock"] == before.get("without_stock", 0) + 1 and after["total"] == before["total"] + 1,
+          f"{before} -> {after}")
+    check("Tanpa Stok: status barang = Without Stock",
+          next(x for x in r["items"] if x["code"] == f"MS{u}-WS")["stock_status"] == "Without Stock")
+    sc, rs = page("page=1&page_size=100&stock_status=Without Stock")
+    check("Tanpa Stok: filter status hanya memuat barang ber-flag", rs.get("total") == 1 and codes(rs) == [f"MS{u}-WS"], codes(rs))
+    call("PUT", f"master/items/{ws['id']}", {**ws, "without_stock": False}, 200)
+    sc, rs = page("page=1&page_size=100&stock_status=Without Stock")
+    after2 = page("page=1&page_size=100")[1]["summary"]
+    check("Tanpa Stok: flag dilepas -> kembali Stok Habis & hitungan tanpa stok 0",
+          rs.get("total") == 0 and after2["without_stock"] == 0 and after2["out_of_stock"] == before["out_of_stock"] + 1,
+          (rs.get("total"), after2))
+
     ok = sum(1 for _, c in T.RESULTS if c)
     print(f"\nTOTAL {ok}/{len(T.RESULTS)} passed")
     sys.exit(0 if ok == len(T.RESULTS) else 1)

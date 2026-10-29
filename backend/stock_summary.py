@@ -6,6 +6,9 @@ Logic diekstrak apa adanya dari `master_item_stock_layer` (tanpa formula baru):
     Stok Habis   = total_stock <= 0 (termasuk barang yang belum pernah punya item_warehouse)
     Stok Menipis = total_stock > 0 AND min_total > 0 AND total_stock <= min_total
     Overstock    = max_total > 0 AND total_stock > max_total
+    Tanpa Stok   = barang bertanda `without_stock` (jasa/sewa/perizinan): TIDAK dihitung pada Stok Habis /
+                   Stok Menipis / Overstock dan punya kolom ringkasan sendiri (`without_stock`).
+                   BUKAN `no_stock` (no_stock = barang tanpa catatan stok di gudang). Perilaku transaksi tidak berubah.
     min_total / max_total = SUM(min_stock / max_stock) gudang dalam scope.
 
 Scope (urutan): tenant (proxy isolasi + WHERE tenant_id) -> cakupan divisi barang -> cakupan gudang
@@ -30,10 +33,11 @@ from typing import Optional
 from fastapi import HTTPException
 
 SIZES = (25, 50, 100)
-STATUSES = ("Normal", "Low Stock", "Out of Stock", "Overstock", "No Stock")
+STATUSES = ("Normal", "Low Stock", "Out of Stock", "Overstock", "No Stock", "Without Stock")
 SORTS = {"code", "name", "category_label", "unit_label", "division_label", "total_stock", "stock_status", "created_at"}
-STATUS_RANK = {"Out of Stock": 0, "Low Stock": 1, "Normal": 2, "Overstock": 3}
-SUMMARY_KEY = {"Out of Stock": "out_of_stock", "Low Stock": "low_stock", "Overstock": "overstock", "Normal": "normal"}
+STATUS_RANK = {"Out of Stock": 0, "Low Stock": 1, "Normal": 2, "Overstock": 3, "Without Stock": 4}
+SUMMARY_KEY = {"Out of Stock": "out_of_stock", "Low Stock": "low_stock", "Overstock": "overstock", "Normal": "normal",
+               "Without Stock": "without_stock"}
 ITEM_PROJECTION = {"_id": 0}
 
 
@@ -56,10 +60,14 @@ def cell_status(cur, mn, mx) -> str:
     return "Normal"
 
 
-def item_status(total, min_total, max_total, records) -> str:
+def item_status(total, min_total, max_total, records, without_stock=False) -> str:
     """Rule level barang: total vs jumlah min/max seluruh gudang dalam scope.
     Total stok 0 = Stok Habis, termasuk barang yang belum punya catatan stok di gudang mana pun
-    (sel gudangnya tetap tampil "Belum ada stok"; penanda `stock_records` = 0)."""
+    (sel gudangnya tetap tampil "Belum ada stok"; penanda `stock_records` = 0).
+    Barang bertanda `without_stock` (jasa/sewa/perizinan) selalu berstatus "Without Stock" dan tidak
+    masuk hitungan Stok Habis / Menipis / Overstock."""
+    if without_stock:
+        return "Without Stock"
     total, min_total, max_total = _f(total), _f(min_total), _f(max_total)
     if total <= 0:
         return "Out of Stock"
@@ -217,11 +225,13 @@ async def stock_aggregate(server, wh_ids: list, user) -> dict:
 
 
 def summarize(rows: list) -> dict:
-    """out_of_stock mencakup barang tanpa catatan stok; no_stock = bagian dari out_of_stock (informasi)."""
-    summary = {"total": len(rows), "out_of_stock": 0, "low_stock": 0, "overstock": 0, "normal": 0, "no_stock": 0}
+    """out_of_stock mencakup barang tanpa catatan stok; no_stock = bagian dari out_of_stock (informasi).
+    without_stock = barang bertanda tanpa stok (jasa/sewa/perizinan) — terpisah dari no_stock."""
+    summary = {"total": len(rows), "out_of_stock": 0, "low_stock": 0, "overstock": 0, "normal": 0, "no_stock": 0,
+               "without_stock": 0}
     for r in rows:
         summary[SUMMARY_KEY[r["stock_status"]]] += 1
-        if not r["stock_records"]:
+        if r["stock_status"] != "Without Stock" and not r["stock_records"]:
             summary["no_stock"] += 1
     return summary
 
@@ -293,7 +303,7 @@ async def compute(server, user, *, warehouse_id: str = "", division_id: str = ""
                      "unit_label": uom_label.get(it.get("base_uom_id")) or it.get("unit") or None,
                      "status_label": "Aktif" if it.get("is_active") else "Nonaktif",
                      "total_stock": round(total, 6), "stock_records": n,
-                     "stock_status": item_status(total, mn, mx, n)})
+                     "stock_status": item_status(total, mn, mx, n, it.get("without_stock"))})
     out = {"rows": rows, "summary": summarize(rows), "col_whs": col_whs, "scoped_whs": scoped_whs,
            "divisions": divs, "categories": cats, "alw": alw, "warehouse_count": len(col_ids)}
     if with_value:
@@ -366,4 +376,4 @@ async def list_response(server, user, qp: dict, *, force_active: Optional[str] =
 
 def dashboard_stock(summary: dict) -> dict:
     """Bentuk blok `stock` dashboard (key lama dipertahankan) dari ringkasan canonical."""
-    return {k: summary.get(k, 0) for k in ("total", "out_of_stock", "low_stock", "overstock", "normal", "no_stock")}
+    return {k: summary.get(k, 0) for k in ("total", "out_of_stock", "low_stock", "overstock", "normal", "no_stock", "without_stock")}

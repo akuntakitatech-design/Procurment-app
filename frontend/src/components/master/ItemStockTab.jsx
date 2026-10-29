@@ -11,7 +11,7 @@ import { Combobox } from "@/components/Combobox";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Package, PackageX, Pencil, Plus, RotateCcw, Search, Trash2, TrendingUp, TriangleAlert } from "lucide-react";
+import { Loader2, Package, PackageX, Pencil, Plus, RotateCcw, Search, Trash2, TrendingUp, TriangleAlert, CircleOff } from "lucide-react";
 
 // Status mengikuti business rule Stok Min/Max existing (dihitung backend); frontend hanya menampilkan.
 const STATUS = {
@@ -20,6 +20,8 @@ const STATUS = {
   Normal: { label: "Normal", text: "text-emerald-700 dark:text-emerald-300", badge: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900" },
   Overstock: { label: "Overstock", text: "text-violet-700 dark:text-violet-300", badge: "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900" },
   "No Stock": { label: "Belum ada stok", text: "text-muted-foreground", badge: "bg-muted text-muted-foreground border-border" },
+  // BUKAN "No Stock": barang bertanda tanpa stok (jasa/sewa/perizinan) — dipisahkan dari status stok.
+  "Without Stock": { label: "Tanpa Stok", text: "text-slate-600 dark:text-slate-300", badge: "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700" },
 };
 const ACTIVE_FILTER = [{ value: "", label: "Semua Status Barang" }, { value: "Aktif", label: "Aktif" }, { value: "Nonaktif", label: "Nonaktif" }];
 const STRIP = ["status_label", "category_label", "division_label", "base_uom_label", "unit_label", "stock", "total_stock", "stock_records", "stock_status"];
@@ -108,11 +110,12 @@ export function ItemStockTab({ FormDialog, newForm, refNames }) {
     : "bg-card group-hover:[background:linear-gradient(hsl(var(--accent)/0.4),hsl(var(--accent)/0.4)),hsl(var(--card))]");
 
   return <div className="space-y-4" data-testid="master-items-stock">
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       <SummaryCard testid="master-items-summary-total" title="Jumlah Item" value={summary.total} subtitle="Barang sesuai filter aktif" icon={Package} tone="bg-primary/10 text-primary" active={!stockStatus} onClick={() => setStockStatus("")} />
       <SummaryCard testid="master-items-summary-out" title="Stok Habis" value={summary.out_of_stock} subtitle={summary.no_stock ? `Total stok = 0 · ${num(summary.no_stock)} belum ada catatan stok` : "Total stok = 0"} icon={PackageX} tone="bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300" active={stockStatus === "Out of Stock"} onClick={() => toggleStatus("Out of Stock")} />
       <SummaryCard testid="master-items-summary-low" title="Stok Menipis" value={summary.low_stock} subtitle="Stok ≤ minimum (Stok Min/Max)" icon={TriangleAlert} tone="bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300" active={stockStatus === "Low Stock"} onClick={() => toggleStatus("Low Stock")} />
       <SummaryCard testid="master-items-summary-over" title="Overstock" value={summary.overstock} subtitle="Melebihi batas maksimum" icon={TrendingUp} tone="bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300" active={stockStatus === "Overstock"} onClick={() => toggleStatus("Overstock")} />
+      <SummaryCard testid="master-items-summary-without" title="Tanpa Stok" value={summary.without_stock || 0} subtitle="Jasa / sewa / perizinan" icon={CircleOff} tone="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" active={stockStatus === "Without Stock"} onClick={() => toggleStatus("Without Stock")} />
     </div>
 
     <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
@@ -180,7 +183,7 @@ export function ItemStockTab({ FormDialog, newForm, refNames }) {
                 })}
                 <td className={cn("p-3 text-right font-bold tabular-nums", !r.stock_records && "font-normal text-muted-foreground")} data-testid={`master-items-total-${rowKey}`}>{num(r.total_stock)}</td>
                 <td className="p-3"><StockBadge status={r.stock_status} testid={`master-items-status-${rowKey}`} />
-                  {!r.stock_records && <div className="mt-1 text-[10px] text-muted-foreground" data-testid={`master-items-norecord-${rowKey}`}>Belum ada catatan stok</div>}</td>
+                  {!r.stock_records && r.stock_status !== "Without Stock" && <div className="mt-1 text-[10px] text-muted-foreground" data-testid={`master-items-norecord-${rowKey}`}>Belum ada catatan stok</div>}</td>
                 <td className="p-3"><div className="flex justify-end gap-1">
                   {can("edit", "items") && <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit" aria-label={`Edit ${labelOf(r)}`} onClick={() => openEdit(r)} data-testid={`master-items-edit-${rowKey}`}><Pencil className="h-4 w-4" /></Button>}
                   {can("delete", "items") && <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" title="Hapus" aria-label={`Hapus ${labelOf(r)}`} onClick={() => askDelete([r])} data-testid={`master-items-delete-${rowKey}`}><Trash2 className="h-4 w-4" /></Button>}
@@ -193,7 +196,7 @@ export function ItemStockTab({ FormDialog, newForm, refNames }) {
     </div>
     <div className="flex flex-col gap-1">
       <ListPager total={list.total} page={list.page} pageSize={list.pageSize} setPage={list.setPage} setPageSize={list.setPageSize} testid="master-items" unit="barang" />
-      <p className="text-xs text-muted-foreground">Stok ditampilkan dalam satuan dasar per gudang. Status mengikuti konfigurasi Stok Min/Max; "Belum ada stok" berarti barang belum memiliki catatan stok di gudang tersebut.</p>
+      <p className="text-xs text-muted-foreground">Stok ditampilkan dalam satuan dasar per gudang. Status mengikuti konfigurasi Stok Min/Max; "Belum ada stok" berarti barang belum memiliki catatan stok di gudang tersebut. "Tanpa Stok" = barang jasa/sewa/perizinan yang ditandai di master barang (tidak dihitung Stok Habis/Menipis/Overstock).</p>
     </div>
 
     <MasterDeleteDialog open={!!delRows} rows={delRows || []} checkName="items" entityLabel="Barang" onDeselect={(ids) => setSel((c) => new Set([...c].filter((x) => !ids.includes(x))))} onClose={() => setDelRows(null)} onDone={() => { setDelRows(null); setSel(new Set()); list.reload(); }} />

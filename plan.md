@@ -1335,3 +1335,38 @@ menghapus route `/api/pull/ro-for-po` lalu mendaftarkan `_ro_rows`; karena itu p
   `RO/2026/10/00027 = "EW PPPRE, WUR MD"`; RO pada screenshot `RO/2026/10/00019` & `RO/2026/10/00021` = `EW PPPRE`.
 - `CI=true yarn build` -> **Compiled successfully / Done in 59,44 s**.
 - Tidak ada perubahan skema/DB, tidak ada env baru; murni aditif (field tambahan pada respons).
+
+---
+
+## 2026-10-29 — Master Barang: status "Tanpa Stok" (jasa/sewa/perizinan)
+
+### Tujuan
+Memisahkan barang jasa/sewa/perizinan dari hitungan status stok, tanpa mengubah proses transaksi.
+Barang bertanda **Tanpa Stok** tidak lagi dihitung sebagai Stok Habis / Stok Menipis / Overstock dan punya
+hitungan sendiri. MRO/RO/PO/DO tetap berjalan seperti biasa.
+
+### Perubahan
+- `backend/stock_summary.py` (sumber tunggal Master Barang, Inventory, Dashboard):
+  status baru `Without Stock`; field master `without_stock` -> `item_status(..., without_stock=True)`;
+  `SUMMARY_KEY`/`STATUS_RANK`/`STATUSES` diperluas; ringkasan menambah key `without_stock` (terpisah dari
+  `no_stock` = belum ada catatan stok) dan `no_stock` tidak lagi menghitung barang bertanda;
+  `dashboard_stock` menyertakan `without_stock`.
+- `backend/master_auto.py` — `_normalize_item` menormalkan `without_stock` menjadi boolean.
+- `backend/tests/master_item_stock_test.py` — blok uji Tanpa Stok (flag, ringkasan, filter, lepas flag).
+- `frontend/src/pages/MasterData.jsx` — checkbox **Tanpa Stok** di form Tambah/Edit Barang + keterangan.
+- `frontend/src/components/master/ItemStockTab.jsx` — kartu ke-5 **Tanpa Stok** (grid 5 kolom), badge status,
+  catatan "Belum ada catatan stok" tidak ditampilkan untuk barang bertanda.
+- `frontend/src/pages/Inventory.jsx` — kartu ke-5 **Tanpa Stok**, filter status `Without Stock` diterima.
+- `frontend/src/components/StatusBadge.jsx` — label/warna `Tanpa Stok`.
+
+Tanpa skema/DB baru (field hanya tersimpan di dokumen item), tanpa env baru, tidak ada perubahan alur transaksi.
+
+### Pengujian
+- Verifikasi read-only pada data nyata (simulasi penandaan di memori, tanpa menulis ke DB): **21/21 cek lulus** —
+  9.297 barang aktif, `without_stock` = 0 sebelum; simulasi 3 barang bertanda -> `out_of_stock` 8998 -> 8995
+  (turun tepat 3), `no_stock` 8997 -> 8994, `total` tetap 9.297, status/filter/sort `Without Stock` benar,
+  blok `stock` dashboard memuat `without_stock`, normalisasi `"true"/"false"/None` benar.
+- `py_compile` untuk `stock_summary.py`, `master_auto.py`, `tests/master_item_stock_test.py` -> OK.
+- `CI=true yarn build` -> **Compiled successfully (24,54 s)**.
+- Belum dijalankan: `backend/tests/master_item_stock_test.py` (butuh backend uji + tenant QA sementara; tidak tersedia
+  di laptop ini) — blok uji Tanpa Stok ditambahkan agar ikut jalan pada harness repo.

@@ -96,6 +96,12 @@ async def next_master_code(server, name: str) -> str:
 
 async def _normalize_item(server, body: dict) -> dict:
     out = {**body}
+    # Tanpa Stok = barang jasa/sewa/perizinan: dipisahkan dari status stok (tidak dihitung Stok Habis/Menipis/Overstock),
+    # tetapi perilaku transaksi (MRO/RO/PO/DO) tetap sama. Disimpan sebagai boolean.
+    ws = out.get("without_stock")
+    if isinstance(ws, str):
+        ws = ws.strip().lower() in ("1", "true", "yes", "on", "ya")
+    out["without_stock"] = bool(ws)
     base_uom_id = out.get("base_uom_id")
     if not base_uom_id:
         return out
