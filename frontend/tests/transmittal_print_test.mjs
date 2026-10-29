@@ -1,6 +1,6 @@
 // Uji template cetak Transmittal Invoice (murni HTML, tanpa jaringan).
-// Jalankan: cd frontend && npx esbuild tests/transmittal_print_test.mjs --bundle --platform=node --format=cjs --loader:.js=jsx --outfile=./tmp-transmittal.cjs --log-level=error && node ./tmp-transmittal.cjs
-import { buildTransmittalHtml, buildTransmittalMultiHtml, checklistMark, PRINT_CHECKLIST } from "../src/lib/transmittalPrint.js";
+// Jalankan: cd frontend && CI=true npx esbuild tests/transmittal_print_test.mjs --bundle --platform=node --format=cjs --loader:.js=jsx --outfile=./tmp-transmittal.cjs --log-level=error && node ./tmp-transmittal.cjs
+import { buildTransmittalHtml, buildTransmittalMultiHtml, checklistMark, PRINT_CHECKLIST, MIN_ROWS } from "../src/lib/transmittalPrint.js";
 import { checklistSummary, emptyChecklist } from "../src/lib/docChecklist.js";
 
 let pass = 0, fail = 0;
@@ -14,7 +14,7 @@ const doc = {
   sender_name: "Agus Prasetyo", receiver_name: "Melda Sari", notes: "Mohon dicek kelengkapan faktur pajak.",
   sent_at: "2026-10-23T09:15:00+00:00", total_amount: 1500000,
   items: [
-    { id: "i1", supplier_name: "PT. PROFITA ABADI", invoice_no: "PA/DO/897654", tax_invoice_no: "44423675618930", po_nos: "PO/REAL/26/10/000551", do_nos: "DO/1", amount: 1000000, checklist: full },
+    { id: "i1", supplier_name: "PT. PROFITA ABADI", invoice_no: "PA/DO/897654", tax_invoice_no: "44423675618930", po_nos: "PO/REAL/26/10/000551", do_nos: "DO/2026/10/00003", amount: 1000000, checklist: full },
     { id: "i2", supplier_name: "PT. ABC", invoice_no: "INV/2026/002", tax_invoice_no: "", po_nos: "PO/2026/10/00010", do_nos: "", amount: 500000, checklist: partial },
   ],
 };
@@ -22,41 +22,66 @@ const doc = {
 const LOGO = "data:image/png;base64,LOGO";
 const h = buildTransmittalHtml({ doc, company: { name: "PT. Rajawali Emas Ancora Lestari", address: "Yard Balai Raja" }, logoImg: LOGO, autoPrint: false });
 
-check("judul & nomor transmittal", h.includes("TRANSMITTAL INVOICE") && h.includes("TRN/2026/10/00007"));
-check("tanggal panjang Indonesia", h.includes("23 Oktober 2026"));
-check("informasi tujuan/pengirim/penerima/status", h.includes("Finance &amp; Accounting") && h.includes("Agus Prasetyo") && h.includes("Melda Sari") && h.includes("Dikirim"));
-
-// Kolom sesuai form manual PT REAL
-check("kolom: Nama Vendor, No. Invoice, No. Faktur Pajak, No. PO, Nilai (Inc PPN)",
-  h.includes("Nama Vendor") && h.includes("No. Invoice") && h.includes("No. Faktur Pajak") && h.includes("No. PO") && h.includes("Nilai (Inc PPN)"));
-check("header kelompok Checklist Kelengkapan", h.includes("Checklist Kelengkapan") && h.includes('colspan="5"'));
-check("5 sub-kolom checklist: DO, Bukti Penerimaan (PT. REAL), Kwitansi, BAST/Timesheet, Kontrak Kerja",
-  ["DO", "Bukti Penerimaan Barang (PT. REAL)", "Kwitansi", "BAST / Timesheet", "Kontrak Kerja (Subcon)"].every((x) => h.includes(x)));
-check("PRINT_CHECKLIST berisi 5 jenis (Invoice/Faktur Pajak/PO tidak diulang)",
-  PRINT_CHECKLIST.map((x) => x.key).join() === "do,bukti_penerimaan,kwitansi,bast,kontrak");
-
-// Simbol checklist
-check("simbol: Lengkap = ✓, Belum Lengkap = ✗, Tidak Berlaku = −",
-  checklistMark("Lengkap") === "✓" && checklistMark("Belum Lengkap") === "✗" && checklistMark("Tidak Berlaku") === "−");
-const marks = (h.match(/class="mark">([^<]+)</g) || []).map((m) => m.replace(/.*>/, "").replace("<", ""));
-check("jumlah simbol sesuai data: 2 ✓, 2 ✗, 6 −", marks.filter((m) => m === "✓").length === 2 && marks.filter((m) => m === "✗").length === 2 && marks.filter((m) => m === "−").length === 6, marks);
-
-// Data & format
-check("baris vendor + no invoice + faktur pajak + PO", h.includes("PT. PROFITA ABADI") && h.includes("PA/DO/897654") && h.includes("44423675618930") && h.includes("PO/REAL/26/10/000551"));
-check("nilai diformat ribuan koma (1,000,000) + total", h.includes("1,000,000") && h.includes("500,000") && h.includes("1,500,000"));
-check("keterangan tercetak", h.includes("Mohon dicek kelengkapan faktur pajak."));
-check("area tanda tangan pengirim & penerima", h.includes("Dikirim oleh,") && h.includes("Diterima oleh,") && h.includes("Tanggal: 23/10/2026"));
-
-// Logo di atas nama perusahaan
+// --- Kop sesuai form manual "Pengiriman Transmittal Invoice"
+check("kop: Pengiriman Transmittal Invoice + Vendor Proyek PHR", h.includes("Pengiriman Transmittal Invoice") && h.includes("Vendor Proyek PHR"));
+check("kop: nomor transmittal tercetak", h.includes("TRN/2026/10/00007"));
+check("tanggal panjang Indonesia", h.includes("Tanggal : 23 Oktober 2026"));
+check("nama & alamat perusahaan", h.includes("PT. Rajawali Emas Ancora Lestari") && h.includes("Yard Balai Raja"));
 check("logo tampil di atas nama perusahaan", h.includes(`<img class="logo" src="${LOGO}"`) && h.indexOf('class="logo"') < h.indexOf('class="company-name"'));
 check("tanpa logo: tidak ada <img> logo", !buildTransmittalHtml({ doc, company: {}, logoImg: "", autoPrint: false }).includes('class="logo"'));
 
+// --- Info: Tujuan/Penerima (kiri), Pengirim/Total Invoice (kanan)
+check("info: Tujuan / Departemen, Pengirim, Penerima", h.includes("Tujuan / Departemen") && h.includes("Finance &amp; Accounting")
+  && h.includes("Pengirim") && h.includes("Agus Prasetyo") && h.includes("Penerima") && h.includes("Melda Sari"));
+check("Total Invoice = JUMLAH invoice (bukan nominal)", /Total Invoice<\/span><span class="val">2<\/span>/.test(h));
+check("status internal tidak dicetak", !h.includes(">Dikirim<"));
+
+// --- Kolom sesuai form
+check("kolom: Nama Vendor, No. Invoice, No. Faktur Pajak, No. PO",
+  ["Nama Vendor", "No. Invoice", "No. Faktur Pajak", "No. PO"].every((x) => h.includes(x)));
+check("header kelompok Item Pemeriksaan Kelengkapan (3 kolom)", h.includes("Item Pemeriksaan Kelengkapan") && h.includes('colspan="3"'));
+check("sub-kolom: Bukti Penerimaan Barang (PT. REAL), No DO SUPLIER, Nilai (Inc PPN)",
+  ["Bukti Penerimaan Barang (PT. REAL)", "No DO SUPLIER", "Nilai (Inc PPN)"].every((x) => h.includes(x)));
+check("kolom ✓: Kwitansi, BAST / Timesheet, Kontrak Kerja (Subcon)",
+  ["Kwitansi", "BAST / Timesheet", "Kontrak Kerja (Subcon)"].every((x) => h.includes(x)));
+check("PRINT_CHECKLIST = 4 tanda ✓ (Invoice/PO/Faktur Pajak/DO tidak diulang)",
+  PRINT_CHECKLIST.map((x) => x.key).join() === "bukti_penerimaan,kwitansi,bast,kontrak", PRINT_CHECKLIST.map((x) => x.key));
+
+// --- Simbol checklist
+check("simbol: Lengkap = ✓, Belum Lengkap = ✗, Tidak Berlaku = −",
+  checklistMark("Lengkap") === "✓" && checklistMark("Belum Lengkap") === "✗" && checklistMark("Tidak Berlaku") === "−");
+const marks = (h.match(/class="mark">([^<]+)</g) || []).map((m) => m.replace(/.*>/, "").replace("<", ""));
+check("jumlah simbol sesuai data: 1 ✓, 1 ✗, 6 −", marks.filter((m) => m === "✓").length === 1
+  && marks.filter((m) => m === "✗").length === 1 && marks.filter((m) => m === "−").length === 6, marks);
+
+// --- Data & format
+check("baris vendor + no invoice + faktur pajak + PO + No DO",
+  h.includes("PT. PROFITA ABADI") && h.includes("PA/DO/897654") && h.includes("44423675618930")
+  && h.includes("PO/REAL/26/10/000551") && h.includes("DO/2026/10/00003"));
+check("nilai diformat ribuan koma (1,000,000 & 500,000)", h.includes("1,000,000") && h.includes("500,000"));
+check("tidak ada baris TOTAL nominal (form manual tanpa total)", !h.includes("1,500,000"));
+check("keterangan tercetak bila diisi", h.includes("Mohon dicek kelengkapan faktur pajak."));
+check("tanpa catatan -> blok Keterangan tidak muncul", !buildTransmittalHtml({ doc: { ...doc, notes: "" }, company: {}, autoPrint: false }).includes('class="notes"'));
+
+// --- Baris kosong bernomor sampai minimal 7 baris
+const rowCount = (html) => (html.match(/<tr class="row">/g) || []).length;
+check(`minimal ${MIN_ROWS} baris bernomor (2 data + 5 kosong)`, MIN_ROWS === 7 && rowCount(h) === 7, rowCount(h));
+check("nomor baris terakhir = 7", h.includes('<td class="c">7</td>'));
+check("dokumen tanpa invoice tetap 7 baris kosong",
+  rowCount(buildTransmittalHtml({ doc: { ...doc, items: [] }, company: {}, autoPrint: false })) === 7);
+
+// --- Tanda tangan
+check("tanda tangan Dikirim/Diterima + Nama/Tanggal",
+  h.includes("Dikirim Oleh,") && h.includes("Diterima Oleh,") && h.includes("Nama : Agus Prasetyo") && h.includes("Tanggal : 23/10/2026"));
+
+// --- Cetak
 check("A4 landscape & margin cetak", h.includes("@page{size:A4 landscape;margin:10mm}"));
 check("autoPrint=false tidak memicu window.print", !h.includes("window.print()"));
 check("autoPrint=true memicu window.print", buildTransmittalHtml({ doc, company: {}, autoPrint: true }).includes("window.print()"));
-check("HTML di-escape (tidak ada tag mentah dari input)", !buildTransmittalHtml({ doc: { ...doc, destination: "<script>alert(1)</script>" }, company: {}, autoPrint: false }).includes("<script>alert(1)</script>"));
+check("HTML di-escape (tidak ada tag mentah dari input)",
+  !buildTransmittalHtml({ doc: { ...doc, destination: "<script>alert(1)</script>" }, company: {}, autoPrint: false }).includes("<script>alert(1)</script>"));
 
-// Ringkasan checklist
+// --- Ringkasan checklist
 const sumFull = checklistSummary(full);
 check("ringkasan checklist: Lengkap semua yang wajib", sumFull.complete && sumFull.done === sumFull.required && sumFull.required === 5, sumFull);
 const sumPartial = checklistSummary(partial);
@@ -64,14 +89,14 @@ check("ringkasan checklist: mendeteksi 2 dokumen belum lengkap", !sumPartial.com
 const sumEmpty = checklistSummary(emptyChecklist());
 check("invoice tanpa checklist -> belum lengkap semua (8 wajib)", !sumEmpty.complete && sumEmpty.required === 8, sumEmpty);
 
-// Export PDF massal: satu halaman per transmittal
+// --- Export PDF massal: satu halaman per transmittal
 const doc2 = { ...doc, no: "TRN/2026/10/00008", destination: "Gudang", items: [] };
 const multi = buildTransmittalMultiHtml({ docs: [doc, doc2], autoPrint: false, logoImg: LOGO });
 check("multi: dua bagian dokumen + semua nomor tercetak",
   (multi.match(/<section class="doc">/g) || []).length === 2 && multi.includes("TRN/2026/10/00007") && multi.includes("TRN/2026/10/00008"));
 check("multi: satu transmittal per halaman (page break)", multi.includes(".doc + .doc{break-before:page;page-break-before:always}"));
 check("multi: judul ringkas jumlah dokumen", multi.includes("<title>Transmittal Invoice (2)</title>"));
-check("multi: dokumen tanpa invoice tetap punya placeholder", multi.includes("Tidak ada invoice"));
+check("multi: 2 halaman x 7 baris bernomor", rowCount(multi) === 14, rowCount(multi));
 check("multi: satu window.print untuk seluruh halaman",
   (buildTransmittalMultiHtml({ docs: [doc, doc2], autoPrint: true }).match(/window\.print\(\)/g) || []).length === 1);
 check("multi: escaping tetap berlaku",

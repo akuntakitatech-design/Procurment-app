@@ -1460,3 +1460,34 @@ sesuai yang diisi di PO (mis. `Net 120`, `Cash on Delivery`) — tidak ada perub
   **56 terisi**, contoh nilai `Net 120`, `30`, `Net 60`, `Cash on Delivery`; PO tanpa termin tampil "-".
 - `CI=true yarn build` -> Compiled successfully (27,39 s).
 - Tidak ada pemakaian baru field ini di tempat lain; penambahan key tidak mengubah bentuk respons lama.
+
+---
+
+## 2026-10-29 — Cetak Transmittal Invoice disamakan dengan form manual PT REAL
+
+### Tujuan
+Desain cetak/PDF Transmittal disesuaikan dengan form manual "Pengiriman Transmittal Invoice" milik pemilik
+(lampiran gambar), termasuk kolom **No DO SUPLIER** dan grup **Item Pemeriksaan Kelengkapan**.
+
+### Perubahan (`frontend/src/lib/transmittalPrint.js`, berlaku untuk cetak satuan & export PDF massal)
+- Kop: kiri logo + nama + alamat perusahaan; kanan 3 baris **Pengiriman Transmittal Invoice** /
+  **Vendor Proyek PHR** (teks tetap sesuai keputusan pemilik) / **Tanggal : dd Bulan yyyy**, plus
+  **No : <nomor transmittal>** dengan ukuran font normal.
+- Info 2 kolom sesuai form: kiri **Tujuan / Departemen**, **Penerima**; kanan **Pengirim**, **Total Invoice**
+  = **jumlah invoice** (bukan nominal). Baris "Status" dan "Total Nilai" dihapus.
+- Tabel 2 baris header: `No | Nama Vendor | No. Invoice | No. Faktur Pajak | No. PO |
+  [Item Pemeriksaan Kelengkapan: Bukti Penerimaan Barang (PT. REAL)✓ | No DO SUPLIER | Nilai (Inc PPN)] |
+  Kwitansi✓ | BAST / Timesheet✓ | Kontrak Kerja (Subcon)✓`.
+  Kolom **No DO SUPLIER** berisi nomor DO (bukan tanda ✓) — memanfaatkan perbaikan PO/DO sebelumnya.
+- Minimal **7 baris bernomor** (baris kosong ditambahkan bila invoice kurang), **tanpa baris TOTAL** nominal.
+- Blok **Keterangan** hanya muncul bila catatan diisi.
+- Tanda tangan: **Dikirim Oleh,** / **Diterima Oleh,** dengan **Nama :** dan **Tanggal :**.
+- `PRINT_CHECKLIST` kini 4 tanda ✓ (`bukti_penerimaan`, `kwitansi`, `bast`, `kontrak`); konstanta `MIN_ROWS = 7`.
+
+### Pengujian
+- `frontend/tests/transmittal_print_test.mjs` diperbarui -> **39/39 lulus** (kop, info, kolom, grup header,
+  simbol ✓/✗/−, 7 baris, tanpa total, keterangan opsional, tanda tangan, A4 landscape, autoPrint, escaping,
+  multi-dokumen 2 halaman x 7 baris).
+- Render HTML dari payload produksi nyata (`TRN/2026/10/00005`, invoice 434666, PO/2026/10/00002,
+  DO/2026/10/00003, Rp 5.350.000) -> tampilan sesuai lampiran (bukti: `transmittal-print-new.png`).
+- `CI=true yarn build` -> Compiled successfully (30,78 s).
