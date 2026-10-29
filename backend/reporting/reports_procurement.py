@@ -19,6 +19,8 @@ def _flat(r):
         "po_tax": r.get("po_tax"), "po_total": r.get("po_total"),
         "do_date": j(r.get("do_refs"), "date"), "do_no": j(r.get("do_refs"), "no"), "qty_received": r.get("qty_received"),
         "do_total": r.get("do_total"),
+        "inv_date": r.get("inv_date"), "inv_no": r.get("inv_no"), "qty_invoice": r.get("qty_invoice"),
+        "inv_total": r.get("inv_total"),
         "mi_date": j(r.get("mi_refs"), "date"), "mi_no": j(r.get("mi_refs"), "no"), "qty_mi": r.get("qty_mi"),
         "outstanding": r.get("outstanding"), "status": r.get("status"),
     }
@@ -62,6 +64,9 @@ register(ReportSpec(
         Column("do_date", "Tanggal DO", "date", width=13), Column("do_no", "No. DO", width=22),
         Column("qty_received", "Qty DO", "qty", total=True, width=11),
         Column("do_total", "Total DO (DPP x Qty Diterima)", "money", price=True, total=True, width=18),
+        Column("inv_date", "Tanggal Invoice", "date", width=13), Column("inv_no", "No. Invoice", width=20),
+        Column("qty_invoice", "Qty Invoice", "qty", total=True, width=11),
+        Column("inv_total", "Total Invoice", "money", price=True, total=True, width=15),
         Column("mi_date", "Tanggal MI", "date", width=13), Column("mi_no", "No. MI", width=22),
         Column("qty_mi", "Qty MI", "qty", total=True, width=11),
         Column("outstanding", "Outstanding", "qty", total=True, width=12), Column("status", "Status", width=11),
@@ -69,7 +74,7 @@ register(ReportSpec(
     filters=(Filter("date_from", "Tanggal Awal", "date"), Filter("date_to", "Tanggal Akhir", "date"),
              Filter("division_id", "Divisi", "division"), Filter("status", "Status", "select", STATUS),
              Filter("item_id", "Barang", "item"), Filter("category_id", "Kategori", "category")),
-    search_keys=("item_code", "item_name", "category", "mro_no", "ro_no", "po_no", "do_no", "mi_no"),
+    search_keys=("item_code", "item_name", "category", "mro_no", "ro_no", "po_no", "do_no", "mi_no", "inv_no"),
     drill=lambda r: {"label": r.get("mro_no"), "to": f"/mro/{r.get('mro_id')}"} if r.get("mro_id") else None,
     legacy=("/api/reports/mro-traceability", "/api/reports/mro-traceability/export.xlsx"),
 ))
