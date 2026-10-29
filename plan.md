@@ -1612,3 +1612,14 @@ Menambah 4 kolom invoice pada laporan **MRO Traceability** di Pusat Laporan, tep
 - Tanpa izin harga: 80/80 baris `inv_total = None`, `qty_invoice` tetap terisi.
 - `py_compile` kedua file: OK; `report-center` rows memuat 4 key invoice.
 - `backend/tests/p7_trace_batch_test.py` (T5) tetap aman: query baru bersifat batch/konstan (4 query), bukan per baris.
+
+### Revisi (permintaan pemilik) — Total Invoice memakai **DPP**
+- Basis `Total Invoice` diubah dari `amount` invoice (termasuk pajak) menjadi **`dpp` invoice**:
+  porsi = alokasi DO / total alokasi invoice x DPP invoice. Alokasi hanya menentukan pembagian antar DO.
+- `dpp` diambil dari field invoice: `dpp` -> `amount - tax_amount` -> `amount` (fallback untuk data lama).
+- Rasio qty ikut dinormalkan ke DPP (`faktor = dpp / amount`) agar qty dan nilai konsisten saat alokasi
+  tersimpan termasuk pajak.
+- Bukti data produksi: invoice `4121` (amount 11.100.000, dpp 10.000.000) -> **10.000.000**;
+  `675-673` (33.300 / 30.000) -> **30.000**; `456-0976` (7.881.000 / 7.100.000) -> **7.100.000**;
+  `434666` (5.350.000, tanpa pajak) -> **5.350.000** (tidak berubah).
+- Invarian level DO: **74 DO ber-invoice, 0 selisih** (jumlah baris = Σ porsi DPP invoice per DO).
