@@ -1491,3 +1491,37 @@ Desain cetak/PDF Transmittal disesuaikan dengan form manual "Pengiriman Transmit
 - Render HTML dari payload produksi nyata (`TRN/2026/10/00005`, invoice 434666, PO/2026/10/00002,
   DO/2026/10/00003, Rp 5.350.000) -> tampilan sesuai lampiran (bukti: `transmittal-print-new.png`).
 - `CI=true yarn build` -> Compiled successfully (30,78 s).
+
+---
+
+## 2026-10-29 — Cetak Transmittal: No DO Sistem & No. DO Supplier (surat jalan) + kolom tanda tangan manual
+
+### Tujuan (permintaan pemilik)
+1. Kolom **"Bukti Penerimaan Barang (PT. REAL)"** diganti **"No DO Sistem"** — diambil dari nomor DO sistem.
+2. Kolom **"No DO SUPLIER"** diganti **"No. DO Supplier"** — diambil dari **nomor surat jalan** supplier.
+3. **Pengirim**, **Penerima**, serta **Nama** & **Tanggal** pada blok tanda tangan **dikosongkan** (diisi manual setelah dicetak).
+
+### Perubahan
+- `backend/invoice_transmittal_layer.py`
+  - `trace_map()` menambah `do_supplier_nos` = `supplier_dn` DO terkait (nomor surat jalan supplier).
+  - `snapshot()` menyimpan `do_supplier_nos`; `detail()` melengkapi transmittal lama saat dibaca (tanpa menulis DB).
+    Fallback PO/DO dirapikan: hanya mengisi field yang masih kosong.
+- `frontend/src/lib/transmittalPrint.js`
+  - Header kolom 6 = **No DO Sistem** (isi `do_nos`), kolom 7 = **No. DO Supplier** (isi `do_supplier_nos`).
+  - Grup **Item Pemeriksaan Kelengkapan** tetap mencakup 3 kolom tersebut.
+  - `PRINT_CHECKLIST` kini 3 tanda ✓ (`kwitansi`, `bast`, `kontrak`) — `bukti_penerimaan` tidak lagi dicetak
+    (sudah diwakili No DO Sistem).
+  - Info: nilai **Pengirim** dan **Penerima** dikosongkan (label tetap).
+  - Tanda tangan: **Dikirim Oleh,** / **Diterima Oleh,** + **Nama :** dan **Tanggal :** keduanya kosong.
+- `frontend/tests/transmittal_print_test.mjs` — ekspektasi disesuaikan.
+
+Tanpa skema/DB baru, tanpa env baru. Perilaku transaksi/status tidak berubah (murni tampilan cetak).
+
+### Pengujian
+- `frontend/tests/transmittal_print_test.mjs` -> **44/44 lulus** (termasuk: label kolom baru, `No DO Sistem` =
+  `DO/2026/10/00003`, `No. DO Supplier` = `121336`, kolom lama sudah tidak ada, Pengirim/Penerima & Nama/Tanggal
+  kosong, 7 baris, tanpa total, escaping, multi-dokumen).
+- Backend lewat rantai route aplikasi (data nyata, read-only): payload cetak `TRN/2026/10/00005` memuat
+  `do_nos = DO/2026/10/00003` dan `do_supplier_nos = 121336`.
+- Render HTML dari payload produksi nyata -> sesuai permintaan (bukti: `transmittal-print-v2.png`).
+- `py_compile backend/invoice_transmittal_layer.py` -> OK; `CI=true yarn build` -> Compiled successfully (106,21 s).

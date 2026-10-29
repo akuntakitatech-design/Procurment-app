@@ -90,11 +90,15 @@ def install(server):
         dos = await db().do.find({"id": {"$in": do_ids}}, {"_id": 0}).to_list(len(do_ids) + 5)
         rows = await RC.enrich_list(server, "do", [dict(d) for d in dos], items=False)
         by_do = {r["id"]: r for r in rows if r.get("id")}
+        supplier_dn = {d.get("id"): str(d.get("supplier_dn") or "").strip() for d in dos}
         out = {}
         for inv in invs:
             ts = [by_do.get(d) or {} for d in inv.get("do_ids") or []]
             out[inv["id"]] = {
                 "do_nos": ", ".join(t.get("no") for t in ts if t.get("no")),
+                # Nomor surat jalan (DO) dari supplier — dicetak pada kolom "No. DO Supplier".
+                "do_supplier_nos": ", ".join(dict.fromkeys(
+                    supplier_dn.get(d, "") for d in inv.get("do_ids") or [] if supplier_dn.get(d, ""))),
                 "po_nos": ", ".join(dict.fromkeys(
                     p.strip() for t in ts for p in str(t.get("trace_po") or "").split(",") if p.strip())),
             }
@@ -127,14 +131,17 @@ def install(server):
                 "tax_invoice_date": str(inv.get("tax_invoice_date") or ""),
                 "po_nos": "",
                 "do_nos": "",
+                "do_supplier_nos": "",
                 "amount": round(float(inv.get("amount") or 0), 2),
                 "checklist": checklist_of(inv),
                 "division_ids": list(inv.get("division_ids") or []),
             })
         tr = await trace_map(invs)
         for row, inv in zip(rows, invs):
-            row["po_nos"] = (tr.get(inv["id"]) or {}).get("po_nos", "")
-            row["do_nos"] = (tr.get(inv["id"]) or {}).get("do_nos", "")
+            tt = tr.get(inv["id"]) or {}
+            row["po_nos"] = tt.get("po_nos", "")
+            row["do_nos"] = tt.get("do_nos", "")
+            row["do_supplier_nos"] = tt.get("do_supplier_nos", "")
         return rows
 
     def summarize(rows):
@@ -162,18 +169,21 @@ def install(server):
 
     async def detail(t, user):
         items = await items_of(t["id"])
-        # Transmittal lama tersimpan sebelum perbaikan PO/DO: lengkapi saat dibaca (tanpa menulis DB).
-        blank = [i for i in items if not str(i.get("po_nos") or "").strip() and not str(i.get("do_nos") or "").strip()]
-        if blank:
-            iids = [i["invoice_id"] for i in blank if i.get("invoice_id")]
+        # Transmittal lama: PO/DO/Nomor surat jalan supplier tidak tersimpan — lengkapi saat dibaca (tanpa menulis DB).
+        need = [i for i in items if "do_supplier_nos" not in i
+                or (not str(i.get("po_nos") or "").strip() and not str(i.get("do_nos") or "").strip())]
+        if need:
+            iids = [i["invoice_id"] for i in need if i.get("invoice_id")]
             invs = await db().vendor_invoices.find({"id": {"$in": iids}}, {"_id": 0}).to_list(len(iids) + 5) if iids else []
             tr = await trace_map(invs)
-            for i in blank:
+            for i in need:
                 tt = tr.get(i.get("invoice_id")) or {}
-                if tt.get("po_nos"):
+                if not str(i.get("po_nos") or "").strip() and tt.get("po_nos"):
                     i["po_nos"] = tt["po_nos"]
-                if tt.get("do_nos"):
+                if not str(i.get("do_nos") or "").strip() and tt.get("do_nos"):
                     i["do_nos"] = tt["do_nos"]
+                if "do_supplier_nos" not in i:
+                    i["do_supplier_nos"] = tt.get("do_supplier_nos", "")
         out = dict(t)
         out["items"] = items
         out["history"] = await db().audit_logs.find({"entity": "invoice_transmittal", "entity_id": t["id"]}, {"_id": 0}).sort("at", -1).to_list(500)
