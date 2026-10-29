@@ -125,6 +125,13 @@ async def _ro_rows(server, user):
             mro_no_by_id.setdefault(mh.get("id"), mh.get("no"))
     for d in docs:
         lines = by_doc.get(d["id"], [])
+        # Nama project untuk RO ini: header + seluruh baris, unik dan urut (lebih dari satu project -> dipisah koma).
+        pnames = []
+        for pid in ([d.get("default_project_id")] if d.get("default_project_id") else []) + [ln.get("project_id") for ln in lines]:
+            nm = (m["projects"].get(pid) or {}).get("name") if pid else None
+            if nm and nm not in pnames:
+                pnames.append(nm)
+        ro_projects = ", ".join(pnames)
         for line in lines:
             ordered = done.get(line["id"], 0)
             outstanding = float(line.get("qty") or 0) - float(ordered or 0)
@@ -142,7 +149,8 @@ async def _ro_rows(server, user):
                 "notes": line.get("notes"),
                 "warehouse_id": line.get("warehouse_id"), "project_id": line.get("project_id"),
                 "unit_id": line.get("unit_id"), "warehouse_name": line.get("warehouse_name"),
-                "project_name": line.get("project_name"), "unit_name": line.get("unit_name"),
+                "project_name": line.get("project_name"), "project_names": ro_projects,
+                "unit_name": line.get("unit_name"),
                 "supplier_id": d.get("supplier_id"),
             })
     out = await uom_layer._convert_pull_rows(server, out, "ro_lines", ["qty_ro", "ordered", "outstanding"])

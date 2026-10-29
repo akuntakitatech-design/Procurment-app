@@ -124,7 +124,7 @@ const contractCell = (r) => {
 };
 
 const recKey = (r) => r.recommended_supplier?.supplier_id || MANUAL;
-const searchText = (r) => [r.ro_no, r.item_code, r.item_name, r.division_name, r.primary_supplier_name, ...(r.mro_nos || []), r.spk_label,
+const searchText = (r) => [r.ro_no, r.item_code, r.item_name, r.division_name, r.project_names, r.project_name, r.primary_supplier_name, ...(r.mro_nos || []), r.spk_label,
   ...(r.contract_suppliers || []).map((c) => `${c.supplier_name} ${c.contract_number || ""}`)].join(" ").toLowerCase();
 
 /** Tarik RO — kebutuhan RO dikelompokkan per rekomendasi supplier (Kontrak Aktif -> Supplier Utama -> Pilih Manual). */
@@ -193,7 +193,7 @@ export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, poDate
       <DialogContent className="max-w-[min(96vw,1500px)] max-h-[92vh] overflow-y-auto" data-testid="po-ro-picker">
         <DialogHeader><DialogTitle className="font-head">Tarik RO — Kebutuhan per Rekomendasi Supplier</DialogTitle></DialogHeader>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[280px] flex-1"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari No RO, barang, divisi, supplier utama, MRO, SPK…" className="pl-8" data-testid="po-ro-search" /></div>
+          <div className="relative min-w-[280px] flex-1"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari No RO, barang, divisi, project, supplier utama, MRO, SPK…" className="pl-8" data-testid="po-ro-search" /></div>
           <div className="w-[280px]"><Combobox options={groupOpts} value={group} onChange={setGroup} placeholder="Filter rekomendasi supplier" testid="po-ro-group-filter" /></div>
         </div>
         <p className="text-xs text-muted-foreground">1 PO = 1 Divisi + 1 Supplier. Rekomendasi: Supplier Kontrak Aktif → Supplier Utama → Pilih Manual (bukan penguncian; supplier PO tetap bisa diganti).{lockedDiv ? ` Divisi PO: ${rows.find((r) => r.division_id === lockedDiv)?.division_name || "terpilih"}.` : ""}</p>
@@ -206,13 +206,14 @@ export function PoRoPickerDialog({ open, onClose, divisionId, supplierId, poDate
                 <div className="flex items-center gap-2"><Users className="h-4 w-4 text-muted-foreground" /><span className="font-semibold">{g.name}</span><Badge variant="outline" className="text-[11px]">{g.source}</Badge><span className="text-xs text-muted-foreground">{g.rows.length} barang</span></div>
                 <Button type="button" size="sm" variant="outline" onClick={() => pickGroup(g)} data-testid={`po-ro-group-pick-${g.key === MANUAL ? "manual" : g.key}`}>{g.key === MANUAL ? "Pilih semua di grup ini" : "Pilih grup & jadikan Supplier PO"}</Button>
               </div>
-              <div className="overflow-x-auto"><table className="w-full min-w-[1450px] text-sm"><thead><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="w-10 p-2" /><th className="p-2">No RO</th><th className="p-2">Divisi</th><th className="p-2">Barang</th><th className="p-2 text-right">Qty RO</th><th className="p-2 text-right">Sudah PO</th><th className="p-2 text-right">Sisa PO</th><th className="p-2">Satuan</th><th className="p-2">Supplier Utama</th><th className="p-2">Supplier Kontrak</th><th className="p-2">Harga</th><th className="p-2">MRO Sumber</th><th className="p-2">Alokasi SPK</th><th className="w-32 p-2 text-right">Qty ke PO</th>
+              <div className="overflow-x-auto"><table className="w-full min-w-[1600px] text-sm"><thead><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <th className="w-10 p-2" /><th className="p-2">No RO</th><th className="p-2">Divisi</th><th className="p-2">Project</th><th className="p-2">Barang</th><th className="p-2 text-right">Qty RO</th><th className="p-2 text-right">Sudah PO</th><th className="p-2 text-right">Sisa PO</th><th className="p-2">Satuan</th><th className="p-2">Supplier Utama</th><th className="p-2">Supplier Kontrak</th><th className="p-2">Harga</th><th className="p-2">MRO Sumber</th><th className="p-2">Alokasi SPK</th><th className="w-32 p-2 text-right">Qty ke PO</th>
               </tr></thead><tbody>
                 {g.rows.map((r) => { const on = sel[r.line_id] != null; const dis = blocked(r); const v = sel[r.line_id]; const over = on && (n(v) > n(r.outstanding_base) + EPS || n(v) <= EPS); return (
                   <tr key={r.line_id} className={`border-t ${on ? "bg-primary/5" : ""} ${dis ? "opacity-50" : ""}`} data-testid={`po-ro-row-${r.ro_no}-${r.item_code}`}>
                     <td className="p-2"><Checkbox checked={on} disabled={dis} onCheckedChange={() => toggle(r)} aria-label={`Pilih ${r.item_name}`} data-testid={`po-ro-select-${r.ro_no}-${r.item_code}`} /></td>
                     <td className="p-2 font-mono text-xs font-semibold">{r.ro_no}</td><td className="p-2">{r.division_name || "-"}</td>
+                    <td className="p-2 text-xs max-w-[190px] whitespace-normal" data-testid={`po-ro-project-${r.ro_no}-${r.item_code}`}>{r.project_names || r.project_name || "-"}</td>
                     <td className="p-2"><div className="font-medium">{r.item_name}</div><div className="font-mono text-xs text-muted-foreground">{r.item_code}</div></td>
                     <td className="p-2 text-right tabular-nums">{num(r.qty_ro_base)}</td><td className="p-2 text-right tabular-nums">{num(r.ordered_base)}</td><td className="p-2 text-right font-semibold tabular-nums" data-testid={`po-ro-sisa-${r.ro_no}-${r.item_code}`}>{num(r.outstanding_base)}{n(r.reserved_base) > EPS && <div className="text-[11px] font-normal text-muted-foreground" data-testid={`po-ro-reserved-${r.ro_no}-${r.item_code}`}>di form: {num(r.reserved_base)}</div>}</td>
                     <td className="p-2">{r.base_unit}</td><td className="p-2">{r.primary_supplier_name || "-"}</td>
