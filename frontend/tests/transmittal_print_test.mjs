@@ -40,9 +40,11 @@ check("status internal tidak dicetak", !h.includes(">Dikirim<"));
 // --- Kolom sesuai form
 check("kolom: Nama Vendor, No. Invoice, No. Faktur Pajak, No. PO",
   ["Nama Vendor", "No. Invoice", "No. Faktur Pajak", "No. PO"].every((x) => h.includes(x)));
-check("header kelompok Item Pemeriksaan Kelengkapan (3 kolom)", h.includes("Item Pemeriksaan Kelengkapan") && h.includes('colspan="3"'));
-check("sub-kolom: No DO Sistem, No. DO Supplier, Nilai (Inc PPN)",
-  ["No DO Sistem", "No. DO Supplier", "Nilai (Inc PPN)"].every((x) => h.includes(x)));
+check("header kelompok Item Pemeriksaan Kelengkapan mencakup 9 kolom detail", h.includes("Item Pemeriksaan Kelengkapan") && h.includes('colspan="9"'));
+check("hanya No & Nama Vendor yang 2 baris (rowspan=2)", (h.match(/rowspan="2"/g) || []).length === 2
+  && h.includes('<th rowspan="2" style="width:10mm">No</th>') && h.includes('<th rowspan="2" style="width:38mm">Nama Vendor</th>'));
+check("sub-kolom (baris ke-2): No. Invoice, No. Faktur Pajak, No. PO, No DO Sistem, No. DO Supplier, Nilai (Inc PPN)",
+  ["No. Invoice", "No. Faktur Pajak", "No. PO", "No DO Sistem", "No. DO Supplier", "Nilai (Inc PPN)"].every((x) => h.includes(x)));
 check("kolom lama 'Bukti Penerimaan Barang' & 'No DO SUPLIER' sudah tidak ada",
   !h.includes("Bukti Penerimaan Barang (PT. REAL)") && !h.includes("No DO SUPLIER"));
 check("kolom ✓: Kwitansi, BAST / Timesheet, Kontrak Kerja (Subcon)",

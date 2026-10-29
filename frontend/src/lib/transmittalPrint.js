@@ -77,20 +77,20 @@ const docBody = ({ doc, company, logoImg }) => {
     <table>
       <thead>
         <tr>
-          <th rowspan="2" style="width:8mm">No</th>
+          <th rowspan="2" style="width:10mm">No</th>
           <th rowspan="2" style="width:38mm">Nama Vendor</th>
-          <th rowspan="2" style="width:24mm">No. Invoice</th>
-          <th rowspan="2" style="width:30mm">No. Faktur Pajak</th>
-          <th rowspan="2" style="width:28mm">No. PO</th>
-          <th colspan="3">Item Pemeriksaan Kelengkapan</th>
-          <th rowspan="2" style="width:17mm">Kwitansi</th>
-          <th rowspan="2" style="width:20mm">BAST / Timesheet</th>
-          <th rowspan="2" style="width:22mm">Kontrak Kerja (Subcon)</th>
+          <th colspan="9">Item Pemeriksaan Kelengkapan</th>
         </tr>
         <tr>
-          <th style="width:27mm">No DO Sistem</th>
-          <th style="width:28mm">No. DO Supplier</th>
-          <th style="width:26mm">Nilai (Inc PPN)</th>
+          <th style="width:27mm">No. Invoice</th>
+          <th style="width:29mm">No. Faktur Pajak</th>
+          <th style="width:28mm">No. PO</th>
+          <th style="width:28mm">No DO Sistem</th>
+          <th style="width:32mm">No. DO Supplier</th>
+          <th style="width:24mm">Nilai (Inc PPN)</th>
+          <th style="width:13mm">Kwitansi</th>
+          <th style="width:13mm">BAST / Timesheet</th>
+          <th style="width:16mm">Kontrak Kerja (Subcon)</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
