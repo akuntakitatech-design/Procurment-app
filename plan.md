@@ -1309,3 +1309,29 @@ menampilkan desimal — dibulatkan ke rupiah.
 - `src/lib/poTaxV2.test.mjs` tidak dapat dijalankan di Windows (harness lama memakai `import()` dengan path
   Windows -> `ERR_UNSUPPORTED_ESM_URL_SCHEME`); ekspektasi angka sudah disesuaikan.
 - Nilai tersimpan (DPP/PPN/grand total) tidak diubah; hanya format tampilan/cetak. Redeploy frontend saja.
+
+---
+
+## 2026-10-29 — PO: nama project pada dialog "Tarik RO"
+
+### Tujuan
+Saat Tarik RO di transaksi PO, baris kebutuhan RO menampilkan nama project. Bila satu RO memakai lebih dari
+satu project (header + baris berbeda), semua nama project ditampilkan dan dipisah koma.
+
+### Perubahan
+- `backend/pull_source_eligibility_layer.py` — `_ro_rows` menambahkan field `project_names` per baris:
+  agregasi `default_project_id` header RO + `project_id` seluruh baris RO, unik dan urut, di-resolve dari
+  `maps()["projects"]` (fallback `code` tidak dipakai; konsisten dengan `enrich_line` yang memakai `name`).
+- `frontend/src/components/po/PoRoSplit.jsx` — kolom **Project** setelah **Divisi**
+  (`data-testid="po-ro-project-<ro_no>-<item_code>"`), nilai `project_names || project_name || "-"`;
+  teks pencarian dialog menyertakan project; `min-w` tabel 1450px -> 1600px.
+
+Catatan: `doc_procurement.pull_ro_for_po` bukan implementasi live — `pull_source_eligibility_layer.install()`
+menghapus route `/api/pull/ro-for-po` lalu mendaftarkan `_ro_rows`; karena itu perubahan hanya di layer tersebut.
+
+### Pengujian
+- Payload live via rantai route aplikasi (`_resolve_current` tanpa dokumen aktif): **18 baris**, **13 RO unik**,
+  13/13 punya `project_names`; **2 RO multi-project** -> `RO/2026/10/00010 = "OMSS, WUR-MD"`,
+  `RO/2026/10/00027 = "EW PPPRE, WUR MD"`; RO pada screenshot `RO/2026/10/00019` & `RO/2026/10/00021` = `EW PPPRE`.
+- `CI=true yarn build` -> **Compiled successfully / Done in 59,44 s**.
+- Tidak ada perubahan skema/DB, tidak ada env baru; murni aditif (field tambahan pada respons).
