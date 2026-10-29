@@ -376,6 +376,8 @@ def install(server):
                 "supplier_name": context_name if module == "po" else None,
                 "project_id": doc.get("default_project_id"),
                 "project_name": projects.get(doc.get("default_project_id")) or "",
+                # Termin pembayaran hanya ada di PO (teks bebas, mis. "Net 30"/"Cash on Delivery"); modul lain None.
+                "payment_term": doc.get("payment_term"),
                 "grand_total": grand_total,
                 "document_status": doc.get("approval_status") or doc.get("status"),
             })

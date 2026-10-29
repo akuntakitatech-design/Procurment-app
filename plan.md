@@ -1437,3 +1437,26 @@ angka/nilai invoice, pembayaran, atau stok.
   sinyal verifikasi setelah deploy.
 - `py_compile backend/invoice_transmittal_layer.py` -> OK.
 - Belum dijalankan: `backend/invoice_transmittal_integrity_test.py` (butuh backend uji + DB terpisah).
+
+---
+
+## 2026-10-29 — Menu Approval: kolom Termin Pembayaran
+
+### Tujuan
+Daftar Approval belum menampilkan termin pembayaran, padahal approver perlu melihatnya saat menyetujui PO.
+
+### Perubahan
+- `backend/approval_email_layer.py` — `/api/approvals/inbox` menambahkan field `payment_term` pada setiap baris
+  (diambil dari dokumen; hanya PO yang punya nilai — modul lain `None`).
+- `frontend/src/pages/Approval.jsx` — kolom **Termin Pembayaran** setelah Project
+  (`data-testid="approval-term-<no dokumen>"`), nilai `payment_term || "-"`; teks pencarian menyertakan termin;
+  `colSpan` 10 -> 11; lebar minimum tabel 1100px -> 1240px.
+
+Tanpa skema/DB baru, tanpa env baru, aditif (respons hanya bertambah satu field). Nilai ditampilkan apa adanya
+sesuai yang diisi di PO (mis. `Net 120`, `Cash on Delivery`) — tidak ada perubahan/normalisasi data.
+
+### Pengujian
+- Read-only lewat rantai route aplikasi (data nyata): inbox **60 baris**, semua punya key `payment_term`;
+  **56 terisi**, contoh nilai `Net 120`, `30`, `Net 60`, `Cash on Delivery`; PO tanpa termin tampil "-".
+- `CI=true yarn build` -> Compiled successfully (27,39 s).
+- Tidak ada pemakaian baru field ini di tempat lain; penambahan key tidak mengubah bentuk respons lama.
