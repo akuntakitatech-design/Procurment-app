@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { num, fmtDateTime } from "@/lib/format";
-import { Search, Package, PackageX, TriangleAlert, TrendingUp, RotateCcw } from "lucide-react";
+import { Search, Package, PackageX, TriangleAlert, TrendingUp, RotateCcw, CircleOff } from "lucide-react";
 
 const ALL = "__all__";
 
@@ -53,7 +53,7 @@ export default function Inventory() {
   const [categoryFilter, setCategoryFilter] = useState(ALL);
   const [warehouseFilter, setWarehouseFilter] = useState(ALL);
   const [sp, setSp] = useSearchParams();
-  const STATUS_OK = ["Out of Stock", "Low Stock", "Overstock", "Normal", "No Stock"];
+  const STATUS_OK = ["Out of Stock", "Low Stock", "Overstock", "Normal", "No Stock", "Without Stock"];
   const [statusFilter, setStatusFilter] = useState(STATUS_OK.includes(sp.get("stock_status")) ? sp.get("stock_status") : ALL);
   const divisionId = sp.get("division_id") || ""; // drill-down Dashboard (filter Divisi yang sama)
   const list = useServerList("/inventory/item-stock", {
@@ -100,11 +100,12 @@ export default function Inventory() {
       <Tabs defaultValue="position">
         <TabsList><TabsTrigger value="position" data-testid="inv-tab-position">Posisi Stok</TabsTrigger><TabsTrigger value="ledger" data-testid="inv-tab-ledger">Kartu Stok (Ledger)</TabsTrigger></TabsList>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-5">
           <SummaryCard testid="inv-summary-total" title="Jumlah Item" value={summary.total} subtitle="Barang aktif pada filter" icon={Package} active={statusFilter === ALL} onClick={() => setStatusFilter(ALL)} />
           <SummaryCard testid="inv-summary-out" title="Stok Habis" value={summary.out_of_stock} subtitle={summary.no_stock ? `Total stok = 0 · ${num(summary.no_stock)} belum ada stok` : "Total stok = 0"} icon={PackageX} active={statusFilter === "Out of Stock"} onClick={() => toggle("Out of Stock")} />
           <SummaryCard testid="inv-summary-low" title="Stok Menipis" value={summary.low_stock} subtitle="Sudah mencapai batas minimum" icon={TriangleAlert} active={statusFilter === "Low Stock"} onClick={() => toggle("Low Stock")} />
           <SummaryCard testid="inv-summary-over" title="Overstock" value={summary.overstock} subtitle="Melebihi batas maksimum" icon={TrendingUp} active={statusFilter === "Overstock"} onClick={() => toggle("Overstock")} />
+          <SummaryCard testid="inv-summary-without" title="Tanpa Stok" value={summary.without_stock || 0} subtitle="Jasa / sewa / perizinan" icon={CircleOff} active={statusFilter === "Without Stock"} onClick={() => toggle("Without Stock")} />
         </div>
 
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -174,7 +175,7 @@ export default function Inventory() {
             </table>
           </div>
           <ListPager total={list.total} page={list.page} pageSize={list.pageSize} setPage={list.setPage} setPageSize={list.setPageSize} testid="inventory" unit="barang" />
-          <p className="mt-2 text-xs text-muted-foreground">Hanya barang aktif. "Belum ada stok" = barang belum memiliki catatan stok di gudang tersebut (dihitung Stok Habis). Min/Max tetap dipakai sistem untuk menentukan status stok, tetapi disembunyikan dari tabel agar tampilan lebih ringkas.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Hanya barang aktif. "Belum ada stok" = barang belum memiliki catatan stok di gudang tersebut (dihitung Stok Habis). "Tanpa Stok" = barang jasa/sewa/perizinan yang ditandai di master barang (tidak dihitung Stok Habis/Menipis/Overstock). Min/Max tetap dipakai sistem untuk menentukan status stok, tetapi disembunyikan dari tabel agar tampilan lebih ringkas.</p>
         </TabsContent>
 
         <TabsContent value="ledger" className="mt-4">

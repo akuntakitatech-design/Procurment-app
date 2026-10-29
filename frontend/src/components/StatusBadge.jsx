@@ -39,6 +39,8 @@ const MAP = {
   "low stock": "bg-amber-50 text-amber-700 border-amber-200",
   normal: "bg-emerald-50 text-emerald-700 border-emerald-200",
   overstock: "bg-violet-50 text-violet-700 border-violet-200",
+  // Barang bertanda tanpa stok (jasa/sewa/perizinan) — bukan "no stock"/belum ada catatan stok.
+  "without stock": "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
   diterima: "bg-indigo-50 text-indigo-700 border-indigo-200",
   "belum dibayar": "bg-rose-50 text-rose-700 border-rose-200",
   "dibayar sebagian": "bg-amber-50 text-amber-700 border-amber-200",
@@ -72,6 +74,7 @@ const LABEL_ID = {
   "partially received": "Diterima Sebagian", "fully received": "Diterima Penuh", "over receipt": "Penerimaan Berlebih",
   posted: "Diposting", completed: "Selesai", closed: "Ditutup", cancelled: "Dibatalkan", submitted: "Diajukan",
   counting: "Penghitungan", review: "Review", "out of stock": "Stok Habis", "low stock": "Stok Rendah", overstock: "Stok Berlebih",
+  "without stock": "Tanpa Stok",
 };
 
 export function StatusBadge({ status, className }) {
