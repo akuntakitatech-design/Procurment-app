@@ -1402,3 +1402,38 @@ status tanpa stok barang yang sudah ada.
   tetap terbaca dan barisnya tidak memuat key `without_stock`.
 - `py_compile backend/excel_import_layer.py` -> OK.
 - Tanpa perubahan frontend, tidak perlu build ulang; tanpa skema/DB baru, tanpa env baru.
+
+---
+
+## 2026-10-29 — Transmittal Invoice: kolom PO & DO kosong
+
+### Masalah
+Halaman detail Transmittal Invoice menampilkan "-" pada kolom **PO** dan **DO** walaupun invoice sumber punya DO/PO.
+Contoh nyata (produksi, transmittal `d97a4aa7-bcff-4394-a270-7e9952fa671c`): invoice `434666` punya
+`DO/2026/10/00003` -> `PO/2026/10/00002`, tetapi item transmittal tersimpan `po_nos: ""`, `do_nos: ""`.
+
+### Akar masalah
+`invoice_transmittal_layer.snapshot()` membaca `inv["trace_po"]` dan `inv["do_nos"]` seolah tersimpan di dokumen
+invoice. Kenyataannya kedua field itu **dihitung saat baca** oleh `vendor_invoice_layer.enrich()` (dari DO), tidak
+pernah dipersistensikan — sehingga selalu kosong. `eligible_invoices()` punya bug yang sama.
+
+### Perbaikan (backend saja)
+- `invoice_transmittal_layer.py` — helper `trace_map(invs)`: hitung No DO + PO per invoice dari `do_ids` memakai
+  sumber yang sama dengan daftar invoice (`receipt_control_layer.enrich_list`).
+- `snapshot()` memakai `trace_map` -> transmittal baru menyimpan PO/DO yang benar.
+- `detail()` (dipakai juga oleh cetak/print) melengkapi item lama yang `po_nos`/`do_nos` masih kosong saat dibaca —
+  **tanpa menulis DB** (tanpa migrasi/backfill).
+- `eligible_invoices()` memakai `trace_map` -> daftar pilihan invoice juga menampilkan PO/DO.
+
+Frontend tidak diubah (sudah membaca `i.po_nos` / `i.do_nos`). Tanpa skema/DB baru, tanpa env baru, tanpa perubahan
+angka/nilai invoice, pembayaran, atau stok.
+
+### Pengujian
+- Read-only lewat rantai route aplikasi (data nyata): transmittal `d97a4aa7-…` ->
+  DETAIL `po_nos = PO/2026/10/00002`, `do_nos = DO/2026/10/00003`; PRINT sama; `eligible-invoices` 57/57 baris
+  ber-PO/DO (sebelumnya kosong).
+- Baseline production sebelum deploy: 2 invoice ber-DO (`PO/2026/10/00054` + `DO/2026/10/00004`,
+  `PO/2026/10/00047` + `DO/2026/10/00002`) tetapi `eligible` masih `po_nos: ""`, `do_nos: ""` -> dipakai sebagai
+  sinyal verifikasi setelah deploy.
+- `py_compile backend/invoice_transmittal_layer.py` -> OK.
+- Belum dijalankan: `backend/invoice_transmittal_integrity_test.py` (butuh backend uji + DB terpisah).
