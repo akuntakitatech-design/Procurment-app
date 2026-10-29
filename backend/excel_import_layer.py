@@ -24,10 +24,10 @@ MASTER_DATASETS = {
         "label": "Master Barang",
         "columns": [
             "code", "name", "alias", "category_code", "division_code", "base_uom_code",
-            "brand", "part_number", "spec", "primary_supplier_code", "is_active",
+            "brand", "part_number", "spec", "primary_supplier_code", "is_active", "without_stock",
         ],
         "required": ["code", "name", "category_code", "division_code", "base_uom_code"],
-        "example": ["BRG-00001", "RANTAI BESI 5/8 PANJANG 8 M", "Rantai 5/8", "SPAREPART", "OPS", "PCS", "", "", "", "SUP-00001", "Ya"],
+        "example": ["BRG-00001", "RANTAI BESI 5/8 PANJANG 8 M", "Rantai 5/8", "SPAREPART", "OPS", "PCS", "", "", "", "SUP-00001", "Ya", "Tidak"],
     },
     "suppliers": {
         "label": "Master Supplier",
@@ -135,6 +135,20 @@ def _bool(v, default=False):
     return _text(v).lower() in ("1", "true", "ya", "y", "yes", "aktif", "include", "included")
 
 
+def _parse_without_stock(v):
+    """Status Tanpa Stok dari Excel -> (nilai, valid).
+    True = tanpa stok (jasa/sewa/perizinan), False = pakai stok, None = sel kosong / kolom tidak ada
+    (nilai item TIDAK diubah; insert: default pakai stok). Nilai di luar daftar -> valid=False."""
+    t = _text(v).lower()
+    if t == "":
+        return None, True
+    if t in ("1", "true", "ya", "y", "yes", "on", "tanpa stok", "non stok", "nonstock", "non-stock"):
+        return True, True
+    if t in ("0", "false", "tidak", "no", "n", "off", "pakai stok", "ada stok", "dengan stok"):
+        return False, True
+    return None, False
+
+
 def _float(v, default=0.0):
     if v is None or _text(v) == "":
         return default
@@ -218,6 +232,8 @@ def _template_bytes(key, spec):
         guide.append(["line_warehouse_code", "Opsional. Gudang per baris barang (multi gudang dalam 1 dokumen). Kosong = memakai warehouse_code (Gudang Default)."])
         guide.append(["Nomor transaksi", "Nomor resmi tetap dibuat otomatis oleh sistem saat import."])
         guide.append(["Sumber", "Isi source_mro_no/source_ro_no/source_po_no bila transaksi harus menjaga traceability."])
+    if key == "items":
+        guide.append(["without_stock", "Opsional. Isi Ya untuk barang jasa/sewa/perizinan (status Tanpa Stok: tidak dihitung Stok Habis/Menipis/Overstock). Isi Tidak untuk barang yang memakai stok. Kosongkan bila tidak ingin mengubah status saat memperbarui barang lama."])
     if key == "stock_limits":
         guide.append(["current_stock", "Opsional. Kosongkan bila hanya mengubah Min/Max. Isi hanya saat setup saldo/stock awal yang sudah disetujui."])
     guide.column_dimensions["A"].width = 24
@@ -304,6 +320,11 @@ async def _import_master(server, key, rows, user):
                 "brand": _text(r.get("brand")) or None, "part_number": _text(r.get("part_number")) or None,
                 "spec": _text(r.get("spec")) or None, "is_active": _bool(r.get("is_active"), True),
             })
+            ws, ws_ok = _parse_without_stock(r.get("without_stock", r.get("tanpa_stok")))
+            if not ws_ok:
+                errors.append(f"Baris {n}: without_stock harus Ya (tanpa stok) atau Tidak (pakai stok)")
+            elif ws is not None:  # sel kosong / kolom tidak ada -> status item tidak diubah
+                prepared[-1]["without_stock"] = ws
             sup_code = _text(r.get("primary_supplier_code"))
             if sup_code:
                 sup_id = _ref(maps, "suppliers", sup_code, n, "primary_supplier_code", errors)

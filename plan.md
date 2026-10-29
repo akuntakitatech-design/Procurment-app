@@ -1370,3 +1370,35 @@ Tanpa skema/DB baru (field hanya tersimpan di dokumen item), tanpa env baru, tid
 - `CI=true yarn build` -> **Compiled successfully (24,54 s)**.
 - Belum dijalankan: `backend/tests/master_item_stock_test.py` (butuh backend uji + tenant QA sementara; tidak tersedia
   di laptop ini) — blok uji Tanpa Stok ditambahkan agar ikut jalan pada harness repo.
+
+---
+
+## 2026-10-29 — Import Excel Master Barang: kolom `without_stock` (Tanpa Stok)
+
+### Tujuan
+Template impor Master Barang belum bisa menetapkan status **Tanpa Stok** (jasa/sewa/perizinan) secara massal.
+Kolom `without_stock` ditambahkan ke template & parser agar status bisa diisi via Excel.
+
+### Perubahan
+- `backend/excel_import_layer.py`
+  - `MASTER_DATASETS["items"]["columns"]` + `"without_stock"` (kolom terakhir, **opsional**, tidak masuk `required`);
+    contoh baris di template = `Tidak` (barang pakai stok).
+  - `_parse_without_stock(v)` -> `(nilai, valid)`: `Ya/Tanpa Stok/1/true` -> True; `Tidak/Pakai Stok/0/false` -> False;
+    sel kosong / kolom tidak ada -> `None` (nilai item **tidak diubah**, insert default pakai stok);
+    nilai lain -> `valid=False` sehingga import berhenti dengan pesan `Baris N: without_stock harus Ya ... atau Tidak ...`
+    (impor bersifat all-or-nothing, tidak ada baris setengah tersimpan).
+  - Header alternatif `tanpa_stok` juga diterima.
+  - Sheet `Petunjuk` menjelaskan kolom baru.
+- Tidak ada perubahan frontend: halaman Import Excel membaca spesifikasi dari `/api/excel/datasets`,
+  dan template diunduh dari `/api/excel/template/items`.
+
+Kompatibilitas: template lama (11 kolom, tanpa `without_stock`) tetap lolos `_check_headers` dan **tidak mengubah**
+status tanpa stok barang yang sudah ada.
+
+### Pengujian
+- Verifikasi read-only **17/17 cek lulus**: header template `items` = spec (12 kolom, contoh 12 nilai), kolom
+  `without_stock` ada & tidak wajib, Petunjuk memuat penjelasan, parser 15 kasus (termasuk menolak nilai tak dikenal
+  dan menerima `Tanpa Stok`/`Pakai Stok`), template lama tetap diterima, file `template_items.xlsx` milik pemilik
+  tetap terbaca dan barisnya tidak memuat key `without_stock`.
+- `py_compile backend/excel_import_layer.py` -> OK.
+- Tanpa perubahan frontend, tidak perlu build ulang; tanpa skema/DB baru, tanpa env baru.
