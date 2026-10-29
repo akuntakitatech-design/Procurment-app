@@ -1576,3 +1576,39 @@ kolom detail** (bukan hanya 3 kolom).
 - Render HTML dari payload produksi nyata (`TRN/2026/10/00005`) dengan emulasi media cetak -> header sesuai lampiran
   (bukti: `transmittal-print-v4.png`).
 - `CI=true yarn build` -> Compiled successfully (31,99 s).
+
+---
+
+## 2026-10-29 — Laporan MRO Traceability: kolom invoice (tanggal, no, qty, total)
+
+### Tujuan (permintaan pemilik)
+Menambah 4 kolom invoice pada laporan **MRO Traceability** di Pusat Laporan, tepat setelah
+**Total DO (DPP x Qty Diterima)**: **Tanggal Invoice, No. Invoice, Qty Invoice, Total Invoice**.
+
+### Perubahan (`backend/report_trace_detail.py`, `backend/reporting/reports_procurement.py`)
+- Helper `_po_unit_dpp(po_line)` — DPP per unit baris PO (snapshot `dpp`, fallback gross - diskon,
+  tax-inclusive dinormalkan). Rumus sama dengan Total DO laporan.
+- Helper `_attach_invoices(server, rows, show_financial)` — menghitung 4 kolom invoice per baris MRO x barang dari
+  DO yang sudah ditelusuri (`_do_qty`):
+  - nilai DO = SUM(DPP per unit x qty diterima); qty DO = SUM(qty diterima)
+  - `billed` = alokasi invoice per DO (`vendor_invoice_allocations`), fallback `amount` invoice bila invoice hanya 1 DO
+  - **Qty Invoice** = qty baris pada DO x min(1, alokasi DO / nilai DO). Invoice di aplikasi ini menagih **DO**
+    (nominal, tanpa qty), jadi qty diturunkan proporsional dari data existing — bukan angka baru.
+  - **Total Invoice** = porsi nilai invoice untuk DO x (qty baris / qty DO), dengan
+    porsi = alokasi DO / total alokasi invoice x `amount` invoice. Normalisasi ke `amount` perlu karena alokasi
+    tersimpan sebagai DPP sementara `amount` invoice termasuk pajak, sehingga jumlah seluruh baris untuk satu
+    invoice = nilai invoice.
+  - Tanpa izin `view_purchase_price` -> `inv_total = None` (kolom otomatis disembunyikan `ReportSpec.visible_columns`).
+- Excel export: 4 header + 4 nilai baru; `money_cols` menambah 26 (Total Invoice); `qty_cols` menambah 25
+  (Qty Invoice); lebar kolom 31 entri.
+- ReportSpec `mro-traceability`: 4 `Column` baru (`inv_date`, `inv_no`, `qty_invoice`, `inv_total`) setelah
+  `do_total`; `inv_total` bertanda `price=True` + `total=True`; `search_keys` menambah `inv_no`.
+
+### Pengujian (data produksi, read-only)
+- Builder: **368 baris**; **80 baris** ber-invoice (16 nomor invoice unik).
+- Kasus acuan `DO/2026/10/00003` -> invoice `434666`:
+  2.377.777,78 + 1.188.888,89 + 1.783.333,33 = **5.350.000,00** (= nilai invoice).
+- Invarian level DO: **74 DO ber-invoice, 0 selisih** antara jumlah Total Invoice baris dan porsi nilai invoice DO.
+- Tanpa izin harga: 80/80 baris `inv_total = None`, `qty_invoice` tetap terisi.
+- `py_compile` kedua file: OK; `report-center` rows memuat 4 key invoice.
+- `backend/tests/p7_trace_batch_test.py` (T5) tetap aman: query baru bersifat batch/konstan (4 query), bukan per baris.
