@@ -78,6 +78,28 @@ def install(server):
         tmap = {t["id"]: t for t in trs}
         return {i["invoice_id"]: tmap.get(i["transmittal_id"]) for i in items if i.get("transmittal_id") in tmap}
 
+    async def trace_map(invs):
+        """No DO + PO per invoice untuk baris transmittal.
+        `do_nos`/`trace_po` TIDAK disimpan di dokumen invoice — keduanya dihitung dari DO saat daftar/detail invoice
+        dibaca (vendor_invoice_layer). Transmittal memakai sumber yang sama (receipt_control_layer.enrich_list)
+        supaya kolom PO/DO tidak kosong."""
+        do_ids = sorted({d for inv in invs for d in inv.get("do_ids") or []})
+        if not do_ids:
+            return {}
+        import receipt_control_layer as RC
+        dos = await db().do.find({"id": {"$in": do_ids}}, {"_id": 0}).to_list(len(do_ids) + 5)
+        rows = await RC.enrich_list(server, "do", [dict(d) for d in dos], items=False)
+        by_do = {r["id"]: r for r in rows if r.get("id")}
+        out = {}
+        for inv in invs:
+            ts = [by_do.get(d) or {} for d in inv.get("do_ids") or []]
+            out[inv["id"]] = {
+                "do_nos": ", ".join(t.get("no") for t in ts if t.get("no")),
+                "po_nos": ", ".join(dict.fromkeys(
+                    p.strip() for t in ts for p in str(t.get("trace_po") or "").split(",") if p.strip())),
+            }
+        return out
+
     async def snapshot(invoice_ids, user, exclude_tid=None):
         """Ambil data invoice (vendor, no invoice, faktur pajak, PO, nilai, checklist) untuk item transmittal."""
         if not invoice_ids:
@@ -86,13 +108,14 @@ def install(server):
         if len(uniq) != len(invoice_ids):
             raise HTTPException(400, "Invoice yang sama tidak boleh dipilih dua kali")
         active = await active_links(exclude_tid)
-        rows = []
+        rows, invs = [], []
         for iid in uniq:
             inv = await inv_of(iid, user)
             busy = active.get(iid)
             if busy:
                 raise HTTPException(409, f"Invoice {inv.get('invoice_no') or inv.get('no')} masih berada pada Transmittal aktif {busy.get('no')} ({busy.get('status')}).")
             sup = await db().suppliers.find_one({"id": inv.get("supplier_id")}, {"_id": 0, "id": 1, "name": 1}) or {}
+            invs.append(inv)
             rows.append({
                 "invoice_id": iid,
                 "invoice_no": inv.get("invoice_no"),
@@ -102,12 +125,16 @@ def install(server):
                 "supplier_name": sup.get("name") or inv.get("supplier_name") or "",
                 "tax_invoice_no": str(inv.get("tax_invoice_no") or ""),
                 "tax_invoice_date": str(inv.get("tax_invoice_date") or ""),
-                "po_nos": str(inv.get("trace_po") or ""),
-                "do_nos": ", ".join(inv.get("do_nos") or []) if isinstance(inv.get("do_nos"), list) else str(inv.get("do_nos") or ""),
+                "po_nos": "",
+                "do_nos": "",
                 "amount": round(float(inv.get("amount") or 0), 2),
                 "checklist": checklist_of(inv),
                 "division_ids": list(inv.get("division_ids") or []),
             })
+        tr = await trace_map(invs)
+        for row, inv in zip(rows, invs):
+            row["po_nos"] = (tr.get(inv["id"]) or {}).get("po_nos", "")
+            row["do_nos"] = (tr.get(inv["id"]) or {}).get("do_nos", "")
         return rows
 
     def summarize(rows):
@@ -135,6 +162,18 @@ def install(server):
 
     async def detail(t, user):
         items = await items_of(t["id"])
+        # Transmittal lama tersimpan sebelum perbaikan PO/DO: lengkapi saat dibaca (tanpa menulis DB).
+        blank = [i for i in items if not str(i.get("po_nos") or "").strip() and not str(i.get("do_nos") or "").strip()]
+        if blank:
+            iids = [i["invoice_id"] for i in blank if i.get("invoice_id")]
+            invs = await db().vendor_invoices.find({"id": {"$in": iids}}, {"_id": 0}).to_list(len(iids) + 5) if iids else []
+            tr = await trace_map(invs)
+            for i in blank:
+                tt = tr.get(i.get("invoice_id")) or {}
+                if tt.get("po_nos"):
+                    i["po_nos"] = tt["po_nos"]
+                if tt.get("do_nos"):
+                    i["do_nos"] = tt["do_nos"]
         out = dict(t)
         out["items"] = items
         out["history"] = await db().audit_logs.find({"entity": "invoice_transmittal", "entity_id": t["id"]}, {"_id": 0}).sort("at", -1).to_list(500)
@@ -195,6 +234,7 @@ def install(server):
         invs = await db().vendor_invoices.find({}, {"_id": 0}).to_list(100000)
         sups = {s["id"]: s.get("name") for s in await db().suppliers.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(5000)}
         out = []
+        picked = []
         for inv in invs:
             if inv["id"] in active:
                 continue
@@ -206,11 +246,16 @@ def install(server):
                         break
                 if not visible:
                     continue
+            picked.append(inv)
+        tr = await trace_map(picked)
+        for inv in picked:
             out.append({
                 "id": inv["id"], "no": inv.get("no"), "invoice_no": inv.get("invoice_no"),
                 "invoice_date": inv.get("invoice_date"), "supplier_name": sups.get(inv.get("supplier_id")) or "",
-                "tax_invoice_no": str(inv.get("tax_invoice_no") or ""), "po_nos": str(inv.get("trace_po") or ""),
-                "do_nos": str(inv.get("do_nos") or ""), "amount": round(float(inv.get("amount") or 0), 2),
+                "tax_invoice_no": str(inv.get("tax_invoice_no") or ""),
+                "po_nos": (tr.get(inv["id"]) or {}).get("po_nos", ""),
+                "do_nos": (tr.get(inv["id"]) or {}).get("do_nos", ""),
+                "amount": round(float(inv.get("amount") or 0), 2),
                 "doc_checklist": checklist_of(inv),
             })
         return out
