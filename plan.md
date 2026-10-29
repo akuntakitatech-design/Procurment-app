@@ -1623,3 +1623,30 @@ Menambah 4 kolom invoice pada laporan **MRO Traceability** di Pusat Laporan, tep
   `675-673` (33.300 / 30.000) -> **30.000**; `456-0976` (7.881.000 / 7.100.000) -> **7.100.000**;
   `434666` (5.350.000, tanpa pajak) -> **5.350.000** (tidak berubah).
 - Invarian level DO: **74 DO ber-invoice, 0 selisih** (jumlah baris = Σ porsi DPP invoice per DO).
+
+---
+
+## 2026-10-29 — Laporan MRO Traceability: kolom No. SPK
+
+### Tujuan (permintaan pemilik)
+Menampilkan **No. SPK** pada laporan MRO Traceability, kolom **setelah Satuan**. Jika satu item memakai lebih dari
+satu SPK, semuanya digabung dalam satu kolom dan dipisahkan **koma**.
+
+### Perubahan (`backend/report_trace_detail.py`, `backend/reporting/reports_procurement.py`)
+- `trace_batch()` memuat batch `procurement_item_spk_allocations` (`source_type="mro"`) + dokumen `spk`
+  (2 query batch tambahan; tetap konstan, bukan per baris).
+- `_build_rows()` mengumpulkan nomor SPK per baris MRO x barang dari alokasi SPK baris MRO (hanya qty > 0),
+  di-dedupe, diurutkan, lalu di-join dengan `", "` ke `spk_no`.
+- `_flat()` + ReportSpec `mro-traceability`: kolom baru **No. SPK** (`spk_no`) tepat setelah **Satuan**;
+  `search_keys` menambah `spk_no` (pencarian berdasarkan no SPK).
+- Excel export: header & nilai **No. SPK** di kolom ke-5; indeks format uang/qty dan lebar kolom disesuaikan
+  (32 kolom). Kolom lain tidak berubah.
+- Catatan: baris tanpa alokasi SPK dibiarkan **kosong** (tidak diberi label "Non-SPK") sesuai permintaan.
+
+### Pengujian (data produksi, read-only)
+- 368 baris; **27 baris ber-SPK** — 25 baris 1 SPK, **2 baris 2 SPK** (contoh: `01234, SPK017323`).
+- 16 nomor SPK unik pada laporan, **16/16 ditemukan** di master `spk` (tidak ada nomor karangan).
+- Urutan kolom terverifikasi: `... kategori, unit, spk_no, mro_date ...`.
+- Excel: **32 kolom**, `No. SPK` di kolom 5, `Total DO` kolom 23, `Total Invoice` kolom 27,
+  `Qty DO` 22, `Qty Invoice` 26, `Outstanding` 31 — format uang/qty tepat.
+- `py_compile` kedua file: OK.

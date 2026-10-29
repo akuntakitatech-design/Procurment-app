@@ -243,6 +243,10 @@ async def trace_batch(server, mro_ids, line_filter=None):
     lids = [ln.get("id") for ln in lines]
     await b.load("allocations", "source_line_id", lids, {"target_type": "ro"})
     await b.load("allocations", "source_line_id", lids, {"target_type": "mi"})
+    await b.load("procurement_item_spk_allocations", "item_line_id", lids, {"source_type": "mro"})
+    spk_a = [x for k in lids for x in await b.find("procurement_item_spk_allocations", "item_line_id", k,
+                                                       {"source_type": "mro"})]
+    await b.load("spk", "id", [x.get("spk_id") for x in spk_a])
     ro_a = [a for k in lids for a in await b.find("allocations", "source_line_id", k, {"target_type": "ro"})]
     mi_a = [a for k in lids for a in await b.find("allocations", "source_line_id", k, {"target_type": "mi"})]
     await b.load("allocations", "source_line_id", [a.get("target_line_id") for a in ro_a], {"target_type": "po"})
@@ -308,6 +312,7 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                 "po_total": 0.0 if show_financial else None,
                 "do_total": 0.0 if show_financial else None,
                 "_do_qty": {},
+                "_spk": {},
                 "mro_refs": {},
                 "ro_refs": {},
                 "po_refs": {},
@@ -317,6 +322,16 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
 
             row["request"] += _f(line.get("qty"))
             _add_ref(row["mro_refs"], mh)
+
+            # No. SPK baris MRO: alokasi SPK per baris (source_type=mro), digabung satu kolom dengan koma.
+            for sa in await B.find("procurement_item_spk_allocations", "item_line_id", line["id"],
+                                   {"source_type": "mro"}):
+                if _f(sa.get("allocated_qty")) <= 0:
+                    continue
+                spk_doc = await B.one("spk", sa.get("spk_id")) or {}
+                number = spk_doc.get("spk_number")
+                if number:
+                    row["_spk"][str(number)] = True
 
             ro_allocs = await B.find("allocations", "source_line_id", line["id"], {"target_type": "ro"})
             row["qty_ro"] += sum(_f(a.get("qty")) for a in ro_allocs)
@@ -376,6 +391,7 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
             )
             for key in ("mro_refs", "ro_refs", "po_refs", "do_refs", "mi_refs"):
                 row[key] = _refs(row[key])
+            row["spk_no"] = ", ".join(sorted(row.pop("_spk", {}) or {}))
             out.append(row)
 
     await _attach_invoices(server, out, show_financial)
@@ -389,7 +405,7 @@ def _excel(rows):
     ws = wb.active
     ws.title = "MRO Traceability"
     headers = [
-        "Kode Barang", "Nama Barang", "Kategori", "Satuan",
+        "Kode Barang", "Nama Barang", "Kategori", "Satuan", "No. SPK",
         "Tanggal MRO", "No. MRO", "Qty MRO",
         "Tanggal RO", "No. RO", "Qty RO",
         "Tanggal PO", "No. PO", "Qty PO",
@@ -405,7 +421,7 @@ def _excel(rows):
 
     for row in rows:
         ws.append([
-            row.get("item_code"), row.get("item_name"), row.get("category"), row.get("unit"),
+            row.get("item_code"), row.get("item_name"), row.get("category"), row.get("unit"), row.get("spk_no"),
             _join_refs(row.get("mro_refs"), "date"), _join_refs(row.get("mro_refs"), "no"), row.get("request"),
             _join_refs(row.get("ro_refs"), "date"), _join_refs(row.get("ro_refs"), "no"), row.get("qty_ro"),
             _join_refs(row.get("po_refs"), "date"), _join_refs(row.get("po_refs"), "no"), row.get("qty_po"),
@@ -415,8 +431,8 @@ def _excel(rows):
             _join_refs(row.get("mi_refs"), "date"), _join_refs(row.get("mi_refs"), "no"), row.get("qty_mi"), row.get("outstanding"), row.get("status"),
         ])
 
-    money_cols = {14, 15, 16, 17, 18, 22, 26}
-    qty_cols = {7, 10, 13, 21, 25, 29, 30}
+    money_cols = {15, 16, 17, 18, 19, 23, 27}
+    qty_cols = {8, 11, 14, 22, 26, 30, 31}
     for row in ws.iter_rows(min_row=2):
         for idx, cell in enumerate(row, start=1):
             cell.alignment = Alignment(vertical="top", wrap_text=True)
@@ -425,7 +441,7 @@ def _excel(rows):
             elif idx in qty_cols and isinstance(cell.value, (int, float)):
                 cell.number_format = '#,##0.####'
 
-    widths = [15, 28, 18, 12, 14, 24, 12, 14, 24, 12, 14, 24, 12, 16, 16, 16, 16, 16, 14, 24, 12, 22, 14, 20, 14, 16, 14, 24, 12, 14, 14]
+    widths = [15, 28, 18, 12, 18, 14, 24, 12, 14, 24, 12, 14, 24, 12, 16, 16, 16, 16, 16, 14, 24, 12, 22, 14, 20, 14, 16, 14, 24, 12, 14, 14]
     for idx, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = width
     ws.freeze_panes = "A2"

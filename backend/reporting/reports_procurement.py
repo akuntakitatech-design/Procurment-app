@@ -11,7 +11,7 @@ def _flat(r):
     j = RTD._join_refs
     return {
         "mro_id": r.get("mro_id"), "item_code": r.get("item_code"), "item_name": r.get("item_name"),
-        "category": r.get("category"), "unit": r.get("unit"),
+        "category": r.get("category"), "unit": r.get("unit"), "spk_no": r.get("spk_no"),
         "mro_date": j(r.get("mro_refs"), "date"), "mro_no": j(r.get("mro_refs"), "no"), "request": r.get("request"),
         "ro_date": j(r.get("ro_refs"), "date"), "ro_no": j(r.get("ro_refs"), "no"), "qty_ro": r.get("qty_ro"),
         "po_date": j(r.get("po_refs"), "date"), "po_no": j(r.get("po_refs"), "no"), "qty_po": r.get("qty_po"),
@@ -50,6 +50,7 @@ register(ReportSpec(
     columns=(
         Column("item_code", "Kode Barang", width=15), Column("item_name", "Nama Barang", width=28),
         Column("category", "Kategori", width=18), Column("unit", "Satuan", width=10),
+        Column("spk_no", "No. SPK", width=18),
         Column("mro_date", "Tanggal MRO", "date", width=13), Column("mro_no", "No. MRO", width=22),
         Column("request", "Qty MRO", "qty", total=True, width=11),
         Column("ro_date", "Tanggal RO", "date", width=13), Column("ro_no", "No. RO", width=22),
@@ -74,7 +75,7 @@ register(ReportSpec(
     filters=(Filter("date_from", "Tanggal Awal", "date"), Filter("date_to", "Tanggal Akhir", "date"),
              Filter("division_id", "Divisi", "division"), Filter("status", "Status", "select", STATUS),
              Filter("item_id", "Barang", "item"), Filter("category_id", "Kategori", "category")),
-    search_keys=("item_code", "item_name", "category", "mro_no", "ro_no", "po_no", "do_no", "mi_no", "inv_no"),
+    search_keys=("item_code", "item_name", "category", "mro_no", "ro_no", "po_no", "do_no", "mi_no", "inv_no", "spk_no"),
     drill=lambda r: {"label": r.get("mro_no"), "to": f"/mro/{r.get('mro_id')}"} if r.get("mro_id") else None,
     legacy=("/api/reports/mro-traceability", "/api/reports/mro-traceability/export.xlsx"),
 ))
