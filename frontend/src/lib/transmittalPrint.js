@@ -114,22 +114,25 @@ const docBody = ({ doc, company, logoImg }) => {
 
 const pageHtml = ({ title, body, autoPrint }) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
   <style>
-    @page{size:A4 landscape;margin:10mm}
+    /* margin halaman 0 + padding di .doc: header/footer otomatis browser (tanggal, jam, judul, URL
+       "about:blank") tidak ikut tercetak, sementara isi dokumen tetap punya margin 10mm. */
+    @page{size:A4 landscape;margin:0}
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#fff}
     body{color:#000;font-family:Arial,Helvetica,sans-serif;font-size:10.5px;line-height:1.3;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    @media screen{body{padding:10mm}.print-hint{font:12px/1.4 Arial,sans-serif;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;border-radius:6px;padding:6px 10px;margin:0 0 4mm}}
+    .doc{padding:10mm;background:#fff}
+    @media screen{body{background:#e5e7eb}.print-hint{font:12px/1.4 Arial,sans-serif;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;border-radius:6px;padding:6px 10px;margin:10mm 10mm 0}}
     @media print{.print-hint{display:none!important}}
     .head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5mm}
     .company{display:flex;flex-direction:column;align-items:flex-start;max-width:150mm}
     .logo{display:block;max-height:16mm;max-width:46mm;object-fit:contain;margin-bottom:1.5mm}
     .company-name{font-weight:700;font-size:13.5px;text-transform:uppercase}
-    .company-addr{font-size:10px;white-space:pre-line}
+    .company-addr{font-size:10.5px;white-space:pre-line}
     .title{text-align:right;font-size:10.5px;line-height:1.45}
     .title .t1{font-weight:700;font-size:12px}
     .title .tno{font-weight:700}
-    .info{display:grid;grid-template-columns:1fr 1fr;gap:1mm 10mm;margin-bottom:3mm}
-    .info .row{display:grid;grid-template-columns:38mm 1fr}
+    .info{display:grid;grid-template-columns:1fr 1fr;gap:1mm 10mm;margin-bottom:3mm;font-size:12px}
+    .info .row{display:flex;gap:2mm}
     .info .lab{white-space:nowrap}
     .info .lab:after{content:" :"}
     .info .val{font-weight:700}
@@ -144,8 +147,8 @@ const pageHtml = ({ title, body, autoPrint }) => `<!doctype html><html><head><me
     td.mark{text-align:center;font-weight:700;font-size:12px}
     .notes{margin-top:3mm}
     .notes .lab{font-weight:700}
-    .signs{display:grid;grid-template-columns:1fr 1fr;gap:20mm;margin-top:12mm}
-    .signs .box{text-align:left;padding-left:10mm}
+    .signs{display:grid;grid-template-columns:1fr 1fr;gap:20mm;margin-top:12mm;text-align:center}
+    .signs .box{text-align:center}
     .signs .space{height:20mm}
     .signs .line{margin-top:.6mm}
     .doc + .doc{break-before:page;page-break-before:always}
@@ -158,7 +161,7 @@ const pageHtml = ({ title, body, autoPrint }) => `<!doctype html><html><head><me
 export function buildTransmittalHtml({ doc, company, logoImg = "", autoPrint = true }) {
   return pageHtml({
     title: doc.no || "TRANSMITTAL",
-    body: docBody({ doc, company, logoImg }),
+    body: `<section class="doc">${docBody({ doc, company, logoImg })}</section>`,
     autoPrint,
   });
 }
