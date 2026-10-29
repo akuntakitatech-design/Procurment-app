@@ -71,6 +71,15 @@ def _po_unit_dpp(pl):
     return dpp / qty
 
 
+def _invoice_dpp(inv):
+    """Nilai DPP invoice (tanpa pajak): field `dpp` -> amount - tax_amount -> amount."""
+    if inv.get("dpp") is not None:
+        return _f(inv.get("dpp"))
+    amount = _f(inv.get("amount"))
+    tax = _f(inv.get("tax_amount"))
+    return amount - tax if tax else amount
+
+
 async def _attach_invoices(server, rows, show_financial):
     """Kolom invoice per baris MRO x barang: Tanggal, No, Qty, Total Invoice.
 
@@ -81,10 +90,11 @@ async def _attach_invoices(server, rows, show_financial):
       billed     = SUM(vendor_invoice_allocations.amount) untuk DO tsb (fallback: amount invoice bila invoice hanya 1 DO)
       rasio      = min(1, billed / nilai DO)
       Qty Invoice baris   = (qty baris ini pada DO) x rasio
-      Total Invoice baris = porsi nilai invoice x (qty baris ini pada DO / qty DO)
+      Total Invoice baris = porsi DPP invoice x (qty baris ini pada DO / qty DO)
 
-    Porsi nilai invoice = alokasi DO tsb / total alokasi invoice x amount invoice, sehingga jumlah seluruh baris
-    untuk satu invoice sama dengan nilai invoice (alokasi bisa DPP sementara amount termasuk pajak).
+    Porsi DPP invoice = alokasi DO tsb / total alokasi invoice x DPP invoice, sehingga jumlah seluruh baris untuk
+    satu invoice sama dengan **DPP invoice** (tanpa pajak). Alokasi hanya menentukan pembagian antar DO; bila
+    alokasi tersimpan termasuk pajak, nilai qty ikut dinormalkan ke DPP (faktor dpp/amount).
     DO tanpa invoice tetap kosong (tanggal/no kosong, qty 0). Tanpa izin harga -> Total Invoice = None.
     """
     do_ids = sorted({d for r in rows for d in (r.get("_do_qty") or {})})
@@ -110,14 +120,18 @@ async def _attach_invoices(server, rows, show_financial):
 
     target = set(do_ids)
     invs = await server.db.vendor_invoices.find(
-        {}, {"_id": 0, "id": 1, "invoice_no": 1, "no": 1, "invoice_date": 1, "amount": 1, "do_ids": 1}).to_list(None)
+        {}, {"_id": 0, "id": 1, "invoice_no": 1, "no": 1, "invoice_date": 1, "amount": 1, "dpp": 1,
+            "tax_amount": 1, "do_ids": 1}).to_list(None)
     allocs = await server.db.vendor_invoice_allocations.find(
         {}, {"_id": 0, "invoice_id": 1, "do_id": 1, "amount": 1}).to_list(None)
     inv_by_do, billed = {}, {}
-    inv_amount, alloc = {}, {}
+    inv_dpp, inv_factor, alloc = {}, {}, {}
     alloc_total = {}
     for inv in invs:
-        inv_amount[inv["id"]] = _f(inv.get("amount"))
+        dpp = _invoice_dpp(inv)
+        amount = _f(inv.get("amount"))
+        inv_dpp[inv["id"]] = dpp
+        inv_factor[inv["id"]] = (dpp / amount) if amount > 0 else 1.0
         for d in inv.get("do_ids") or []:
             if d in target:
                 inv_by_do.setdefault(d, {})[inv["id"]] = inv
@@ -127,28 +141,28 @@ async def _attach_invoices(server, rows, show_financial):
         if iid:
             alloc_total[iid] = alloc_total.get(iid, 0.0) + amount
         if d in target and iid in (inv_by_do.get(d) or {}):
-            billed[d] = billed.get(d, 0.0) + amount
+            billed[d] = billed.get(d, 0.0) + amount * inv_factor.get(iid, 1.0)  # alokasi dalam basis DPP
         if iid and d:
             alloc[(iid, d)] = alloc.get((iid, d), 0.0) + amount
 
-    # porsi nilai invoice per DO (dinormalkan ke amount invoice)
+    # porsi DPP invoice per DO (alokasi hanya menentukan pembagian)
     share = {}
     for d, got in inv_by_do.items():
         for iid in got:
             raw = alloc.get((iid, d), 0.0)
             total = alloc_total.get(iid, 0.0)
-            amt = inv_amount.get(iid, 0.0)
-            if raw > 0 and total > 0 and amt > 0:
-                share[d] = share.get(d, 0.0) + raw / total * amt
-            elif amt > 0 and len(got[iid].get("do_ids") or []) == 1:
-                share[d] = share.get(d, 0.0) + amt  # invoice satu DO tanpa baris alokasi
+            dpp = inv_dpp.get(iid, 0.0)
+            if raw > 0 and total > 0 and dpp > 0:
+                share[d] = share.get(d, 0.0) + raw / total * dpp
+            elif dpp > 0 and len(got[iid].get("do_ids") or []) == 1:
+                share[d] = share.get(d, 0.0) + dpp  # invoice satu DO tanpa baris alokasi
     for d, got in inv_by_do.items():  # fallback qty: DO tercantum di invoice tanpa baris alokasi
         if billed.get(d):
             continue
         if len(got) == 1:
             inv = next(iter(got.values()))
             if len(inv.get("do_ids") or []) == 1:
-                billed[d] = _f(inv.get("amount"))
+                billed[d] = _invoice_dpp(inv)
 
     for r in rows:
         qmap = r.pop("_do_qty", {}) or {}
