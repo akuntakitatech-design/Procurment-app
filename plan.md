@@ -1553,3 +1553,26 @@ Tanpa skema/DB baru, tanpa env baru. Perilaku transaksi/status tidak berubah (mu
 - Render HTML dari payload produksi nyata (`TRN/2026/10/00005`) dengan emulasi media cetak -> sesuai permintaan
   (bukti: `transmittal-print-v3.png`).
 - `CI=true yarn build` -> Compiled successfully (25,11 s).
+
+---
+
+## 2026-10-29 — Cetak Transmittal: model header tabel disamakan dengan lampiran
+
+### Tujuan (permintaan pemilik)
+Header tabel cetak dibuat persis seperti lampiran: satu grup **Item Pemeriksaan Kelengkapan** mencakup **seluruh
+kolom detail** (bukan hanya 3 kolom).
+
+### Perubahan (`frontend/src/lib/transmittalPrint.js`)
+- Baris 1 header: **No** & **Nama Vendor** (`rowspan="2"`) + **Item Pemeriksaan Kelengkapan** (`colspan="9"`).
+- Baris 2 header: `No. Invoice | No. Faktur Pajak | No. PO | No DO Sistem | No. DO Supplier | Nilai (Inc PPN) |
+  Kwitansi | BAST / Timesheet | Kontrak Kerja (Subcon)`.
+- Lebar kolom disesuaikan proporsi lampiran: No 10mm, Nama Vendor 38mm, No. Invoice 27mm, No. Faktur Pajak 29mm,
+  No. PO 28mm, No DO Sistem 28mm, No. DO Supplier 32mm, Nilai 24mm, Kwitansi 13mm, BAST 13mm, Kontrak 16mm.
+- Isi baris tidak berubah (urutan kolom sama), jadi data tetap sejajar.
+
+### Pengujian
+- `frontend/tests/transmittal_print_test.mjs` -> **49/49 lulus** (tambah cek: grup `colspan="9"`,
+  hanya `No` & `Nama Vendor` yang `rowspan="2"`, seluruh sub-kolom ada di baris ke-2).
+- Render HTML dari payload produksi nyata (`TRN/2026/10/00005`) dengan emulasi media cetak -> header sesuai lampiran
+  (bukti: `transmittal-print-v4.png`).
+- `CI=true yarn build` -> Compiled successfully (31,99 s).
