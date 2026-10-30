@@ -1770,3 +1770,23 @@ sebenarnya berisi nama orang (PIC), sementara nama perusahaan ada di `legal_name
   - bila kosong -> fallback ke PIC (`081200000000` / `pic@lain.com`);
   - tanpa PIC -> nilai tetap tersimpan.
 - `py_compile backend/master_auto.py` OK.
+
+---
+
+## 2026-10-30 — Kontrak Harga Vendor: tombol "+" tambah barang dari dialog item
+
+### Tujuan (permintaan pemilik)
+Saat mencari barang di dialog **Tambah Item Harga** dan barangnya belum terdaftar, sediakan tombol **+** yang langsung
+membuka **form barang yang sudah ada** (shortcut, tanpa membuat form baru dan tanpa pindah halaman).
+
+### Perubahan (`frontend/src/pages/VendorContract.jsx`, ItemDialog)
+- Tombol **+** di samping field **Barang/Jasa** (muncul hanya bila user punya izin `items.create`), `data-testid="vc-item-add-item"`.
+- Klik + -> `MasterQuickCreate name="items"` (komponen yang sama dipakai form MRO) terbuka sebagai dialog di atas form item.
+- Setelah barang tersimpan: daftar `/lookup/items` dimuat ulang, barang baru **otomatis terpilih** di field Barang/Jasa,
+  dan **UOM otomatis** terisi satuan dasar barang baru tersebut (mengikuti aturan yang sudah ada).
+- Bila pemuatan ulang daftar gagal, dokumen hasil create tetap dipakai agar barang langsung terpilih.
+
+### Pengujian
+- `CI=true yarn build` -> **Compiled successfully** (22,50 s), tanpa warning ESLint (warning = error di Coolify).
+- Belum diuji klik di browser: halaman kontrak & master barang butuh login + izin `vendor_contract:manage` / `items.create`
+  (akun uji yang tersedia tidak punya izin tersebut). Alur memakai komponen & pola yang sudah terbukti di form MRO.
