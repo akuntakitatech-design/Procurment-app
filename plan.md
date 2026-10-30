@@ -1790,3 +1790,29 @@ membuka **form barang yang sudah ada** (shortcut, tanpa membuat form baru dan ta
 - `CI=true yarn build` -> **Compiled successfully** (22,50 s), tanpa warning ESLint (warning = error di Coolify).
 - Belum diuji klik di browser: halaman kontrak & master barang butuh login + izin `vendor_contract:manage` / `items.create`
   (akun uji yang tersedia tidak punya izin tersebut). Alur memakai komponen & pola yang sudah terbukti di form MRO.
+
+---
+
+## 2026-10-30 — Cetak PO: header kolom "Amount" & garis kolom No. SPK disambung
+
+### Tujuan (permintaan pemilik)
+1. Header kolom **"Amount sebelum PPN"** diganti menjadi **"Amount"**.
+2. Kolom antara **Description** dan **No. SPK** "terputus" (baris grup MRO memakai `colspan=2` sehingga garis kolom
+   antara Description dan No. SPK hilang di baris grup) — dibuat tersambung.
+
+### Perubahan
+- `frontend/src/lib/poPrintReal.js`
+  - Header tabel: `Amount<div class="th-sub">sebelum PPN</div>` -> **`Amount`** (sub-label dihapus).
+  - Baris grup referensi MRO: `<td></td><td class="grp-label" colspan="2">…</td>` ->
+    `<td></td><td class="grp-label">…</td>` + sel kosong sesuai jumlah kolom, sehingga **setiap baris punya
+    sel per kolom** dan garis vertikal Description/No. SPK tetap tersambung.
+- Test disesuaikan: `tests/po_print_real_test.mjs` (header `Amount`, grup tanpa colspan) dan
+  `tests/po_print_mro_test.mjs` (regex baris grup tanpa colspan).
+
+### Pengujian
+- `tests/po_print_real_test.mjs` **58/58**, `po_print_margin_test.mjs` **53/53**, `po_print_mro_test.mjs` **16/16**,
+  `po_dp_print_test.mjs` **15/15** — semua lulus.
+- `CI=true yarn build` -> **Compiled successfully** (91,53 s) tanpa warning ESLint.
+- Render HTML nyata (doc PO v2 contoh pemilik) + ukur posisi sel di browser: header x `[39,100,488,679,843,1020,1170]`
+  = baris item, baris grup kini **8 sel** (tanpa colspan) -> kolom sejajar & garis menyambung
+  (bukti: `_po_before.png` / `_po_after.png`).
