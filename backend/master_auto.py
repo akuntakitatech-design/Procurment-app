@@ -31,7 +31,7 @@ REQUIRED_FIELDS = {
     "items": [("name", "Nama Barang"), ("category_id", "Kategori Barang"), ("base_uom_id", "Satuan Dasar"), ("division_id", "Divisi")],
     "item_categories": [("name", "Nama Kategori")],
     "uoms": [("name", "Nama Satuan")],
-    "suppliers": [("name", "Nama Supplier"), ("supplier_category_id", "Kategori Supplier")],
+    "suppliers": [("name", "PIC Utama"), ("supplier_category_id", "Kategori Supplier")],
     # Sama dengan field wajib form Master (req) & import Excel existing — kini juga ditegakkan di API.
     "projects": [("name", "Nama Proyek")],
     "units": [("name", "Nama Unit")],
@@ -226,10 +226,13 @@ async def _normalize_supplier(server, body: dict) -> dict:
     out["contacts"] = contacts
     primary_contact = next((x for x in contacts if x["is_primary"]), contacts[0] if contacts else None)
     if primary_contact:
-        # Keep legacy fields populated for list/search compatibility.
+        # Keep legacy fields populated for list/search compatibility; nomor/email level supplier yang sudah diisi
+        # (mis. dari impor Excel) TIDAK ditimpa oleh PIC.
         out["contact"] = primary_contact.get("name")
-        out["phone"] = primary_contact.get("phone")
-        out["email"] = primary_contact.get("email")
+        if not _clean_text(out.get("phone")):
+            out["phone"] = primary_contact.get("phone")
+        if not _clean_text(out.get("email")):
+            out["email"] = primary_contact.get("email")
 
     banks = []
     for raw in out.get("banks") or []:

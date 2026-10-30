@@ -76,9 +76,9 @@ const CONFIGS = {
     { k: "year", l: "Tahun" }, { k: "division_id", l: "Divisi", ref: "divisions" },
   ] },
   suppliers: { label: "Supplier", fields: [
-    { k: "code", l: "Kode Supplier", auto: true, req: true }, { k: "name", l: "Nama Supplier", req: true },
+    { k: "code", l: "Kode Supplier", auto: true, req: true }, { k: "name", l: "PIC Utama", req: true },
     { k: "supplier_category_id", l: "Kategori Supplier", ref: "supplier_categories", req: true },
-    { k: "phone", l: "Telepon" }, { k: "email", l: "Email" },
+    { k: "phone", l: "No. Telepon" }, { k: "email", l: "Email" },
   ] },
   divisions: { label: "Divisi", fields: [
     { k: "code", l: "Kode Divisi", auto: true }, { k: "name", l: "Nama", req: true },
@@ -160,9 +160,11 @@ function SupplierEditor({ form, setForm, refs, invalid }) {
     <Section title="Informasi Umum" subtitle="Identitas dan klasifikasi utama supplier.">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Field label="Kode Supplier (Otomatis, bisa diedit) *"><Input data-testid="master-suppliers-field-code" aria-invalid={invalid?.has("code") || undefined} className={`font-mono font-semibold ${invalid?.has("code") ? INVALID_CLS : ""}`} value={form.code || ""} onChange={(e) => setForm({ ...form, code: e.target.value })} /></Field>
-        <Field label="Nama Supplier *"><Input data-testid="master-suppliers-field-name" aria-invalid={invalid?.has("name") || undefined} className={invalid?.has("name") ? INVALID_CLS : ""} value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+        <Field label="PIC Utama *"><Input data-testid="master-suppliers-field-name" aria-invalid={invalid?.has("name") || undefined} className={invalid?.has("name") ? INVALID_CLS : ""} value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
         <Field label="Nama Legal / Perusahaan"><Input data-testid="master-suppliers-field-legal_name" value={form.legal_name || ""} onChange={(e) => setForm({ ...form, legal_name: e.target.value })} /></Field>
         <Field label="Kategori Supplier *"><div data-testid="master-suppliers-field-supplier_category_id" className={invalid?.has("supplier_category_id") ? INVALID_WRAP : ""}><Combobox options={supplierCategories} value={form.supplier_category_id || ""} onChange={(v) => setForm({ ...form, supplier_category_id: v })} placeholder="Pilih kategori" /></div></Field>
+        <Field label="No. Telepon"><Input data-testid="master-suppliers-field-phone" value={form.phone || ""} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+        <Field label="Email"><Input data-testid="master-suppliers-field-email" type="email" value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
         <Field label="Jenis Supplier"><Combobox options={[{ value: "Lokal", label: "Lokal" }, { value: "Import", label: "Import" }, { value: "Jasa", label: "Jasa" }]} value={form.supplier_type || "Lokal"} onChange={(v) => setForm({ ...form, supplier_type: v })} /></Field>
       </div>
     </Section>
