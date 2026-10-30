@@ -54,34 +54,6 @@ def _join_refs(refs, key):
     return "\n".join(values)
 
 
-def _po_unit_dpp(pl):
-    """DPP per unit baris PO (snapshot dpp -> fallback gross-diskon, tax-inclusive dinormalkan)."""
-    qty = _f(pl.get("qty"))
-    if qty <= 0:
-        return 0.0
-    gross = _f(pl.get("gross")) if pl.get("gross") is not None else qty * _f(pl.get("price"))
-    discount = _f(pl.get("discount"))
-    if pl.get("dpp") is not None:
-        dpp = _f(pl.get("dpp"))
-    else:
-        net = max(0.0, gross - discount)
-        rate = _f(pl.get("tax"))
-        dpp = net / (1 + rate / 100.0) if pl.get("tax_inclusive") and rate else net
-    return dpp / qty
-
-
-def _po_unit_total(pl):
-    """Harga satuan baris PO **setelah PPN**: snapshot total / qty, fallback DPP + pajak."""
-    qty = _f(pl.get("qty"))
-    if qty <= 0:
-        return 0.0
-    if pl.get("total") is not None:
-        return _f(pl.get("total")) / qty
-    dpp = _po_unit_dpp(pl) * qty
-    tax = _f(pl.get("tax_amount")) if pl.get("tax_amount") is not None else dpp * _f(pl.get("tax")) / 100.0
-    return (dpp + tax) / qty
-
-
 def _project_name(proj):
     return (proj or {}).get("name") or (proj or {}).get("code") or ""
 
@@ -93,38 +65,30 @@ def _supplier_name(sup):
 async def _attach_invoices(server, rows, show_financial):
     """Kolom invoice per baris MRO x barang: Tanggal, No, Qty, Total Invoice.
 
-    Invoice di aplikasi ini menagih **DO** (nominal, tanpa qty), jadi qty invoice diturunkan proporsional dari data
-    existing (tidak ada angka baru yang dikarang):
-      nilai DO   = SUM(harga satuan setelah PPN (po_lines.total / qty) x qty diterima)
-      qty DO     = SUM(qty diterima) untuk DO tersebut
+    Invoice di aplikasi ini menagih **DO** (nominal, tanpa qty), jadi qty invoice diturunkan proporsional:
+      nilai DO   = SUM(nilai DO baris ini, sudah berbasis harga setelah PPN) -- sama persis dengan Total DO laporan
       billed     = SUM(vendor_invoice_allocations.amount) untuk DO tsb (fallback: amount invoice bila invoice hanya 1 DO)
       rasio      = min(1, billed / nilai DO)
       Qty Invoice baris   = (qty baris ini pada DO) x rasio
-      Total Invoice baris = harga satuan setelah PPN x Qty Invoice baris
+      Total Invoice baris = (nilai DO baris ini pada DO) x rasio
 
+    Karena dasar nilainya sama dengan Total DO baris, **bila qty invoice = qty DO maka Total Invoice = Total DO**
+    (tidak ada harga satuan campuran antar item dalam satu DO).
     DO tanpa invoice tetap kosong (tanggal/no kosong, qty 0). Tanpa izin harga -> Total Invoice = None.
     """
-    do_ids = sorted({d for r in rows for d in (r.get("_do_qty") or {})})
     empty = {"inv_date": "", "inv_no": "", "qty_invoice": 0.0, "inv_total": 0.0 if show_financial else None}
+    per_do_qty, per_do_val, do_ids = {}, {}, []
+    for r in rows:
+        for d, q in (r.get("_do_qty") or {}).items():
+            per_do_qty[d] = per_do_qty.get(d, 0.0) + _f(q)
+            per_do_val[d] = per_do_val.get(d, 0.0) + _f((r.get("_do_money") or {}).get(d))
+    do_ids = sorted(per_do_qty)
     if not do_ids:
         for r in rows:
             r.pop("_do_qty", None)
+            r.pop("_do_money", None)
             r.update(empty)
         return
-
-    dl = await server.db.do_lines.find({"do_id": {"$in": do_ids}}, {"_id": 0, "do_id": 1, "po_line_id": 1, "qty": 1}).to_list(None)
-    pl_ids = sorted({ln["po_line_id"] for ln in dl if ln.get("po_line_id")})
-    pls = ({p["id"]: p for p in await server.db.po_lines.find(
-        {"id": {"$in": pl_ids}},
-        {"_id": 0, "id": 1, "qty": 1, "price": 1, "gross": 1, "discount": 1, "dpp": 1, "tax": 1, "tax_inclusive": 1,
-         "tax_amount": 1, "total": 1}).to_list(None)}
-        if pl_ids else {})
-    do_qty, do_val = {}, {}
-    for ln in dl:
-        d = ln.get("do_id")
-        q = _f(ln.get("qty"))
-        do_qty[d] = do_qty.get(d, 0.0) + q
-        do_val[d] = do_val.get(d, 0.0) + _po_unit_total(pls.get(ln.get("po_line_id")) or {}) * q
 
     target = set(do_ids)
     invs = await server.db.vendor_invoices.find(
@@ -150,18 +114,18 @@ async def _attach_invoices(server, rows, show_financial):
 
     for r in rows:
         qmap = r.pop("_do_qty", {}) or {}
+        mmap = r.pop("_do_money", {}) or {}
         refs, qty_inv, total_inv = {}, 0.0, 0.0
         for d, row_qty in qmap.items():
             inv_map = inv_by_do.get(d) or {}
             b = billed.get(d, 0.0)
             if not inv_map or b <= 0:
                 continue
-            dv, dq = do_val.get(d, 0.0), do_qty.get(d, 0.0)
+            dv = per_do_val.get(d, 0.0)
             ratio = min(1.0, b / dv) if dv > 0 else 1.0
             refs.update(inv_map)
-            qty_d = row_qty * ratio
-            qty_inv += qty_d
-            total_inv += (dv / dq) * qty_d if dq > 0 else 0.0  # harga satuan setelah PPN x qty diinvoicekan
+            qty_inv += row_qty * ratio
+            total_inv += _f(mmap.get(d)) * ratio  # nilai DO baris ini x rasio penagihan
         ref_list = sorted(refs.values(), key=lambda x: ((x.get("invoice_date") or ""), (x.get("invoice_no") or "")))
         r["inv_date"] = "\n".join(str(x.get("invoice_date") or "")[:10] for x in ref_list if x.get("invoice_date"))
         r["inv_no"] = "\n".join(str(x.get("invoice_no") or x.get("no") or "") for x in ref_list if (x.get("invoice_no") or x.get("no")))
@@ -304,6 +268,7 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                 "po_total": 0.0 if show_financial else None,
                 "do_total": 0.0 if show_financial else None,
                 "_do_qty": {},
+                "_do_money": {},
                 "_spk": {},
                 "_project": {},
                 "_supplier": {},
@@ -379,6 +344,8 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                         do_id = da.get("target_doc_id")
                         if do_id:
                             row["_do_qty"][do_id] = row["_do_qty"].get(do_id, 0.0) + received_qty
+                            # disimpan juga saat harga disembunyikan: hanya dipakai menghitung rasio penagihan (internal)
+                            row["_do_money"][do_id] = row["_do_money"].get(do_id, 0.0) + unit_total * received_qty
 
             mi_allocs = await B.find("allocations", "source_line_id", line["id"], {"target_type": "mi"})
             row["qty_mi"] += sum(_f(a.get("qty")) for a in mi_allocs)
@@ -400,7 +367,8 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
             row["supplier_name"] = ", ".join(sorted(row.pop("_supplier", {}) or {}))
             out.append(row)
 
-    await _attach_invoices(server, out, show_financial)
+    # Kolom invoice dipasang setelah koreksi finansial (report_financial_fix) agar Total Invoice konsisten dengan
+    # Total DO final. Lihat report_financial_fix.build_rows.
     out_rows = out
     _LAST_BATCH.set(B)  # dipakai ulang wrapper report_financial_fix (request sama) -> tanpa query ulang
     return out_rows
