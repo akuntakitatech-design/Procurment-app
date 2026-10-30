@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ListPager, SortTh } from "@/components/ListPager";
 import { MasterDeleteDialog } from "@/components/MasterDeleteDialog";
+import { MasterQuickCreate } from "@/pages/MasterData";
 import { Input } from "@/components/ui/input";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -338,10 +339,12 @@ const blankItem = {
   lead_time_days: "", tolerance_mode: "USE_CONTRACT_DEFAULT", tolerance_pct: "", effective_start: "", effective_end: "",
 };
 function ItemDialog({ open, onOpenChange, contract, editRow, onSaved }) {
+  const { can } = useAuth();
   const [items, setItems] = useState([]);
   const [uoms, setUoms] = useState([]);
   const [f, setF] = useState(blankItem);
   const [saving, setSaving] = useState(false);
+  const [quickItem, setQuickItem] = useState(false);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const uomLabel = (u) => u?.name || u?.symbol || u?.code || "";
   const selectedItem = items.find((i) => i.id === f.item_id);
@@ -365,6 +368,22 @@ function ItemDialog({ open, onOpenChange, contract, editRow, onSaved }) {
         .some((x) => String(x).toLowerCase() === String(it.unit).toLowerCase()))
       : null;
     setF((s) => ({ ...s, item_id: v, uom_id: it.base_uom_id || it.uom_id || legacy?.id || "" }));
+  };
+  const canCreateItem = can("create", "items");
+  // Shortcut "+" -> pakai form barang yang sudah ada (MasterQuickCreate), lalu pilih otomatis barang barunya.
+  const onItemCreated = async (doc) => {
+    setQuickItem(false);
+    const created = doc || {};
+    try {
+      const r = await api.get("/lookup/items");
+      const list = r.data || [];
+      setItems(list);
+      const it = list.find((x) => x.id === created.id) || created;
+      setF((s) => ({ ...s, item_id: it.id || created.id, uom_id: it.base_uom_id || it.uom_id || "" }));
+    } catch {
+      setItems((prev) => [...prev, created]);
+      setF((s) => ({ ...s, item_id: created.id, uom_id: created.base_uom_id || created.uom_id || "" }));
+    }
   };
   useEffect(() => {
     if (!open) return;
@@ -407,13 +426,19 @@ function ItemDialog({ open, onOpenChange, contract, editRow, onSaved }) {
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{editRow ? "Edit Item Harga" : "Tambah Item Harga"}</DialogTitle>
           <DialogDescription>Kontrak {contract.contract_number} — Net Price dihitung otomatis dari Base Price dan diskon.</DialogDescription></DialogHeader>
         <div className="space-y-4">
           <div className="grid md:grid-cols-2 gap-3">
-            <Field label="Barang/Jasa *"><Combobox testid="vc-item-item" options={items.map((i) => ({ value: i.id, label: i.name }))} value={f.item_id} onChange={onItemChange} placeholder="Pilih barang" /></Field>
+            <Field label="Barang/Jasa *">
+              <div className="flex gap-2">
+                <div className="min-w-0 flex-1"><Combobox testid="vc-item-item" options={items.map((i) => ({ value: i.id, label: i.name }))} value={f.item_id} onChange={onItemChange} placeholder="Pilih barang" /></div>
+                {canCreateItem && <Button type="button" variant="outline" size="icon" className="shrink-0" title="Tambah barang baru" aria-label="Tambah barang baru" data-testid="vc-item-add-item" onClick={() => setQuickItem(true)}><Plus className="h-4 w-4" /></Button>}
+              </div>
+            </Field>
             <Field label="UOM *">
               <Combobox testid="vc-item-uom" options={uomOptions} value={f.uom_id} onChange={(v) => set("uom_id", v)} placeholder="Pilih satuan" />
               {selectedUomFactor > 1 && baseUomLabel && <p className="text-xs text-muted-foreground">1 {uomLabel(uoms.find((u) => u.id === f.uom_id))} = {selectedUomFactor} {baseUomLabel}</p>}
@@ -448,6 +473,8 @@ function ItemDialog({ open, onOpenChange, contract, editRow, onSaved }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {quickItem && <MasterQuickCreate name="items" open onClose={() => setQuickItem(false)} onCreated={onItemCreated} />}
+    </>
   );
 }
 
