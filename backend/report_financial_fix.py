@@ -2,7 +2,7 @@
 
 The base report builds lifecycle references. This wrapper recalculates PO money
 and received quantities so tax-inclusive POs and consolidated PO lines remain
-correct. DO value = allocated PO DPP per base unit x received quantity.
+correct. DO value = PO unit price **after PPN** (total / qty) x received quantity.
 """
 import report_trace_detail
 
@@ -69,12 +69,12 @@ def install(server):
                         row["po_tax"] += tax_amount * share
                         row["po_total"] += total * share
 
-                        unit_dpp = dpp / qty if qty > 0 else 0.0
+                        unit_total = total / qty if qty > 0 else 0.0
                         do_allocs = await B.find("allocations", "source_line_id", pa.get("target_line_id"), {"target_type": "do"}, cap=1000)
                         for da in do_allocs:
                             received_for_source = _f(da.get("qty")) * share
                             row["qty_received"] += received_for_source
-                            row["do_total"] += unit_dpp * received_for_source
+                            row["do_total"] += unit_total * received_for_source  # harga satuan setelah PPN x qty diterima
         return rows
 
     report_trace_detail._build_rows = build_rows

@@ -32,7 +32,7 @@ from valuation_report_scope_layer import effective_day  # noqa: E402
 call, check, API = T.call, T.check, T.API
 TODAY = datetime.now(ZoneInfo("Asia/Jakarta")).date()
 PRICE_KEYS = {"po_gross", "po_discount", "po_dpp", "po_tax", "po_total", "do_total"}
-PRICE_LABELS = {"Nilai PO", "Diskon PO", "DPP PO", "Pajak PO", "Total PO", "Total DO (DPP x Qty Diterima)"}
+PRICE_LABELS = {"Nilai PO", "Diskon PO", "DPP PO", "Pajak PO", "Total PO", "Total DO"}
 SUMMARY_KEYS = {"item_id", "item_name", "item_code", "warehouse_id", "warehouse_name", "qty_on_hand", "base_uom", "avg_cost",
                 "inventory_value"}
 

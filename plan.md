@@ -1650,3 +1650,42 @@ satu SPK, semuanya digabung dalam satu kolom dan dipisahkan **koma**.
 - Excel: **32 kolom**, `No. SPK` di kolom 5, `Total DO` kolom 23, `Total Invoice` kolom 27,
   `Qty DO` 22, `Qty Invoice` 26, `Outstanding` 31 — format uang/qty tepat.
 - `py_compile` kedua file: OK.
+
+---
+
+## 2026-10-29 — MRO Traceability: Nama Proyek, Nama Supplier, Total DO/Invoice setelah PPN
+
+### Tujuan (permintaan pemilik)
+1. Kolom **Nama Proyek** setelah **No. SPK**.
+2. Kolom **Nama Supplier** setelah **Tanggal PO**.
+3. **Total DO**: dari `DPP x qty diterima` menjadi **harga satuan setelah PPN x qty diterima** (judul cukup "Total DO").
+4. **Total Invoice**: **harga satuan setelah PPN x qty yang diinvoicekan**.
+
+### Perubahan
+- `backend/report_trace_detail.py`
+  - `_po_unit_total(pl)`: harga satuan setelah PPN = `po_lines.total / qty` (fallback DPP + pajak).
+  - `Total DO` baris = `_po_unit_total x qty diterima` (sebelumnya DPP/unit).
+  - `_attach_invoices()`: nilai DO kini berbasis harga setelah PPN; `Qty Invoice = qty DO baris x min(1, alokasi/nilai DO)`;
+    `Total Invoice = harga satuan setelah PPN x Qty Invoice` (sebelumnya prorata DPP invoice). Normalisasi
+    `dpp/amount` dihapus karena tidak lagi dipakai.
+  - `Nama Proyek`: dari `mro_lines.project_id` (fallback `mro.default_project_id`) -> `projects.name`.
+  - `Nama Supplier`: dari `po.supplier_id` -> `suppliers.name` pada setiap PO di rantai.
+  - Nama ganda digabung satu kolom, urut, dipisah **koma**.
+  - `trace_batch()` menambah batch `projects` + `suppliers` (konstan, bukan per baris).
+  - Excel: 34 kolom (`Nama Proyek` kolom 6, `Nama Supplier` kolom 14); indeks format uang `{17..21, 25, 29}`,
+    qty `{9, 12, 16, 24, 28, 32, 33}`; judul `Total DO` (tanpa "(DPP x Qty Diterima)").
+- `backend/report_financial_fix.py` (wrapper yang menghitung ulang untuk user ber-izin harga):
+  `do_total` ikut memakai harga satuan setelah PPN (`total / qty`), agar konsisten dengan builder dasar.
+- `backend/reporting/reports_procurement.py`: kolom `project_name` (setelah `spk_no`) & `supplier_name`
+  (setelah `po_date`); label `do_total` -> **Total DO**; `search_keys` menambah `project_name`, `supplier_name`.
+- Test disesuaikan dengan aturan baru: `tests/report_center_test.py` (label "Total DO") dan
+  `tests/p7_trace_batch_test.py` T3b (Total DO = total/qty x qty diterima).
+
+### Pengujian (data produksi, read-only)
+- 373 baris; **309 baris ber-proyek**, **299 ber-supplier**; contoh multi-supplier: `Teknik Mandiri, Toko Cat Mutiara Warna`.
+- Total DO berbasis PPN: po_line qty 1 DPP 100.000 -> satuan 111.000 (+11%); contoh baris `SKU/0231` = 111.000 x 8 = **888.000**.
+- Invarian: 53 DO dengan 1 invoice penuh -> **Total Invoice = Total DO** (selisih 0); 21 DO sisanya penagihan sebagian.
+- Tanpa izin harga: `do_total` & `inv_total` None; `spk_no`, `project_name`, `supplier_name`, qty tetap terisi.
+- Excel: **34 kolom**; posisi `No. SPK`=5, `Nama Proyek`=6, `Tanggal PO`=13, `Nama Supplier`=14, `No. PO`=15,
+  `Total DO`=25, `Total Invoice`=29; format uang/qty tepat.
+- `py_compile` 5 file: OK.

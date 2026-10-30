@@ -55,8 +55,7 @@ def _join_refs(refs, key):
 
 
 def _po_unit_dpp(pl):
-    """DPP per unit baris PO (rumus sama dengan Total DO laporan: snapshot dpp -> fallback gross-diskon,
-    tax-inclusive dinormalkan)."""
+    """DPP per unit baris PO (snapshot dpp -> fallback gross-diskon, tax-inclusive dinormalkan)."""
     qty = _f(pl.get("qty"))
     if qty <= 0:
         return 0.0
@@ -71,13 +70,24 @@ def _po_unit_dpp(pl):
     return dpp / qty
 
 
-def _invoice_dpp(inv):
-    """Nilai DPP invoice (tanpa pajak): field `dpp` -> amount - tax_amount -> amount."""
-    if inv.get("dpp") is not None:
-        return _f(inv.get("dpp"))
-    amount = _f(inv.get("amount"))
-    tax = _f(inv.get("tax_amount"))
-    return amount - tax if tax else amount
+def _po_unit_total(pl):
+    """Harga satuan baris PO **setelah PPN**: snapshot total / qty, fallback DPP + pajak."""
+    qty = _f(pl.get("qty"))
+    if qty <= 0:
+        return 0.0
+    if pl.get("total") is not None:
+        return _f(pl.get("total")) / qty
+    dpp = _po_unit_dpp(pl) * qty
+    tax = _f(pl.get("tax_amount")) if pl.get("tax_amount") is not None else dpp * _f(pl.get("tax")) / 100.0
+    return (dpp + tax) / qty
+
+
+def _project_name(proj):
+    return (proj or {}).get("name") or (proj or {}).get("code") or ""
+
+
+def _supplier_name(sup):
+    return (sup or {}).get("name") or ""
 
 
 async def _attach_invoices(server, rows, show_financial):
@@ -85,16 +95,13 @@ async def _attach_invoices(server, rows, show_financial):
 
     Invoice di aplikasi ini menagih **DO** (nominal, tanpa qty), jadi qty invoice diturunkan proporsional dari data
     existing (tidak ada angka baru yang dikarang):
-      nilai DO   = SUM(DPP per unit baris PO x qty diterima)   [rumus sama dengan Total DO laporan]
+      nilai DO   = SUM(harga satuan setelah PPN (po_lines.total / qty) x qty diterima)
       qty DO     = SUM(qty diterima) untuk DO tersebut
       billed     = SUM(vendor_invoice_allocations.amount) untuk DO tsb (fallback: amount invoice bila invoice hanya 1 DO)
       rasio      = min(1, billed / nilai DO)
       Qty Invoice baris   = (qty baris ini pada DO) x rasio
-      Total Invoice baris = porsi DPP invoice x (qty baris ini pada DO / qty DO)
+      Total Invoice baris = harga satuan setelah PPN x Qty Invoice baris
 
-    Porsi DPP invoice = alokasi DO tsb / total alokasi invoice x DPP invoice, sehingga jumlah seluruh baris untuk
-    satu invoice sama dengan **DPP invoice** (tanpa pajak). Alokasi hanya menentukan pembagian antar DO; bila
-    alokasi tersimpan termasuk pajak, nilai qty ikut dinormalkan ke DPP (faktor dpp/amount).
     DO tanpa invoice tetap kosong (tanggal/no kosong, qty 0). Tanpa izin harga -> Total Invoice = None.
     """
     do_ids = sorted({d for r in rows for d in (r.get("_do_qty") or {})})
@@ -109,60 +116,37 @@ async def _attach_invoices(server, rows, show_financial):
     pl_ids = sorted({ln["po_line_id"] for ln in dl if ln.get("po_line_id")})
     pls = ({p["id"]: p for p in await server.db.po_lines.find(
         {"id": {"$in": pl_ids}},
-        {"_id": 0, "id": 1, "qty": 1, "price": 1, "gross": 1, "discount": 1, "dpp": 1, "tax": 1, "tax_inclusive": 1}).to_list(None)}
+        {"_id": 0, "id": 1, "qty": 1, "price": 1, "gross": 1, "discount": 1, "dpp": 1, "tax": 1, "tax_inclusive": 1,
+         "tax_amount": 1, "total": 1}).to_list(None)}
         if pl_ids else {})
     do_qty, do_val = {}, {}
     for ln in dl:
         d = ln.get("do_id")
         q = _f(ln.get("qty"))
         do_qty[d] = do_qty.get(d, 0.0) + q
-        do_val[d] = do_val.get(d, 0.0) + _po_unit_dpp(pls.get(ln.get("po_line_id")) or {}) * q
+        do_val[d] = do_val.get(d, 0.0) + _po_unit_total(pls.get(ln.get("po_line_id")) or {}) * q
 
     target = set(do_ids)
     invs = await server.db.vendor_invoices.find(
-        {}, {"_id": 0, "id": 1, "invoice_no": 1, "no": 1, "invoice_date": 1, "amount": 1, "dpp": 1,
-            "tax_amount": 1, "do_ids": 1}).to_list(None)
+        {}, {"_id": 0, "id": 1, "invoice_no": 1, "no": 1, "invoice_date": 1, "amount": 1, "do_ids": 1}).to_list(None)
     allocs = await server.db.vendor_invoice_allocations.find(
         {}, {"_id": 0, "invoice_id": 1, "do_id": 1, "amount": 1}).to_list(None)
     inv_by_do, billed = {}, {}
-    inv_dpp, inv_factor, alloc = {}, {}, {}
-    alloc_total = {}
     for inv in invs:
-        dpp = _invoice_dpp(inv)
-        amount = _f(inv.get("amount"))
-        inv_dpp[inv["id"]] = dpp
-        inv_factor[inv["id"]] = (dpp / amount) if amount > 0 else 1.0
         for d in inv.get("do_ids") or []:
             if d in target:
                 inv_by_do.setdefault(d, {})[inv["id"]] = inv
     for a in allocs:
         iid, d = a.get("invoice_id"), a.get("do_id")
-        amount = _f(a.get("amount"))
-        if iid:
-            alloc_total[iid] = alloc_total.get(iid, 0.0) + amount
         if d in target and iid in (inv_by_do.get(d) or {}):
-            billed[d] = billed.get(d, 0.0) + amount * inv_factor.get(iid, 1.0)  # alokasi dalam basis DPP
-        if iid and d:
-            alloc[(iid, d)] = alloc.get((iid, d), 0.0) + amount
-
-    # porsi DPP invoice per DO (alokasi hanya menentukan pembagian)
-    share = {}
-    for d, got in inv_by_do.items():
-        for iid in got:
-            raw = alloc.get((iid, d), 0.0)
-            total = alloc_total.get(iid, 0.0)
-            dpp = inv_dpp.get(iid, 0.0)
-            if raw > 0 and total > 0 and dpp > 0:
-                share[d] = share.get(d, 0.0) + raw / total * dpp
-            elif dpp > 0 and len(got[iid].get("do_ids") or []) == 1:
-                share[d] = share.get(d, 0.0) + dpp  # invoice satu DO tanpa baris alokasi
-    for d, got in inv_by_do.items():  # fallback qty: DO tercantum di invoice tanpa baris alokasi
+            billed[d] = billed.get(d, 0.0) + _f(a.get("amount"))
+    for d, got in inv_by_do.items():  # fallback: DO tercantum di invoice tanpa baris alokasi
         if billed.get(d):
             continue
         if len(got) == 1:
             inv = next(iter(got.values()))
             if len(inv.get("do_ids") or []) == 1:
-                billed[d] = _invoice_dpp(inv)
+                billed[d] = _f(inv.get("amount"))
 
     for r in rows:
         qmap = r.pop("_do_qty", {}) or {}
@@ -175,9 +159,9 @@ async def _attach_invoices(server, rows, show_financial):
             dv, dq = do_val.get(d, 0.0), do_qty.get(d, 0.0)
             ratio = min(1.0, b / dv) if dv > 0 else 1.0
             refs.update(inv_map)
-            qty_inv += row_qty * ratio
-            val = share.get(d, 0.0)
-            total_inv += val * (row_qty / dq) if dq > 0 else 0.0
+            qty_d = row_qty * ratio
+            qty_inv += qty_d
+            total_inv += (dv / dq) * qty_d if dq > 0 else 0.0  # harga satuan setelah PPN x qty diinvoicekan
         ref_list = sorted(refs.values(), key=lambda x: ((x.get("invoice_date") or ""), (x.get("invoice_no") or "")))
         r["inv_date"] = "\n".join(str(x.get("invoice_date") or "")[:10] for x in ref_list if x.get("invoice_date"))
         r["inv_no"] = "\n".join(str(x.get("invoice_no") or x.get("no") or "") for x in ref_list if (x.get("invoice_no") or x.get("no")))
@@ -258,6 +242,13 @@ async def trace_batch(server, mro_ids, line_filter=None):
     await b.load("po_lines", "id", [a.get("target_line_id") for a in po_a])
     await b.load("do", "id", [a.get("target_doc_id") for a in do_a])
     await b.load("mi", "id", [a.get("target_doc_id") for a in mi_a])
+    await b.load("projects", "id", [ln.get("project_id") for ln in lines])
+    po_docs = []
+    for k in dict.fromkeys(a.get("target_doc_id") for a in po_a):
+        doc = await b.one("po", k) if k else None
+        if doc:
+            po_docs.append(doc)
+    await b.load("suppliers", "id", [d.get("supplier_id") for d in po_docs])
     return b
 
 
@@ -279,6 +270,7 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
 
     out = []
     B = await trace_batch(server, [mh["id"] for mh in mros])  # P7: rantai dimuat batch (dulu ±6 query per baris)
+    await B.load("projects", "id", [mh.get("default_project_id") for mh in mros])  # proyek default header MRO
     for mh in mros:
         lines = await B.find("mro_lines", "mro_id", mh["id"])
         grouped = {}
@@ -313,6 +305,8 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                 "do_total": 0.0 if show_financial else None,
                 "_do_qty": {},
                 "_spk": {},
+                "_project": {},
+                "_supplier": {},
                 "mro_refs": {},
                 "ro_refs": {},
                 "po_refs": {},
@@ -333,6 +327,12 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                 if number:
                     row["_spk"][str(number)] = True
 
+            project_id = line.get("project_id") or mh.get("default_project_id")
+            if project_id:
+                project_name = _project_name(await B.one("projects", project_id))
+                if project_name:
+                    row["_project"][project_name] = True
+
             ro_allocs = await B.find("allocations", "source_line_id", line["id"], {"target_type": "ro"})
             row["qty_ro"] += sum(_f(a.get("qty")) for a in ro_allocs)
 
@@ -346,6 +346,10 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                     row["qty_po"] += allocated_po_qty
                     ph = await B.one("po", pa.get("target_doc_id"))
                     _add_ref(row["po_refs"], ph)
+                    if ph and ph.get("supplier_id"):
+                        supplier_name = _supplier_name(await B.one("suppliers", ph.get("supplier_id")))
+                        if supplier_name:
+                            row["_supplier"][supplier_name] = True
 
                     po_line = await B.one("po_lines", pa.get("target_line_id")) or {}
                     po_line_qty = _f(po_line.get("qty"))
@@ -364,12 +368,12 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
                         row["po_total"] += total_line * share
 
                     do_allocs = await B.find("allocations", "source_line_id", pa.get("target_line_id"), {"target_type": "do"})
-                    unit_dpp = (dpp_line / po_line_qty) if po_line_qty > 0 else 0.0
+                    unit_total = (total_line / po_line_qty) if po_line_qty > 0 else 0.0
                     for da in do_allocs:
                         received_qty = _f(da.get("qty"))
                         row["qty_received"] += received_qty
                         if show_financial:
-                            row["do_total"] += unit_dpp * received_qty
+                            row["do_total"] += unit_total * received_qty  # harga satuan setelah PPN x qty diterima
                         dh = await B.one("do", da.get("target_doc_id"))
                         _add_ref(row["do_refs"], dh)
                         do_id = da.get("target_doc_id")
@@ -392,6 +396,8 @@ async def _build_rows(server, date_from=None, date_to=None, user=None):
             for key in ("mro_refs", "ro_refs", "po_refs", "do_refs", "mi_refs"):
                 row[key] = _refs(row[key])
             row["spk_no"] = ", ".join(sorted(row.pop("_spk", {}) or {}))
+            row["project_name"] = ", ".join(sorted(row.pop("_project", {}) or {}))
+            row["supplier_name"] = ", ".join(sorted(row.pop("_supplier", {}) or {}))
             out.append(row)
 
     await _attach_invoices(server, out, show_financial)
@@ -405,12 +411,12 @@ def _excel(rows):
     ws = wb.active
     ws.title = "MRO Traceability"
     headers = [
-        "Kode Barang", "Nama Barang", "Kategori", "Satuan", "No. SPK",
+        "Kode Barang", "Nama Barang", "Kategori", "Satuan", "No. SPK", "Nama Proyek",
         "Tanggal MRO", "No. MRO", "Qty MRO",
         "Tanggal RO", "No. RO", "Qty RO",
-        "Tanggal PO", "No. PO", "Qty PO",
+        "Tanggal PO", "Nama Supplier", "No. PO", "Qty PO",
         "Nilai PO", "Diskon PO", "DPP PO", "Pajak PO", "Total PO",
-        "Tanggal DO", "No. DO", "Qty DO", "Total DO (DPP x Qty Diterima)",
+        "Tanggal DO", "No. DO", "Qty DO", "Total DO",
         "Tanggal Invoice", "No. Invoice", "Qty Invoice", "Total Invoice",
         "Tanggal MI", "No. MI", "Qty MI", "Outstanding", "Status",
     ]
@@ -422,17 +428,19 @@ def _excel(rows):
     for row in rows:
         ws.append([
             row.get("item_code"), row.get("item_name"), row.get("category"), row.get("unit"), row.get("spk_no"),
+            row.get("project_name"),
             _join_refs(row.get("mro_refs"), "date"), _join_refs(row.get("mro_refs"), "no"), row.get("request"),
             _join_refs(row.get("ro_refs"), "date"), _join_refs(row.get("ro_refs"), "no"), row.get("qty_ro"),
-            _join_refs(row.get("po_refs"), "date"), _join_refs(row.get("po_refs"), "no"), row.get("qty_po"),
+            _join_refs(row.get("po_refs"), "date"), row.get("supplier_name"),
+            _join_refs(row.get("po_refs"), "no"), row.get("qty_po"),
             row.get("po_gross"), row.get("po_discount"), row.get("po_dpp"), row.get("po_tax"), row.get("po_total"),
             _join_refs(row.get("do_refs"), "date"), _join_refs(row.get("do_refs"), "no"), row.get("qty_received"), row.get("do_total"),
             row.get("inv_date"), row.get("inv_no"), row.get("qty_invoice"), row.get("inv_total"),
             _join_refs(row.get("mi_refs"), "date"), _join_refs(row.get("mi_refs"), "no"), row.get("qty_mi"), row.get("outstanding"), row.get("status"),
         ])
 
-    money_cols = {15, 16, 17, 18, 19, 23, 27}
-    qty_cols = {8, 11, 14, 22, 26, 30, 31}
+    money_cols = {17, 18, 19, 20, 21, 25, 29}
+    qty_cols = {9, 12, 16, 24, 28, 32, 33}
     for row in ws.iter_rows(min_row=2):
         for idx, cell in enumerate(row, start=1):
             cell.alignment = Alignment(vertical="top", wrap_text=True)
@@ -441,7 +449,7 @@ def _excel(rows):
             elif idx in qty_cols and isinstance(cell.value, (int, float)):
                 cell.number_format = '#,##0.####'
 
-    widths = [15, 28, 18, 12, 18, 14, 24, 12, 14, 24, 12, 14, 24, 12, 16, 16, 16, 16, 16, 14, 24, 12, 22, 14, 20, 14, 16, 14, 24, 12, 14, 14]
+    widths = [15, 28, 18, 12, 18, 20, 14, 24, 12, 14, 24, 12, 14, 24, 24, 12, 16, 16, 16, 16, 16, 14, 24, 12, 22, 14, 20, 14, 16, 14, 24, 12, 14, 14]
     for idx, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = width
     ws.freeze_panes = "A2"
