@@ -60,7 +60,8 @@ def main():
     total = float(pl.get("total") if pl.get("total") is not None else dpp)
     check("T3a nilai PO = baris PO tersimpan (alokasi penuh)", abs(a.get("po_dpp", -1) - dpp) < 0.01 and abs(a.get("po_total", -1) - total) < 0.01,
           (a.get("po_dpp"), dpp, a.get("po_total"), total))
-    check("T3b Total DO = DPP per unit x qty diterima", abs(a.get("do_total", -1) - dpp / float(pl["qty"]) * 4) < 0.01, (a.get("do_total"), dpp))
+    check("T3b Total DO = harga satuan setelah PPN (total/qty) x qty diterima",
+          abs(a.get("do_total", -1) - total / float(pl["qty"]) * 4) < 0.01, (a.get("do_total"), total))
     lim = V.mk_user("manager", overrides={"view_purchase_price": "deny"}, divs=[M["div"]["id"]])
     sc, RL = rows_for(lim, nos)
     al = RL.get(mro1, {})
