@@ -1742,3 +1742,31 @@ Pada dialog **Tambah/Edit Item Harga** kontrak vendor, UOM tidak ikut master bar
   — auto UOM = satuan dasar; opsi ⊆ {satuan dasar + satuan barang}; contoh `SKU/0206` hanya 2 opsi
   (bukan 176 master satuan); item lama `unit="Pcs"` otomatis memilih satuan Pcs.
 - Belum diuji di browser (dialog butuh login + izin `vendor_contract:manage`).
+
+---
+
+## 2026-10-30 — Master Supplier: field No. Telepon & Email + label "PIC Utama"
+
+### Tujuan (permintaan pemilik)
+Form supplier tidak menampilkan **No. Telepon** dan **Email** padahal impor Excel mengisinya. Selain itu field `name`
+sebenarnya berisi nama orang (PIC), sementara nama perusahaan ada di `legal_name` — jadi label form diganti **PIC Utama**.
+
+### Perubahan
+- `frontend/src/pages/MasterData.jsx` (`SupplierEditor`):
+  - Label **"Nama Supplier"** -> **"PIC Utama"**.
+  - Tambah input **No. Telepon** (`form.phone`) dan **Email** (`form.email`) di section *Informasi Umum*
+    (setelah Nama Legal / Kategori Supplier).
+  - `CONFIGS.suppliers.fields`: label `name` -> "PIC Utama", `phone` -> "No. Telepon" (dipakai header daftar & validasi).
+- `backend/master_auto.py`:
+  - `_normalize_supplier()` tidak lagi menimpa `phone`/`email` level supplier dari PIC utama; nilai dari form/impor
+    dipertahankan, PIC hanya dipakai sebagai **fallback bila kosong** (sebelumnya selalu ditimpa -> data impor hilang
+    saat supplier diedit dan punya PIC).
+  - `REQUIRED_FIELDS["suppliers"]` label -> "PIC Utama" (pesan validasi konsisten).
+
+### Pengujian
+- `CI=true yarn build` -> **Compiled successfully** (32,78 s), tanpa warning ESLint.
+- Uji `_normalize_supplier` (read-only, tanpa menulis DB): **3/3 skenario lulus**
+  - phone/email supplier **dipertahankan** walau ada PIC (`81371088931` / `sales@profitaabadi.com`);
+  - bila kosong -> fallback ke PIC (`081200000000` / `pic@lain.com`);
+  - tanpa PIC -> nilai tetap tersimpan.
+- `py_compile backend/master_auto.py` OK.
