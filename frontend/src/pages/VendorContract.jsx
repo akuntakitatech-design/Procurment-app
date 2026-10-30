@@ -343,6 +343,29 @@ function ItemDialog({ open, onOpenChange, contract, editRow, onSaved }) {
   const [f, setF] = useState(blankItem);
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const uomLabel = (u) => u?.name || u?.symbol || u?.code || "";
+  const selectedItem = items.find((i) => i.id === f.item_id);
+  // Pilihan UOM mengikuti master barang: satuan dasar + satuan turunan barang itu saja.
+  const itemUomIds = (() => {
+    const ids = [];
+    if (selectedItem?.base_uom_id) ids.push(selectedItem.base_uom_id);
+    for (const u of selectedItem?.uoms || []) if (u?.uom_id) ids.push(u.uom_id);
+    if (f.uom_id) ids.push(f.uom_id); // jaga nilai tersimpan (data lama)
+    return [...new Set(ids)];
+  })();
+  const uomOptions = itemUomIds.length
+    ? itemUomIds.map((id) => uoms.find((u) => u.id === id)).filter(Boolean).map((u) => ({ value: u.id, label: uomLabel(u) }))
+    : uoms.map((u) => ({ value: u.id, label: uomLabel(u) })); // barang belum punya data satuan -> semua satuan
+  const baseUomLabel = uomLabel(uoms.find((u) => u.id === selectedItem?.base_uom_id));
+  const selectedUomFactor = Number(((selectedItem?.uoms || []).find((u) => u.uom_id === f.uom_id) || {}).factor || 1);
+  const onItemChange = (v) => {
+    const it = items.find((i) => i.id === v) || {};
+    const legacy = (!it.base_uom_id && it.unit)
+      ? uoms.find((u) => [u.name, u.symbol, u.code].filter(Boolean)
+        .some((x) => String(x).toLowerCase() === String(it.unit).toLowerCase()))
+      : null;
+    setF((s) => ({ ...s, item_id: v, uom_id: it.base_uom_id || it.uom_id || legacy?.id || "" }));
+  };
   useEffect(() => {
     if (!open) return;
     api.get("/lookup/items").then((r) => setItems(r.data || [])).catch(() => {});
@@ -390,8 +413,11 @@ function ItemDialog({ open, onOpenChange, contract, editRow, onSaved }) {
           <DialogDescription>Kontrak {contract.contract_number} — Net Price dihitung otomatis dari Base Price dan diskon.</DialogDescription></DialogHeader>
         <div className="space-y-4">
           <div className="grid md:grid-cols-2 gap-3">
-            <Field label="Barang/Jasa *"><Combobox testid="vc-item-item" options={items.map((i) => ({ value: i.id, label: i.name }))} value={f.item_id} onChange={(v) => set("item_id", v)} placeholder="Pilih barang" /></Field>
-            <Field label="UOM *"><Combobox testid="vc-item-uom" options={uoms.map((u) => ({ value: u.id, label: u.name || u.symbol }))} value={f.uom_id} onChange={(v) => set("uom_id", v)} placeholder="Pilih satuan" /></Field>
+            <Field label="Barang/Jasa *"><Combobox testid="vc-item-item" options={items.map((i) => ({ value: i.id, label: i.name }))} value={f.item_id} onChange={onItemChange} placeholder="Pilih barang" /></Field>
+            <Field label="UOM *">
+              <Combobox testid="vc-item-uom" options={uomOptions} value={f.uom_id} onChange={(v) => set("uom_id", v)} placeholder="Pilih satuan" />
+              {selectedUomFactor > 1 && baseUomLabel && <p className="text-xs text-muted-foreground">1 {uomLabel(uoms.find((u) => u.id === f.uom_id))} = {selectedUomFactor} {baseUomLabel}</p>}
+            </Field>
             <Field label="Minimum Qty"><Input type="number" min="0" step="any" value={f.min_qty} onChange={(e) => set("min_qty", e.target.value)} /></Field>
             <Field label="Lead Time (hari)"><Input type="number" min="0" value={f.lead_time_days} onChange={(e) => set("lead_time_days", e.target.value)} /></Field>
           </div>

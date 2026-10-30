@@ -1717,3 +1717,28 @@ Contoh: `PO/2026/10/00002` qty 20 (Total DO 2.600.000) dengan invoice `434666` m
 - Invarian: **59 baris** dengan Qty Invoice = Qty DO → Total Invoice = Total DO, **0 selisih**.
 - Tanpa izin harga: `do_total` & `inv_total` None, **80 baris** tetap ber-Qty Invoice (sama dengan user ber-izin).
 - `py_compile` OK.
+
+---
+
+## 2026-10-30 — Kontrak Harga Vendor: UOM otomatis mengikuti master barang
+
+### Tujuan (permintaan pemilik)
+Pada dialog **Tambah/Edit Item Harga** kontrak vendor, UOM tidak ikut master barang. Sekarang:
+- UOM **terisi otomatis** dengan **satuan dasar barang** begitu barang dipilih.
+- Pilihan UOM **dibatasi**: hanya satuan dasar + satuan turunan milik barang itu (`items.uoms`), bukan seluruh master satuan.
+
+### Perubahan (`frontend/src/pages/VendorContract.jsx`, ItemDialog)
+- `onItemChange()`: saat barang dipilih, `uom_id` diisi `items.base_uom_id` → fallback `items.uom_id` → fallback
+  pencocokan nama/simbol/kode dengan `items.unit` (data lama) → kosong.
+- `uomOptions`: dibangun dari `[base_uom_id] + items.uoms[].uom_id` (unik). Bila barang belum punya data satuan,
+  kembali ke seluruh master satuan agar form tidak buntu. Nilai `uom_id` yang sudah tersimpan (edit data lama)
+  selalu disertakan agar tidak hilang.
+- Tambahan kecil: bila satuan terpilih adalah satuan turunan (faktor > 1), tampil keterangan
+  `1 <satuan> = <faktor> <satuan dasar>`.
+
+### Pengujian
+- `CI=true yarn build` → **Compiled successfully** (68,56 s), tanpa warning ESLint (warning = error di Coolify).
+- Uji logika dengan data produksi (6 item multi-satuan, 3 item satu satuan, 2 item lama): **11/11 lolos, 0 gagal**
+  — auto UOM = satuan dasar; opsi ⊆ {satuan dasar + satuan barang}; contoh `SKU/0206` hanya 2 opsi
+  (bukan 176 master satuan); item lama `unit="Pcs"` otomatis memilih satuan Pcs.
+- Belum diuji di browser (dialog butuh login + izin `vendor_contract:manage`).
