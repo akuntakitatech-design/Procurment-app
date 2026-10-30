@@ -191,13 +191,13 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     return `<tr class="item"><td class="c no">${i + 1}</td><td class="desc"><div class="item-name">${esc(l.item_name || l.item_code || "")}</div>${sub}</td><td class="c spk">${nl2br(l._spk_label || "")}</td><td class="r qty">${num(q)}</td><td class="c unit">${esc(l.display_unit || l.unit || "")}</td>${showPrice ? fin : `<td class="ket">${esc(l.notes || "")}</td>`}</tr>`;
   };
   const emptyCells = (n) => Array.from({ length: n }, () => "<td></td>").join("");
-  const body = lines.length ? poRefGroups(lines).map((g) => `${g.label ? `<tr class="grp"><td></td><td class="grp-label" colspan="2">${esc(g.label)}</td>${emptyCells(cols - 3)}</tr>` : ""}${g.rows.map(([l, i]) => itemRow(l, i)).join("")}`).join("") + `<tr class="filler">${emptyCells(cols)}</tr>`
+  const body = lines.length ? poRefGroups(lines).map((g) => `${g.label ? `<tr class="grp"><td></td><td class="grp-label">${esc(g.label)}</td>${emptyCells(cols - 2)}</tr>` : ""}${g.rows.map(([l, i]) => itemRow(l, i)).join("")}`).join("") + `<tr class="filler">${emptyCells(cols)}</tr>`
     : `<tr><td colspan="${cols}" class="c">Tidak ada item</td></tr>`;
   const colgroup = showPrice
     ? `<colgroup><col style="width:4.5%"><col style="width:28.5%"><col style="width:14%"><col style="width:6.5%"><col style="width:5.5%"><col style="width:13%"><col style="width:11%"><col style="width:17%"></colgroup>`
     : `<colgroup><col style="width:5%"><col style="width:39%"><col style="width:15%"><col style="width:8%"><col style="width:8%"><col style="width:25%"></colgroup>`;
   const head = showPrice
-    ? `<thead><tr><th>No</th><th>Description</th><th>No. SPK</th><th colspan="2">Qty</th><th>Price</th><th>Discount</th><th>Amount${v2 ? `<div class="th-sub">sebelum PPN</div>` : ""}</th></tr></thead>`
+    ? `<thead><tr><th>No</th><th>Description</th><th>No. SPK</th><th colspan="2">Qty</th><th>Price</th><th>Discount</th><th>Amount</th></tr></thead>`
     : `<thead><tr><th>No</th><th>Description</th><th>No. SPK</th><th colspan="2">Qty</th><th>Keterangan</th></tr></thead>`;
   const sums = showPrice ? [...summaryRows(doc, lines), ...dpSummaryRows(doc, money)] : [];
   // ---- rincian pajak per kelompok: hanya untuk kombinasi (lebih dari 1 kelompok / fasilitas / campur Tanpa PPN)

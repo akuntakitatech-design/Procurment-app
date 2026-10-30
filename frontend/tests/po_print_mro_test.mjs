@@ -13,7 +13,7 @@ const doc = { no: "PO/2026/10/00001", status: "Approved", grand_total: 8880, sub
   L({ item_name: "Gasket", mro_refs: ["MRO/2026/10/00003", "MRO/2026/10/00002", "MRO/2026/10/00003", ""], ro_refs: [{ ro_no: "RO/2026/10/00002" }, { ro_no: "RO/2026/10/00002" }] }),
   L({ item_name: "Oli <SAE> 40" })] };
 const html = (d, showPrice = true) => realPoHtml({ doc: d, company: { name: "PT Uji" }, layout, supplier: {}, project: {}, showPrice, internal: false, autoPrint: false });
-const grp = (h) => [...h.matchAll(/<td class="grp-label" colspan="2">([\s\S]*?)<\/td>/g)].map((m) => m[1]);
+const grp = (h) => [...h.matchAll(/<td class="grp-label">([\s\S]*?)<\/td>/g)].map((m) => m[1]);
 const names = (h) => [...h.matchAll(/<div class="item-name">([\s\S]*?)<\/div>/g)].map((m) => m[1]);
 
 const h = html(doc);
