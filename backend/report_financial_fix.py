@@ -24,6 +24,8 @@ def install(server):
     async def build_rows(server_arg, date_from=None, date_to=None, user=None):
         rows = await original(server_arg, date_from, date_to, user)
         if not user or not server.has_perm(user, "view_purchase_price"):
+            # Kolom invoice tetap dipasang (qty & no/tanggal), nilai harga = None.
+            await report_trace_detail._attach_invoices(server_arg, rows, False)
             return rows
 
         B = report_trace_detail._LAST_BATCH.get()  # P7: batch dari _build_rows asli (request sama)
@@ -39,6 +41,8 @@ def install(server):
                 "po_tax": 0.0,
                 "po_total": 0.0,
                 "do_total": 0.0,
+                "_do_qty": {},
+                "_do_money": {},
             })
             mro_lines = [ml for ml in await B.find("mro_lines", "mro_id", row.get("mro_id"))
                          if ml.get("item_id") == row.get("item_id")][:2000]
@@ -75,6 +79,11 @@ def install(server):
                             received_for_source = _f(da.get("qty")) * share
                             row["qty_received"] += received_for_source
                             row["do_total"] += unit_total * received_for_source  # harga satuan setelah PPN x qty diterima
+                            do_id = da.get("target_doc_id")
+                            if do_id:
+                                row["_do_qty"][do_id] = row["_do_qty"].get(do_id, 0.0) + received_for_source
+                                row["_do_money"][do_id] = row["_do_money"].get(do_id, 0.0) + unit_total * received_for_source
+        await report_trace_detail._attach_invoices(server_arg, rows, True)
         return rows
 
     report_trace_detail._build_rows = build_rows

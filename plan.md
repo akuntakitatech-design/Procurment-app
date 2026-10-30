@@ -1689,3 +1689,31 @@ satu SPK, semuanya digabung dalam satu kolom dan dipisahkan **koma**.
 - Excel: **34 kolom**; posisi `No. SPK`=5, `Nama Proyek`=6, `Tanggal PO`=13, `Nama Supplier`=14, `No. PO`=15,
   `Total DO`=25, `Total Invoice`=29; format uang/qty tepat.
 - `py_compile` 5 file: OK.
+
+---
+
+## 2026-10-30 — Perbaikan Total Invoice: harga satuan item, bukan rata-rata DO
+
+### Masalah (temuan pemilik)
+Contoh: `PO/2026/10/00002` qty 20 (Total DO 2.600.000) dengan invoice `434666` menampilkan Total Invoice
+**2.377.777,78** padahal Qty Invoice = Qty DO. Penyebab: Total Invoice dihitung dari **harga satuan rata-rata DO**
+(nilai seluruh DO / qty DO) lalu dikali qty — sehingga item yang harganya berbeda dalam satu DO saling "tertukar".
+
+### Perubahan
+- `report_trace_detail._build_rows()` menyimpan `_do_money[do_id]` = nilai DO baris itu sendiri (harga satuan
+  setelah PPN x qty diterima) di samping `_do_qty`.
+- `_attach_invoices()`: `Total Invoice baris = _do_money[do_id] x rasio penagihan` (bukan harga rata-rata DO).
+  Rasio = `min(1, alokasi invoice DO / nilai DO)`, dihitung dari penjumlahan seluruh baris DO.
+  Konsekuensi: **bila Qty Invoice = Qty DO maka Total Invoice = Total DO** per baris.
+- Kolom invoice dipasang setelah koreksi finansial (`report_financial_fix`) supaya basis nilainya sama dengan
+  Total DO final; `_attach_invoices` dipanggil di wrapper (kedua cabang: ber-izin & tanpa izin harga).
+- `_po_unit_dpp()` / `_po_unit_total()` dan query `do_lines`/`po_lines` di `_attach_invoices` dihapus (tidak dipakai lagi
+  → 2 query lebih sedikit per request).
+- `_do_money` juga diisi untuk user tanpa izin harga (hanya internal, untuk menghitung rasio) agar Qty Invoice tetap akurat.
+
+### Pengujian (data produksi, read-only)
+- `DO/2026/10/00003` + invoice `434666`: baris menjadi **2.600.000 / 1.250.000 / 1.500.000** = Total DO
+  (sebelumnya 2.377.777,78 / 1.188.888,89 / 1.783.333,33); Σ = 5.350.000 = nilai invoice.
+- Invarian: **59 baris** dengan Qty Invoice = Qty DO → Total Invoice = Total DO, **0 selisih**.
+- Tanpa izin harga: `do_total` & `inv_total` None, **80 baris** tetap ber-Qty Invoice (sama dengan user ber-izin).
+- `py_compile` OK.
