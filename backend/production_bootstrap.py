@@ -61,6 +61,7 @@ import approval_state_guard_layer
 import do_receipt_guard_layer
 import do_receipt_condition_layer
 import excel_import_layer
+import import_jobs_layer
 import opening_inventory_layer
 import spk_layer
 import vendor_contract_layer
@@ -198,6 +199,8 @@ receipt_control_layer.install(server)
 opening_inventory_layer.install(server, excel_import_layer)
 # Install last so transaction imports call the final wrapped transaction endpoints.
 excel_import_layer.install(server)
+# Import Excel di background: progres %, log per baris, log Excel yang bisa diunduh (memakai fungsi impor yang sama).
+import_jobs_layer.install(server)
 
 # CP1 — SPK Foundation: Master SPK, budget policy (tenant default + per-SPK), documents,
 # effective-policy service and audit. Registered with the business layers (before isolation)

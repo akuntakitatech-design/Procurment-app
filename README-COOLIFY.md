@@ -55,6 +55,8 @@ PLATFORM_ADMIN_NAME=Akuntakita Super Admin
 # Opsional: batas upload lampiran (MB), default 15
 # MAX_UPLOAD_MB=15
 # Opsional: SMTP untuk email PO/undangan (SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM, SMTP_FROM_NAME, SMTP_USE_TLS)
+# Opsional: import Excel sebagai job background (progres % + log per baris). Default: TTL 7200 detik, 3 job aktif/user, folder /tmp/procureflow-import-logs
+# IMPORT_JOB_DIR=/tmp/procureflow-import-logs  IMPORT_JOB_TTL_SECONDS=7200  IMPORT_JOB_MAX_ACTIVE=3
 ```
 
 > **Status cut-over 2026-09-23 (MariaDB Coolify `:46791`)**: data produksi app.akuntakita.com (949 item, 63 supplier, 357 stock ledger, dst.)

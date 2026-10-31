@@ -1864,3 +1864,41 @@ master supplier, tetapi tetap bisa diubah manual.
   terisi otomatis saat vendor dipilih.
 - 951 supplier: **949 punya PIC** (`name`), **166 punya `payment_term`** (sisanya field dibiarkan apa adanya).
 - `CI=true yarn build` -> **Compiled successfully** (55,72 s) tanpa warning ESLint.
+
+---
+
+## 2026-10-31 — Import Excel: progres %, log per baris, log Excel yang bisa diunduh
+
+### Tujuan (permintaan pemilik)
+Setiap menu di halaman **Import Excel** (MRO, RO, PO, DO, MI, Transfer, Pinjam, Pengembalian, Penyesuaian,
+Stock Opname, dan master data) harus menampilkan **status progres %** selama proses berjalan, **log detail
+berhasil/gagal per baris**, dan **log dapat diunduh sebagai file Excel**.
+
+### Ditambah (+)
+- `backend/import_jobs_layer.py` (baru) — impor Excel berjalan sebagai job background:
+  - `POST /api/excel/import-jobs/{dataset}`: validasi file/header, buat job, worker `asyncio` menjalankan
+    `excel_import_layer.run_import` (fungsi impor yang sama dengan endpoint lama, sehingga aturan nomor/audit/stok tetap).
+  - `GET /api/excel/import-jobs`: 10 job terakhir milik user (opsional filter `dataset`).
+  - `GET /api/excel/import-jobs/{id}`: progres (`processed`, `ok`, `failed`, `skipped`, `percent`), ringkasan, preview error.
+  - `GET /api/excel/import-jobs/{id}/log.xlsx`: unduh log Excel per baris.
+  - `Tracker`: menghitung progres + mencatat tiap baris, flush ke DB tiap 25 baris / 0,8 detik (kegagalan flush tidak
+    menggagalkan impor). Log xlsx disimpan di folder privat `0700`, nama acak, dihapus setelah TTL 2 jam.
+  - Batas 3 job aktif per user agar impor besar tidak saling menumpuk; job yang tertinggal (server restart) ditandai gagal.
+
+### Diubah (~)
+- `backend/excel_import_layer.py`: `_import_master` / `_import_transactions` menerima `tracker` opsional dan mencatat
+  status tiap baris — `OK` (+ Dibuat/Diperbarui/Dokumen dibuat), `GAGAL` (+ alasan), `DIBATALKAN` untuk baris valid saat
+  seluruh file dibatalkan pada tahap validasi. Dispatcher baru `run_import()`; endpoint sinkron lama tidak berubah.
+- `backend/production_bootstrap.py`: pasang `import_jobs_layer.install(server)` setelah layer import Excel.
+- `frontend/src/pages/ExcelImport.jsx`: upload memakai endpoint job + polling 1,2 detik; progress bar, hitungan baris,
+  ringkasan dokumen, preview error, dan tombol **Download Log Excel**.
+- `backend/.env.example` + `README-COOLIFY.md`: catat env opsional `IMPORT_JOB_DIR`, `IMPORT_JOB_TTL_SECONDS`,
+  `IMPORT_JOB_MAX_ACTIVE` beserta default-nya.
+
+### Pengujian
+- `py_compile` untuk `excel_import_layer.py`, `import_jobs_layer.py`, `production_bootstrap.py` -> OK.
+- Uji lokal dengan fake server (skrip sementara, tidak masuk repo) -> **19/19 cek lulus**: `_row_errors`
+  mengelompokkan pesan per baris, `Tracker` menghitung ok/gagal/skipped + persen, log xlsx valid (header di baris 9,
+  nomor baris Excel di kolom 2), validasi gagal menghasilkan **0 tulis data bisnis**, baris valid ditandai `DIBATALKAN`.
+- `CI=true yarn build` (frontend) -> Compiled successfully 61,60 s, tanpa warning ESLint.
+- Impor end-to-end lewat API production: lihat catatan verifikasi di PR.
