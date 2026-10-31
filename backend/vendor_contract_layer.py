@@ -204,7 +204,7 @@ def install(server):
         return st
 
     async def _supplier(supplier_id: str):
-        return await _db().suppliers.find_one({"id": supplier_id}, {"_id": 0, "id": 1, "name": 1, "code": 1})
+        return await _db().suppliers.find_one({"id": supplier_id}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1, "code": 1})
 
     def _item_net(it: dict) -> dict:
         it["net_price"] = compute_net_price(it.get("base_price"), it.get("discount_type"), it.get("discount_value"))
@@ -222,6 +222,11 @@ def install(server):
 
     async def _enrich(c: dict, *, with_children=True) -> dict:
         out = {**c, "derived_status": _derived_status(c)}
+        sup = await _supplier(c.get("supplier_id")) if c.get("supplier_id") else None
+        if sup:  # vendor = nama legal perusahaan; `name` master supplier adalah PIC
+            out["supplier_name"] = sup.get("legal_name") or sup.get("name")
+            out["supplier_legal_name"] = sup.get("legal_name")
+            out["supplier_pic_name"] = sup.get("name")
         if with_children:
             items = await _items(c["id"])
             for it in items:
@@ -466,6 +471,15 @@ def install(server):
         if currency:
             flt["currency"] = currency.upper()
         rows = await _db().vendor_contracts.find(flt, {"_id": 0}).to_list(100000)
+        # Nama vendor yang ditampilkan = nama legal perusahaan (name master supplier = PIC).
+        # Satu query batch untuk semua kontrak di halaman ini; berlaku juga untuk data lama.
+        sup_ids = sorted({r.get("supplier_id") for r in rows if r.get("supplier_id")})
+        sup_map = ({s["id"]: (s.get("legal_name") or s.get("name")) for s in await _db().suppliers.find(
+            {"id": {"$in": sup_ids}}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(None)}
+            if sup_ids else {})
+        for r in rows:
+            if r.get("supplier_id") in sup_map:
+                r["supplier_name"] = sup_map[r["supplier_id"]]
         # counts (1 query batch, bukan N+1)
         cnt = {}
         if rows:
@@ -512,7 +526,7 @@ def install(server):
         sup = await _supplier(data["supplier_id"])
         if not sup:
             raise HTTPException(status_code=400, detail="Vendor tidak ditemukan pada master supplier")
-        data["supplier_name"] = sup.get("name")
+        data["supplier_name"] = sup.get("legal_name") or sup.get("name")
         # unik per tenant + vendor
         dup = await _db().vendor_contracts.find_one(
             {"contract_number": data["contract_number"], "supplier_id": data["supplier_id"]}, {"_id": 0, "id": 1})
@@ -554,7 +568,7 @@ def install(server):
         sup = await _supplier(data["supplier_id"])
         if not sup:
             raise HTTPException(status_code=400, detail="Vendor tidak ditemukan pada master supplier")
-        data["supplier_name"] = sup.get("name")
+        data["supplier_name"] = sup.get("legal_name") or sup.get("name")
         if data["contract_number"] != existing.get("contract_number") or data["supplier_id"] != existing.get("supplier_id"):
             dup = await _db().vendor_contracts.find_one(
                 {"contract_number": data["contract_number"], "supplier_id": data["supplier_id"], "id": {"$ne": cid}}, {"_id": 0, "id": 1})

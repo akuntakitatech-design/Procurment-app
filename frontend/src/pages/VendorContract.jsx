@@ -142,7 +142,7 @@ export function VendorContractList() {
       <div className="flex flex-col lg:flex-row gap-3 mb-4">
         <div className="relative flex-1 max-w-md"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input value={q} onChange={(e) => { setPage(1); setQ(e.target.value); }} placeholder="Cari No Kontrak, vendor, PIC..." className="pl-9" data-testid="vc-search" /></div>
-        <div className="w-full sm:w-56"><Combobox options={[{ value: "", label: "Semua Vendor" }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]} value={supplierId} onChange={(v) => { setPage(1); setSupplierId(v); }} placeholder="Vendor" /></div>
+        <div className="w-full sm:w-56"><Combobox options={[{ value: "", label: "Semua Vendor" }, ...suppliers.map((s) => ({ value: s.id, label: s.legal_name || s.name }))]} value={supplierId} onChange={(v) => { setPage(1); setSupplierId(v); }} placeholder="Vendor" /></div>
         <div className="w-full sm:w-44"><Combobox options={STATUS_OPTS} value={status} onChange={(v) => { setPage(1); setStatus(v); }} placeholder="Status" /></div>
         <div className="w-full sm:w-36"><Combobox options={[{ value: "", label: "Semua Mata Uang" }, ...CURRENCY_OPTS]} value={currency} onChange={(v) => { setPage(1); setCurrency(v); }} placeholder="Mata Uang" /></div>
         <ListExportButtons reportKey="txn-vendor-contract" query={{ q, status, supplier_id: supplierId, currency, sort }} total={data.total} testidPrefix="vc" />
@@ -219,7 +219,7 @@ function PriceCheckDialog({ open, onOpenChange, suppliers }) {
         <DialogHeader><DialogTitle>Cek Harga Kontrak (Effective Price Resolver)</DialogTitle>
           <DialogDescription>Menampilkan harga kontrak aktif yang berlaku untuk kombinasi Vendor + Item + UOM pada tanggal transaksi.</DialogDescription></DialogHeader>
         <div className="grid md:grid-cols-2 gap-3">
-          <Field label="Vendor *"><Combobox testid="vc-check-vendor" options={suppliers.map((s) => ({ value: s.id, label: s.name }))} value={f.vendor_id} onChange={(v) => set("vendor_id", v)} placeholder="Pilih vendor" /></Field>
+          <Field label="Vendor *"><Combobox testid="vc-check-vendor" options={suppliers.map((s) => ({ value: s.id, label: s.legal_name || s.name }))} value={f.vendor_id} onChange={(v) => set("vendor_id", v)} placeholder="Pilih vendor" /></Field>
           <Field label="Barang/Jasa *"><Combobox testid="vc-check-item" options={items.map((i) => ({ value: i.id, label: i.name }))} value={f.item_id} onChange={(v) => set("item_id", v)} placeholder="Pilih barang" /></Field>
           <Field label="UOM *"><Combobox testid="vc-check-uom" options={uoms.map((u) => ({ value: u.id, label: u.name || u.symbol }))} value={f.uom_id} onChange={(v) => set("uom_id", v)} placeholder="Pilih UOM" /></Field>
           <Field label="Tanggal Transaksi"><Input type="date" value={f.date} onChange={(e) => set("date", e.target.value)} /></Field>
@@ -258,6 +258,12 @@ export function VendorContractForm() {
   const [suppliers, setSuppliers] = useState([]);
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm((s) => ({ ...s, [k]: v }));
+  // Vendor dipilih -> PIC Vendor otomatis dari master supplier (nama PIC), hanya bila field masih kosong.
+  const onVendorChange = (v) => setForm((s) => {
+    const sup = suppliers.find((x) => x.id === v) || {};
+    const pic = sup.name || "";
+    return { ...s, supplier_id: v, vendor_pic: (s.vendor_pic || "").trim() ? s.vendor_pic : pic };
+  });
 
   useEffect(() => {
     api.get("/lookup/suppliers").then((r) => setSuppliers(r.data || [])).catch(() => {});
@@ -281,7 +287,7 @@ export function VendorContractForm() {
     try {
       const payload = {
         ...form,
-        supplier_name: suppliers.find((s) => s.id === form.supplier_id)?.name || null,
+        supplier_name: (suppliers.find((s) => s.id === form.supplier_id)?.legal_name || suppliers.find((s) => s.id === form.supplier_id)?.name) || null,
         default_tolerance_pct: form.default_tolerance_pct === "" ? 0 : Number(form.default_tolerance_pct),
       };
       const r = editing ? await api.put(`/vendor-contracts/${id}`, payload) : await api.post("/vendor-contracts", payload);
@@ -301,7 +307,7 @@ export function VendorContractForm() {
         <FormSection title="Informasi Kontrak" icon={Handshake}>
           <div className="grid md:grid-cols-2 gap-4">
             <Field label="Nomor Kontrak *"><Input value={form.contract_number} onChange={(e) => set("contract_number", e.target.value)} className="font-mono font-semibold" data-testid="vc-number" /></Field>
-            <Field label="Vendor *"><Combobox testid="vc-supplier" options={suppliers.map((s) => ({ value: s.id, label: s.name }))} value={form.supplier_id} onChange={(v) => set("supplier_id", v)} placeholder="Pilih vendor" /></Field>
+            <Field label="Vendor *"><Combobox testid="vc-supplier" options={suppliers.map((s) => ({ value: s.id, label: s.legal_name || s.name }))} value={form.supplier_id} onChange={onVendorChange} placeholder="Pilih vendor" /></Field>
             <Field label="Tanggal Kontrak"><Input type="date" value={form.contract_date || ""} onChange={(e) => set("contract_date", e.target.value)} /></Field>
             <Field label="Jenis Kontrak"><Input value={form.contract_type} onChange={(e) => set("contract_type", e.target.value)} placeholder="Contoh: Harga Satuan, Framework" /></Field>
             <Field label="PIC Vendor"><Input value={form.vendor_pic} onChange={(e) => set("vendor_pic", e.target.value)} /></Field>

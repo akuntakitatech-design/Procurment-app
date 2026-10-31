@@ -1816,3 +1816,31 @@ membuka **form barang yang sudah ada** (shortcut, tanpa membuat form baru dan ta
 - Render HTML nyata (doc PO v2 contoh pemilik) + ukur posisi sel di browser: header x `[39,100,488,679,843,1020,1170]`
   = baris item, baris grup kini **8 sel** (tanpa colspan) -> kolom sejajar & garis menyambung
   (bukti: `_po_before.png` / `_po_after.png`).
+
+---
+
+## 2026-10-30 — Kontrak Vendor: pencarian vendor memakai Nama Legal (bukan nama PIC)
+
+### Tujuan (permintaan pemilik)
+Dropdown/pencarian **Vendor** pada kontrak harga masih menampilkan `name` supplier (yang sejak perubahan label berarti
+**PIC Utama**). Sekarang pencarian & tampilan vendor memakai **Nama Legal / Perusahaan** (`legal_name`).
+
+### Perubahan
+- `frontend/src/pages/VendorContract.jsx`
+  - Opsi dropdown vendor memakai `legal_name || name` pada tiga tempat: filter daftar ("Semua Vendor"), dialog
+    **Cek Harga**, dan form kontrak (Tambah/Edit).
+  - Payload simpan mengirim `supplier_name` = `legal_name || name`.
+  - Saat vendor dipilih, **PIC Vendor** otomatis terisi nama PIC dari master bila field masih kosong.
+- `backend/vendor_contract_layer.py`
+  - `_supplier()` ikut membaca `legal_name`.
+  - Create/Update kontrak menyimpan `supplier_name` = `legal_name || name`.
+  - `_enrich()` (detail) dan `list_contracts()` (daftar) menampilkan nama legal dari master
+    (**berlaku juga untuk kontrak lama tanpa menulis ulang data**); tambah key `supplier_legal_name` & `supplier_pic_name`
+    pada respons detail.
+
+### Pengujian (data produksi, read-only)
+- Kasus pada screenshot: kontrak `008/2026` -> supplier `SUP-00082` `name` "Gabriel Yudika Sijabat",
+  **`legal_name` "PT. Allalloy Cahaya Dynaweld"** -> yang tampil kini **PT. Allalloy Cahaya Dynaweld**.
+- 243 kontrak; **8 kontrak** nilainya berbeda dari master (akan otomatis tampil benar tanpa migrasi data).
+- 951 supplier; 736 di antaranya belum punya `legal_name` (data seed) -> tetap fallback ke `name`.
+- `CI=true yarn build` -> **Compiled successfully** (67,72 s) tanpa warning ESLint.
