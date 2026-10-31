@@ -577,12 +577,12 @@ def install(server):
         import excel_import_layer as XL
         _orig_im = XL._import_master
         if not getattr(_orig_im, "_opname_guard", False):
-            async def import_master_guarded(server_arg, key, rows, user):
+            async def import_master_guarded(server_arg, key, rows, user, tracker=None):
                 if key == "stock_limits":
                     await precheck_rows(rows, only_with="current_stock")
                 elif key == "opening_inventory":
                     await precheck_rows(rows)
-                return await _orig_im(server_arg, key, rows, user)
+                return await _orig_im(server_arg, key, rows, user, tracker)
             import_master_guarded._opname_guard = True
             XL._import_master = import_master_guarded
     except Exception:  # noqa: BLE001
