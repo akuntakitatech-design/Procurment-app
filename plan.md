@@ -1902,3 +1902,32 @@ berhasil/gagal per baris**, dan **log dapat diunduh sebagai file Excel**.
   nomor baris Excel di kolom 2), validasi gagal menghasilkan **0 tulis data bisnis**, baris valid ditandai `DIBATALKAN`.
 - `CI=true yarn build` (frontend) -> Compiled successfully 61,60 s, tanpa warning ESLint.
 - Impor end-to-end lewat API production: lihat catatan verifikasi di PR.
+
+---
+
+## 2026-10-31 — Perbaikan: job import gagal (`TypeError` pada wrapper `_import_master`)
+
+### Masalah
+Setelah PR #125 live, `POST /api/excel/import-jobs/{dataset}` membuat job tetapi job langsung `failed`
+(`processed: 0`) sekitar 14 ms setelah `started_at`.
+
+### Penyebab (dibuktikan dengan reproduksi lokal)
+`run_import()` memanggil `_import_master` **versi modul** yang sudah dibungkus (monkey-patch) oleh dua layer:
+`stock_opname_workflow_layer.install()` (guard gudang Freeze) dan `opening_inventory_layer.install()`
+(dataset saldo awal). Kedua wrapper masih ber-signature 4 argumen, sehingga pemanggilan 5 argumen
+(menyertakan `tracker`) melempar `TypeError: install.<locals>.import_master() takes 4 positional arguments
+but 5 were given` dan tertangkap `except` generik di worker.
+
+### Diubah (~)
+- `backend/opening_inventory_layer.py`: `import_master(server_arg, key, rows, user, tracker=None)` meneruskan
+  `tracker`; `_import_opening(..., tracker=None)` mencatat log per baris (`OK` Dibuat/Diperbarui, baris yang
+  dilewati ditandai `DIBATALKAN`); kegagalan validasi dicatat lewat `excel_module._track_aborted` agar alasan
+  yang tidak berawalan `Baris N:` tetap terlihat.
+- `backend/stock_opname_workflow_layer.py`: `import_master_guarded(..., tracker=None)` meneruskan `tracker`
+  (guard Freeze tetap berjalan sebelum impor).
+
+### Pengujian
+- Reproduksi lokal memakai `server` asli + DB production dengan **baris uji tidak valid** (0 tulis data bisnis):
+  sebelum perbaikan `TypeError`; sesudah perbaikan `stock_limits` → 2 baris `GAGAL` + pesan per baris,
+  `opening_inventory` → 2 baris `GAGAL` + alasan lengkap, `_log_bytes` menghasilkan 5.444 byte.
+- `py_compile` 5 file backend -> OK; uji lokal fake server 19/19 tetap lulus.

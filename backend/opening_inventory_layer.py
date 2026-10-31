@@ -160,7 +160,7 @@ async def _append_value_ledger(server, user, rec, qty_delta, value_delta, runnin
     return running
 
 
-async def _import_opening(server, rows, user, maps):
+async def _import_opening(server, rows, user, maps, tracker=None):
     # Saldo awal changes inventory; keep this stricter than a normal master upload.
     server.require(user, "stock_adjustment")
     errors = []
@@ -234,6 +234,7 @@ async def _import_opening(server, rows, user, maps):
     created = 0
     updated = 0
     imported = 0
+    logged_rows = set()
     # Keep ledger running balance correct when several project rows hit one item/warehouse.
     running = {}
     for pair in affected_pairs:
@@ -307,6 +308,11 @@ async def _import_opening(server, rows, user, maps):
             created += 1
         imported += 1
 
+        if tracker:
+            await tracker.row(row=rec.get("excel_row"), status="OK", code=rec.get("item_code"),
+                              message="Diperbarui" if old else "Dibuat")
+            logged_rows.add(rec.get("excel_row"))
+
         stored = await server.db.opening_inventory.find_one({"id": rec_id}, {"_id": 0})
         if abs(qty_delta) > 1e-12 or abs(value_delta) > 0.005:
             running[pair] = await _append_value_ledger(server, user, stored, qty_delta, value_delta, running[pair])
@@ -314,6 +320,12 @@ async def _import_opening(server, rows, user, maps):
     await server.audit(user, "excel_import", DATASET_KEY, "batch", after={
         "imported": imported, "created": created, "updated": updated,
     })
+    if tracker:  # baris yang dilewati (nilai awal sudah terkunci & tidak berubah) tetap terlihat di log
+        for row in rows:
+            n = row.get("__row__")
+            if n not in logged_rows:
+                await tracker.row(row=n, status="DIBATALKAN",
+                                  message="Dilewati: tidak ada perubahan yang perlu disimpan")
     return {"ok": True, "imported": imported, "created": created, "updated": updated, "errors": []}
 
 
@@ -324,10 +336,13 @@ def install(server, excel_module):
 
     original_import_master = excel_module._import_master
 
-    async def import_master(server_arg, key, rows, user):
+    async def import_master(server_arg, key, rows, user, tracker=None):
         if key != DATASET_KEY:
-            return await original_import_master(server_arg, key, rows, user)
+            return await original_import_master(server_arg, key, rows, user, tracker)
         maps = await excel_module._maps(server_arg)
-        return await _import_opening(server_arg, rows, user, maps)
+        result = await _import_opening(server_arg, rows, user, maps, tracker)
+        if tracker and not result.get("ok") and result.get("errors"):
+            await excel_module._track_aborted(tracker, rows, result["errors"], note=result["errors"][0])
+        return result
 
     excel_module._import_master = import_master
