@@ -10,6 +10,7 @@ Design goals:
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from io import BytesIO
+import re
 from typing import Any
 
 from fastapi import Depends, File, HTTPException, UploadFile
@@ -303,7 +304,7 @@ def _check_headers(headers, spec):
         raise HTTPException(400, "Header wajib tidak ada: " + ", ".join(missing))
 
 
-async def _import_master(server, key, rows, user):
+async def _import_master(server, key, rows, user, tracker=None):
     maps = await _maps(server)
     errors = []
     prepared = []
@@ -375,36 +376,77 @@ async def _import_master(server, key, rows, user):
                 "current_stock": None if _text(r.get("current_stock")) == "" else _float(r.get("current_stock"), 0),
             })
     if errors:
+        if tracker:
+            await _track_aborted(tracker, rows, errors)
         return {"ok": False, "imported": 0, "errors": errors[:200]}
 
     imported = 0; created = 0; updated = 0
     if key == "stock_limits":
-        for doc in prepared:
+        for i, doc in enumerate(prepared):
             filt = {"item_id": doc["item_id"], "warehouse_id": doc["warehouse_id"]}
             existing = await server.db.item_warehouse.find_one(filt)
             patch = {"item_id": doc["item_id"], "warehouse_id": doc["warehouse_id"], "min_stock": doc["min_stock"], "max_stock": doc["max_stock"]}
             if doc["current_stock"] is not None: patch["current_stock"] = doc["current_stock"]
             await server.db.item_warehouse.update_one(filt, {"$set": patch}, upsert=True)
             imported += 1; updated += 1 if existing else 0; created += 0 if existing else 1
+            if tracker:
+                await tracker.row(row=rows[i]["__row__"], status="OK", code=doc.get("item_id"),
+                                  message="Diperbarui" if existing else "Dibuat")
     else:
         coll = getattr(server.db, key)
-        for doc in prepared:
+        for i, doc in enumerate(prepared):
             existing = await coll.find_one({"code": doc["code"]}, {"_id": 0})
             if existing:
                 await coll.update_one({"id": existing["id"]}, {"$set": doc})
                 await server.audit(user, "excel_update", key, existing["id"], doc.get("code"))
                 updated += 1
+                action = "Diperbarui"
             else:
                 doc.update({"id": server.gid(), "created_at": server.now_iso()})
                 await coll.insert_one(doc)
                 await server.audit(user, "excel_create", key, doc["id"], doc.get("code"))
                 created += 1
+                action = "Dibuat"
             imported += 1
+            if tracker:
+                await tracker.row(row=rows[i]["__row__"], status="OK", code=doc.get("code"), message=action)
     if key != "stock_limits":
         # Kode hasil impor dipakai apa adanya; counter dinaikkan agar penambahan berikutnya melanjutkan nomor terakhir.
         import master_code_settings_layer
         await master_code_settings_layer.bump_sequence_for_codes(server, key, [d.get("code") for d in prepared])
     return {"ok": True, "imported": imported, "created": created, "updated": updated, "errors": []}
+
+
+def _row_errors(errors):
+    """Kelompokkan pesan error per nomor baris Excel ("Baris N: pesan")."""
+    pat = re.compile(r"^Baris (\d+): (.*)$")
+    out = defaultdict(list)
+    for e in errors or []:
+        m = pat.match(str(e))
+        if m:
+            out[int(m.group(1))].append(m.group(2))
+        else:
+            out[0].append(str(e))
+    return out
+
+
+async def _track_aborted(tracker, rows, errors, note="Tidak diproses karena ada baris yang gagal"):
+    """Catat log ketika seluruh file dibatalkan pada tahap validasi."""
+    per_row = _row_errors(errors)
+    for r in rows:
+        n = r["__row__"]
+        msgs = per_row.get(n)
+        if msgs:
+            await tracker.row(row=n, status="GAGAL", message="; ".join(dict.fromkeys(msgs)))
+        else:
+            await tracker.row(row=n, status="DIBATALKAN", message=note)
+
+
+async def run_import(server, dataset, rows, user, tracker=None):
+    """Titik masuk tunggal impor Excel (dipakai endpoint langsung dan job background)."""
+    if dataset in MASTER_DATASETS:
+        return await _import_master(server, dataset, rows, user, tracker)
+    return await _import_transactions(server, dataset, rows, user, tracker)
 
 
 async def _source_line(server, module, doc_no, item_id):
@@ -506,7 +548,7 @@ async def _transaction_payload(server, key, group, maps, errors, user=None):
     return h
 
 
-async def _import_transactions(server, key, rows, user):
+async def _import_transactions(server, key, rows, user, tracker=None):
     maps = await _maps(server); errors = []
     groups = OrderedDict()
     for r in rows:
@@ -518,10 +560,14 @@ async def _import_transactions(server, key, rows, user):
         for batch, group in groups.items(): prepared.append((batch, group))
     else:
         for batch, group in groups.items(): prepared.append((batch, await _transaction_payload(server, key, group, maps, errors, user)))
-    if errors: return {"ok": False, "imported": 0, "errors": errors[:200]}
+    if errors:
+        if tracker:
+            await _track_aborted(tracker, rows, errors)
+        return {"ok": False, "imported": 0, "errors": errors[:200]}
 
     imported = 0; created_docs = []
     for batch, payload in prepared:
+        batch_rows = groups.get(batch) or []
         try:
             if key == "loan_return":
                 first = payload[0]
@@ -562,9 +608,17 @@ async def _import_transactions(server, key, rows, user):
                 doc_row["lines"] = [{"item": x.get("item_code") or x.get("item_name"), "warehouse": x.get("warehouse_name"),
                                      "adjustment": x.get("adjustment")} for x in (result.get("lines") or [])]
             created_docs.append(doc_row)
+            if tracker:
+                doc_no = doc_row.get("no") or doc_row.get("id") or "tersimpan"
+                for r in batch_rows:
+                    await tracker.row(row=r["__row__"], status="OK", code=batch, batch=batch, doc_no=doc_no,
+                                      message="Dokumen dibuat")
         except Exception as e:
             detail = getattr(e, "detail", None) or str(e)
             errors.append(f"Batch {batch}: {detail}")
+            if tracker:
+                for r in batch_rows:
+                    await tracker.row(row=r["__row__"], status="GAGAL", code=batch, batch=batch, message=str(detail))
     await server.audit(user, "excel_import", key, "batch", after={"imported": imported, "errors": len(errors)})
     return {"ok": len(errors) == 0, "imported": imported, "created_docs": created_docs, "errors": errors[:200]}
 
