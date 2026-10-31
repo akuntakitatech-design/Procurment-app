@@ -196,6 +196,11 @@ def install(server):
                 "skipped": tracker.skipped, "percent": 100, "summary": summary, "success": bool(result.get("ok")),
                 "errors_preview": (result.get("errors") or [])[:10], "log_bytes": len(data),
                 "finished_at": _iso(_now()), "expires_at": _iso(_now() + timedelta(seconds=TTL_S))}})
+        except HTTPException as e:
+            # Penolakan guard (gudang Freeze, izin kurang, batas lain) -> tampilkan alasannya apa adanya.
+            await db()[JOBS].update_one({"id": job_id}, {"$set": {
+                "status": "failed", "finished_at": _iso(_now()),
+                "error": str(e.detail) if e.detail else "Import ditolak."}})
         except Exception:  # noqa: BLE001
             logging.getLogger("import_jobs").exception("import job %s gagal", job_id)
             await db()[JOBS].update_one({"id": job_id}, {"$set": {
