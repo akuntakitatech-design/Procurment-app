@@ -1844,3 +1844,23 @@ Dropdown/pencarian **Vendor** pada kontrak harga masih menampilkan `name` suppli
 - 243 kontrak; **8 kontrak** nilainya berbeda dari master (akan otomatis tampil benar tanpa migrasi data).
 - 951 supplier; 736 di antaranya belum punya `legal_name` (data seed) -> tetap fallback ke `name`.
 - `CI=true yarn build` -> **Compiled successfully** (67,72 s) tanpa warning ESLint.
+
+---
+
+## 2026-10-30 — Kontrak Vendor: PIC Vendor & Termin Pembayaran otomatis dari master supplier
+
+### Tujuan (permintaan pemilik)
+Saat memilih **Vendor** di form kontrak, **PIC Vendor** dan **Termin Pembayaran** harus terisi otomatis dari data
+master supplier, tetapi tetap bisa diubah manual.
+
+### Perubahan (`frontend/src/pages/VendorContract.jsx`, `VendorContractForm`)
+- `onVendorChange()`: saat vendor dipilih, `vendor_pic` diisi dari `suppliers.name` (PIC Utama; fallback kontak utama)
+  dan `payment_term` diisi dari `suppliers.payment_term`. Nilai selalu bisa diedit setelahnya (input biasa).
+- Bila master supplier tidak punya nilai, isian lama dipertahankan (tidak menimpa menjadi kosong).
+- `data-testid` ditambahkan untuk `vc-vendor-pic` dan `vc-payment-term` (memudahkan pengujian UI).
+
+### Pengujian (data produksi, read-only)
+- Supplier pada screenshot `SUP-00082`: `name` "Gabriel Yudika Sijabat" & `payment_term` **"Net 30"** -> kedua field
+  terisi otomatis saat vendor dipilih.
+- 951 supplier: **949 punya PIC** (`name`), **166 punya `payment_term`** (sisanya field dibiarkan apa adanya).
+- `CI=true yarn build` -> **Compiled successfully** (55,72 s) tanpa warning ESLint.

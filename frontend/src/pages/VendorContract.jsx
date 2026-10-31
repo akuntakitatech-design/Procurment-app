@@ -258,11 +258,18 @@ export function VendorContractForm() {
   const [suppliers, setSuppliers] = useState([]);
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm((s) => ({ ...s, [k]: v }));
-  // Vendor dipilih -> PIC Vendor otomatis dari master supplier (nama PIC), hanya bila field masih kosong.
+  // Vendor dipilih -> PIC Vendor & Termin Pembayaran otomatis dari master supplier (tetap bisa diubah manual).
   const onVendorChange = (v) => setForm((s) => {
     const sup = suppliers.find((x) => x.id === v) || {};
-    const pic = sup.name || "";
-    return { ...s, supplier_id: v, vendor_pic: (s.vendor_pic || "").trim() ? s.vendor_pic : pic };
+    const primary = (sup.contacts || []).find((c) => c.is_primary) || (sup.contacts || [])[0] || {};
+    const pic = sup.name || primary.name || "";
+    const term = sup.payment_term || "";
+    return {
+      ...s,
+      supplier_id: v,
+      vendor_pic: pic || s.vendor_pic || "",
+      payment_term: term || s.payment_term || "",
+    };
   });
 
   useEffect(() => {
@@ -310,8 +317,8 @@ export function VendorContractForm() {
             <Field label="Vendor *"><Combobox testid="vc-supplier" options={suppliers.map((s) => ({ value: s.id, label: s.legal_name || s.name }))} value={form.supplier_id} onChange={onVendorChange} placeholder="Pilih vendor" /></Field>
             <Field label="Tanggal Kontrak"><Input type="date" value={form.contract_date || ""} onChange={(e) => set("contract_date", e.target.value)} /></Field>
             <Field label="Jenis Kontrak"><Input value={form.contract_type} onChange={(e) => set("contract_type", e.target.value)} placeholder="Contoh: Harga Satuan, Framework" /></Field>
-            <Field label="PIC Vendor"><Input value={form.vendor_pic} onChange={(e) => set("vendor_pic", e.target.value)} /></Field>
-            <Field label="Termin Pembayaran"><Input value={form.payment_term} onChange={(e) => set("payment_term", e.target.value)} placeholder="Contoh: 30 Hari" /></Field>
+            <Field label="PIC Vendor"><Input value={form.vendor_pic} onChange={(e) => set("vendor_pic", e.target.value)} data-testid="vc-vendor-pic" /></Field>
+            <Field label="Termin Pembayaran"><Input value={form.payment_term} onChange={(e) => set("payment_term", e.target.value)} placeholder="Contoh: 30 Hari" data-testid="vc-payment-term" /></Field>
           </div>
         </FormSection>
 
