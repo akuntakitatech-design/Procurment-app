@@ -31,6 +31,9 @@ import excel_import_layer as EI
 JOBS = "import_jobs"
 TTL_S = int(os.environ.get("IMPORT_JOB_TTL_SECONDS") or 7200)
 MAX_ACTIVE = int(os.environ.get("IMPORT_JOB_MAX_ACTIVE") or 3)
+STALE_S = int(os.environ.get("IMPORT_JOB_STALE_SECONDS") or 180)
+HEARTBEAT_S = 15
+STALE_MSG = "Proses import terhenti (server restart). Silakan unggah ulang."
 FLUSH_ROWS = 25
 FLUSH_S = 0.8
 DIR = Path(os.environ.get("IMPORT_JOB_DIR") or "/tmp/procureflow-import-logs")
@@ -69,6 +72,35 @@ def _public(job):
     out = {k: job.get(k) for k in PUBLIC}
     out["has_log"] = bool(job.get("log_bytes")) and (job.get("status") == "done")
     return out
+
+
+def _stale_cutoff():
+    return _iso(_now() - timedelta(seconds=STALE_S))
+
+
+def _is_stale(job, cutoff=None):
+    """Job aktif yang worker-nya sudah tidak ada. Heartbeat dikirim worker tiap HEARTBEAT_S detik,
+    termasuk saat satu batch lambat belum mencatat baris apa pun."""
+    if job.get("id") in _TASKS:
+        return False
+    last = job.get("heartbeat_at") or job.get("started_at") or job.get("created_at") or ""
+    return last < (cutoff or _stale_cutoff())
+
+
+async def reap_stale(jobs_coll, user_id):
+    """Tandai job yatim (server restart / worker mati) sebagai gagal agar tidak memblokir impor berikutnya
+    melalui batas MAX_ACTIVE."""
+    cutoff = _stale_cutoff()
+    jobs = await jobs_coll.find({"user_id": user_id, "status": {"$in": ["queued", "running"]}},
+                                {"_id": 0}).to_list(50)
+    n = 0
+    for j in jobs:
+        if not _is_stale(j, cutoff):
+            continue
+        await jobs_coll.update_one({"id": j["id"]}, {"$set": {
+            "status": "failed", "finished_at": _iso(_now()), "error": STALE_MSG}})
+        n += 1
+    return n
 
 
 class Tracker:
@@ -173,12 +205,25 @@ def install(server):
             raise HTTPException(404, "Job import tidak ditemukan.")
         return job
 
+    async def reap(user_id):
+        return await reap_stale(db()[JOBS], user_id)
+
+    async def beat(job_id):
+        """Heartbeat mandiri: batch transaksi bisa berjalan lama tanpa mencatat baris baru."""
+        while True:
+            await asyncio.sleep(HEARTBEAT_S)
+            try:
+                await db()[JOBS].update_one({"id": job_id}, {"$set": {"heartbeat_at": _iso(_now())}})
+            except Exception:  # noqa: BLE001 - heartbeat tidak boleh menggagalkan impor
+                pass
+
     async def work(job_id, dataset, rows, user):
         import mariadb_motor
         mariadb_motor.REQ_CACHE.set({})
         mariadb_motor.REQ_READS.set(None)
         mariadb_motor.DB_STATS.set(None)
         tracker = Tracker(server, job_id, len(rows))
+        beat_task = asyncio.create_task(beat(job_id))
         try:
             started = _iso(_now())
             await db()[JOBS].update_one({"id": job_id}, {"$set": {"status": "running", "started_at": started,
@@ -207,6 +252,7 @@ def install(server):
                 "status": "failed", "finished_at": _iso(_now()),
                 "error": "Import gagal diproses. Periksa file lalu unggah ulang."}})
         finally:
+            beat_task.cancel()
             _TASKS.pop(job_id, None)
 
     @app.post("/api/excel/import-jobs/{dataset}", tags=["excel-import"])
@@ -225,6 +271,9 @@ def install(server):
         if not rows:
             raise HTTPException(400, "Tidak ada data pada sheet Data")
         active = await db()[JOBS].count_documents({"user_id": user.get("id"), "status": {"$in": ["queued", "running"]}})
+        if active >= MAX_ACTIVE:
+            await reap(user.get("id"))  # jangan biarkan job yatim memblokir impor baru
+            active = await db()[JOBS].count_documents({"user_id": user.get("id"), "status": {"$in": ["queued", "running"]}})
         if active >= MAX_ACTIVE:
             raise HTTPException(429, f"Masih ada {active} impor berjalan. Tunggu hingga selesai.")
         _cleanup_files(throttle=300)
@@ -248,13 +297,10 @@ def install(server):
     @app.get("/api/excel/import-jobs/{job_id}", tags=["excel-import"])
     async def status(job_id: str, user=Depends(server.current_user)):
         job = await own(job_id, user)
-        if job.get("status") in ("queued", "running") and job_id not in _TASKS:
-            last = job.get("heartbeat_at") or job.get("started_at") or job.get("created_at") or ""
-            if last < _iso(_now() - timedelta(seconds=180)):
-                await db()[JOBS].update_one({"id": job_id}, {"$set": {
-                    "status": "failed", "finished_at": _iso(_now()),
-                    "error": "Proses import terhenti (server restart). Silakan unggah ulang."}})
-                job = await db()[JOBS].find_one({"id": job_id}, {"_id": 0})
+        if job.get("status") in ("queued", "running") and _is_stale(job):
+            await db()[JOBS].update_one({"id": job_id}, {"$set": {
+                "status": "failed", "finished_at": _iso(_now()), "error": STALE_MSG}})
+            job = await db()[JOBS].find_one({"id": job_id}, {"_id": 0})
         return _public(job)
 
     @app.get("/api/excel/import-jobs/{job_id}/log.xlsx", tags=["excel-import"])
