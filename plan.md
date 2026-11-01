@@ -1931,3 +1931,33 @@ but 5 were given` dan tertangkap `except` generik di worker.
   sebelum perbaikan `TypeError`; sesudah perbaikan `stock_limits` → 2 baris `GAGAL` + pesan per baris,
   `opening_inventory` → 2 baris `GAGAL` + alasan lengkap, `_log_bytes` menghasilkan 5.444 byte.
 - `py_compile` 5 file backend -> OK; uji lokal fake server 19/19 tetap lulus.
+
+---
+
+## 2026-10-31 — Ketahanan job import: heartbeat mandiri + reaper job yatim
+
+### Masalah
+1. `heartbeat_at` hanya diperbarui saat `Tracker` mencatat baris. Pada impor transaksi dengan **satu batch lambat**
+   (mis. DO dengan banyak alokasi) tidak ada baris tercatat selama menit-menitan, sehingga endpoint status bisa
+   salah menyimpulkan "proses terhenti (server restart)" padahal worker masih berjalan.
+2. Job yang benar-benar ditinggal (container restart) tetap berstatus `running` di DB. Karena `MAX_ACTIVE=3`
+   dihitung dari status `queued`/`running`, akumulasi job yatim bisa membuat impor baru **ditolak 429** tanpa
+   cara membersihkannya dari UI.
+
+### Diubah (~)
+- `backend/import_jobs_layer.py`
+  - `beat()`: task heartbeat mandiri tiap **15 detik** selama worker hidup (dibatalkan di `finally`), sehingga
+    heartbeat tidak lagi bergantung pada adanya baris baru.
+  - `reap_stale()` + `_is_stale()`: job `queued`/`running` tanpa heartbeat melebihi `IMPORT_JOB_STALE_SECONDS`
+    (default **180** detik) ditandai `failed` dengan pesan yang jelas. Dipanggil di `POST` sebelum menghitung
+    batas `MAX_ACTIVE`, dan dipakai endpoint status (menggantikan logika lama yang duplikat).
+  - Job milik user lain dan job yang worker-nya masih ada di `_TASKS` **tidak** disentuh.
+- `backend/.env.example` + `README-COOLIFY.md`: catat env opsional `IMPORT_JOB_STALE_SECONDS` (default 180).
+
+### Pengujian
+- Uji jalur **sukses** (server + DB palsu, tanpa menyentuh production) -> **20/20 cek lulus**: master barang
+  `Dibuat` lalu `Diperbarui` tanpa duplikat, `stock_limits` upsert tanpa pool dobel, transaksi `Dokumen dibuat`
+  dengan nomor dokumen + `batch_ref`, batch gagal -> `GAGAL` + alasan dari `HTTPException`, campuran 2 `OK` + 1 `GAGAL`.
+- Uji deteksi yatim (koleksi palsu) -> **12/12 cek lulus**: job baru/memiliki heartbeat/worker aktif/`done`/
+  milik user lain tidak disentuh; job tanpa heartbeat 400 detik ditandai `failed`.
+- `py_compile` OK.
