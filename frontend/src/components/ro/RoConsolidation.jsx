@@ -43,6 +43,9 @@ export function distribute(sources, qty) {
   return [...sources].sort(byMroDate).map((s) => { const take = Math.min(n(s.sisa), rem); rem -= take; return { ...s, qty: +take.toFixed(6) }; });
 }
 
+/** Nomor MRO unik untuk satu baris terkonsolidasi (urut tanggal MRO, dipisah koma). */
+export const mroNumbers = (sources) => [...new Set((sources || []).map((s) => s.mro_no).filter(Boolean))].join(", ") || "-";
+
 export const lineTotals = (l) => {
   const s = l.sources || [];
   return { need: sum(s, "mro_qty"), done: sum(s, "sudah_ro"), sisa: sum(s, "sisa"), alloc: sum(s, "qty"), mro: new Set(s.map((x) => x.mro_id)).size };
@@ -103,6 +106,17 @@ export function RoSourcePickerDialog({ open, onClose, divisionId, onConfirm, for
   const shown = (rows || []).filter((g) => (!div || g.division_id === div) && (!q || `${g.item_code} ${g.item_name} ${g.sources.map((s) => s.mro_no).join(" ")}`.toLowerCase().includes(q.toLowerCase())));
   // Belum ada Divisi: memilih baris pertama sekaligus mengunci Divisi (satu RO = satu Divisi).
   const toggle = (g) => { if (!divisionId && !div) setDiv(g.division_id || ""); setSel((c) => { const x = new Set(c); x.has(g.key) ? x.delete(g.key) : x.add(g.key); return x; }); };
+  // Ceklis massal: berlaku untuk baris yang sedang tampil (setelah cari/filter Divisi).
+  // Bila Divisi belum ditentukan, hanya baris dari Divisi baris pertama yang dipilih (satu RO = satu Divisi).
+  const shownKeys = shown.map((g) => g.key);
+  const allChecked = shownKeys.length > 0 && shownKeys.every((k) => sel.has(k));
+  const someChecked = shownKeys.some((k) => sel.has(k));
+  const toggleAll = () => {
+    if (allChecked) { setSel((c) => { const x = new Set(c); shownKeys.forEach((k) => x.delete(k)); return x; }); return; }
+    let keys = shownKeys;
+    if (!divisionId && !div && shown.length) { const d = shown[0].division_id || ""; setDiv(d); keys = shown.filter((g) => (g.division_id || "") === d).map((g) => g.key); }
+    setSel((c) => { const x = new Set(c); keys.forEach((k) => x.add(k)); return x; });
+  };
   const confirm = () => {
     const picked = shown.filter((g) => sel.has(g.key)).map((g) => ({ ...g, sources: distribute(g.sources, sum(g.sources, "sisa")) }));
     onConfirm(picked); onClose();
@@ -118,10 +132,10 @@ export function RoSourcePickerDialog({ open, onClose, divisionId, onConfirm, for
         </div>
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-            <th className="w-10 p-2" /><th className="p-2">Barang</th><th className="p-2">Divisi</th><th className="p-2 text-right">Qty Kebutuhan</th><th className="p-2 text-right">Sudah RO</th><th className="p-2 text-right">Sisa</th><th className="p-2">Satuan</th><th className="p-2 text-right">Jumlah MRO</th><th className="p-2">Alokasi SPK</th>
+            <th className="w-10 p-2">{rows !== null && <Checkbox checked={allChecked ? true : someChecked ? "indeterminate" : false} onCheckedChange={toggleAll} aria-label="Pilih semua barang" className={someChecked && !allChecked ? "bg-primary/40" : ""} data-testid="ro-source-select-all" />}</th><th className="p-2">Barang</th><th className="p-2">Divisi</th><th className="p-2 text-right">Qty Kebutuhan</th><th className="p-2 text-right">Sudah RO</th><th className="p-2 text-right">Sisa</th><th className="p-2">Satuan</th><th className="p-2 text-right">Jumlah MRO</th><th className="p-2">No MRO</th><th className="p-2">Alokasi SPK</th>
           </tr></thead><tbody>
-            {rows === null && <tr><td colSpan={9} className="p-6 text-center text-muted-foreground">Memuat kebutuhan MRO...</td></tr>}
-            {rows && shown.length === 0 && <tr><td colSpan={9} className="p-6 text-center text-muted-foreground" data-testid="ro-source-empty">Tidak ada sisa kebutuhan MRO{div ? " untuk divisi ini" : ""}.</td></tr>}
+            {rows === null && <tr><td colSpan={10} className="p-6 text-center text-muted-foreground">Memuat kebutuhan MRO...</td></tr>}
+            {rows && shown.length === 0 && <tr><td colSpan={10} className="p-6 text-center text-muted-foreground" data-testid="ro-source-empty">Tidak ada sisa kebutuhan MRO{div ? " untuk divisi ini" : ""}.</td></tr>}
             {shown.map((g) => { const t = lineTotals(g); const s = spkSummary(g.sources, false); return (
               <tr key={g.key} className="border-t" data-testid={`ro-source-row-${g.item_code}`}>
                 <td className="p-2"><Checkbox checked={sel.has(g.key)} onCheckedChange={() => toggle(g)} aria-label={`Pilih ${g.item_name}`} data-testid={`ro-source-select-${g.item_code}`} /></td>
@@ -130,6 +144,7 @@ export function RoSourcePickerDialog({ open, onClose, divisionId, onConfirm, for
                 <td className="p-2 text-right tabular-nums">{num(t.need)}</td><td className="p-2 text-right tabular-nums">{num(t.done)}</td><td className="p-2 text-right font-semibold tabular-nums" data-testid={`ro-source-sisa-${g.item_code}`}>{num(t.sisa)}{sum(g.sources, "reserved") > EPS && <div className="text-[11px] font-normal text-muted-foreground" data-testid={`ro-source-reserved-${g.item_code}`}>di form: {num(sum(g.sources, "reserved"))}</div>}</td>
                 <td className="p-2">{g.base_unit}</td>
                 <td className="p-2 text-right" title={g.sources.map((x) => x.mro_no).join(", ")}>{t.mro} MRO</td>
+                <td className="p-2 font-mono text-xs align-top whitespace-normal" data-testid={`ro-source-mro-nos-${g.item_code}`}>{mroNumbers(g.sources)}</td>
                 <td className="p-2 text-xs" title={s.title}>{s.text}</td>
               </tr>); })}
           </tbody></table>
