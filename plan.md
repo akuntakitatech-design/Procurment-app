@@ -2045,3 +2045,30 @@ Pada semua laporan yang memuat nama supplier, nama yang **ditampilkan** dan yang
   Pada export daftar transaksi (txn-*) nama PIC lama masih ikut cocok karena daftar sumber juga menyimpan
   nama PIC — superset, tidak menghilangkan hasil.
 - `py_compile` 10 file backend → OK. `CI=true yarn build` → sukses (59,23 s) tanpa warning ESLint.
+
+---
+
+## 2026-11-02 — Master Supplier: kolom Nama Legal Perusahaan setelah Kode Supplier
+
+### Tujuan (permintaan pemilik)
+Pada daftar **Master Data → Supplier**, kolom **Nama Legal / Perusahaan** ditampilkan tepat setelah
+**Kode Supplier**, sehingga PIC Tidak lagi menjadi satu-satunya identitas yang terlihat.
+
+### Diubah (~)
+- `frontend/src/pages/MasterData.jsx`
+  - konfigurasi `suppliers.fields`: field `legal_name` ("Nama Legal Perusahaan") disisipkan setelah `code`
+    (urutan tabel menjadi: Kode Supplier · **Nama Legal Perusahaan** · PIC Utama · Kategori Supplier ·
+    No. Telepon · Email · Status · Aksi).
+  - `suppliers.cols = 6` dan irisan kolom tabel memakai `cfg.cols || 5`, sehingga master lain tetap
+    5 kolom (tidak ada perubahan layout pada tab master lain).
+  - `colSpan` baris kosong dihitung dari jumlah kolom tampil (tidak lagi 8 tetap).
+
+### Catatan
+- Input **Nama Legal / Perusahaan** sudah ada di form supplier (tidak diubah).
+- Pencarian daftar (`/api/master/{name}` ber-halaman) memakai `_hay()` yang menggabungkan seluruh nilai
+  string baris kecuali `*_id`, sehingga **nama legal otomatis ikut tercari** — tidak perlu ubah backend.
+
+### Pengujian
+- `CI=true yarn build` -> sukses (48,72 s) tanpa warning ESLint.
+- Bundle memuat `suppliers:{label:"Supplier",cols:6,fields:[{k:"code"},{k:"legal_name"},{k:"name"(PIC)},...]}`
+  dan hanya `suppliers` yang memakai `cols:6` (master lain tetap 5 kolom).
