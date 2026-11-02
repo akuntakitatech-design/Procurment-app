@@ -2072,3 +2072,42 @@ Pada daftar **Master Data → Supplier**, kolom **Nama Legal / Perusahaan** dita
 - `CI=true yarn build` -> sukses (48,72 s) tanpa warning ESLint.
 - Bundle memuat `suppliers:{label:"Supplier",cols:6,fields:[{k:"code"},{k:"legal_name"},{k:"name"(PIC)},...]}`
   dan hanya `suppliers` yang memakai `cols:6` (master lain tetap 5 kolom).
+
+---
+
+## 2026-11-02 — Perbaikan impor transaksi: "Divisi wajib diisi." pada semua baris
+
+### Masalah (dari log impor milik pemilik)
+Impor MRO 200 baris gagal seluruhnya dengan pesan **"Divisi wajib diisi."**, padahal kolom `division_code`
+terisi `EM` dan divisi `EM` ada di master (id `9dac633a-…`).
+
+### Akar masalah
+`excel_import_layer._call()` memanggil endpoint transaksi **secara posisional**:
+`route.endpoint(body, user)`. Layer `transaction_input_guard_layer` membungkus endpoint dengan
+`async def endpoint(*args, **kwargs)` dan hanya memeriksa **`kwargs["body"]`**; karena body dikirim
+posisional, guard melihat `body = None` lalu menolak dengan `DIVISION_MSG`.
+Hanya modul **Penyesuaian Stok** yang lolos karena sejak awal memanggil dengan `body=`.
+Dua temuan lanjutan dari akar yang sama:
+- `create_mro` kini **mewajibkan `no`** (nomor manual) sedangkan impor tidak mengirimnya → batch akan gagal
+  dengan "Nomor MRO wajib diisi sebelum transaksi disimpan.".
+- Tanggal teks Excel `2026/10/15` tidak dinormalisasi → tersimpan `2026/10/15` (pemisah `/` membuat filter
+  & laporan berbasis perbandingan string tidak mengenali periode).
+
+### Diubah (~) — `backend/excel_import_layer.py`
+- `_call()` mengirim argumen **bernama** (`body=`, `user=`) bila signature endpoint memuat keduanya;
+  fallback posisional untuk endpoint lain. Guard input kini menerima body.
+- `PUT /api/opname/{did}/count` dan `POST /api/loans/{did}/return` juga memakai `body=` agar guard/validasi
+  menerima body.
+- `_date()` menormalkan `YYYY/M/D`, `YYYY.M.D` → `YYYY-MM-DD` (tanggal ISO tetap; objek datetime tetap).
+- MRO: `_transaction_payload` menyalin kolom `no` bila ada; `_import_transactions` membuat nomor otomatis
+  `server.next_number("MRO")` per batch bila kosong. Template MRO ditambah kolom opsional `no`.
+
+### Pengujian
+- Reproduksi dengan app asli (read-only, payload `qty: 0` sehingga guard menolak sebelum menulis):
+  pemanggilan posisional -> **"Divisi wajib diisi."** (persis seperti log), `_call` baru ->
+  **"Qty harus lebih besar dari 0."** (body terlihat).
+- Uji server/app palsu -> **15/15 lulus**: nomor MRO otomatis `MRO/2026/11/0001`, kolom `no` file dipakai
+  lebih dulu, tanggal `2026/10/15` -> `2026-10-15`, divisi/gudang/proyek/unit ter-resolve, 2 baris terkirim,
+  log `OK` x2 + nomor dokumen.
+- Validasi **file milik pemilik** (200 baris) tanpa memanggil endpoint: 3 batch (67: 53, 107: 45, 139: 102),
+  tanggal ISO, semua referensi ter-resolve, **0 error validasi**.

@@ -10,6 +10,7 @@ Design goals:
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from io import BytesIO
+import inspect
 import re
 from typing import Any
 
@@ -61,7 +62,7 @@ TRANSACTION_DATASETS = {
     "mro": {
         "label": "MRO — Permintaan Material",
         "path": "/api/mro",
-        "columns": ["batch_ref", "date", "need_date", "division_code", "requester", "department", "default_warehouse_code", "default_project_code", "default_unit_code", "spk", "notes", "item_code", "qty", "uom_code", "warehouse_code", "project_code", "unit_code", "line_notes"],
+        "columns": ["batch_ref", "date", "need_date", "division_code", "requester", "department", "default_warehouse_code", "default_project_code", "default_unit_code", "spk", "notes", "item_code", "qty", "uom_code", "warehouse_code", "project_code", "unit_code", "line_notes", "no"],
         "required": ["batch_ref", "date", "item_code", "qty"],
     },
     "ro": {
@@ -168,7 +169,15 @@ def _date(v):
         except Exception:
             pass
     s = _text(v)
-    return s[:10] if s else None
+    if not s:
+        return None
+    s = s[:10]
+    # Excel sering menyimpan tanggal sebagai teks "2026/10/15" atau "2026.10.15" -> ISO (laporan & filter
+    # membandingkan string tanggal, jadi pemisah '/' akan membuat baris tidak masuk periode).
+    m = re.match(r"^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$", s)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    return s
 
 
 def _find_route(app, path, method="POST"):
@@ -179,9 +188,22 @@ def _find_route(app, path, method="POST"):
 
 
 async def _call(app, path, body, user, method="POST"):
+    """Panggil endpoint transaksi penuh (tenant -> izin -> cakupan -> guard -> validasi -> simpan).
+
+    Argumen dikirim **bernama** (body=, user=) karena layer guard input
+    (`transaction_input_guard_layer`) membungkus endpoint dengan `async def endpoint(*args, **kwargs)`
+    dan hanya memeriksa `kwargs["body"]`. Pemanggilan posisional membuat guard melihat body = None
+    sehingga semua baris ditolak dengan "Divisi wajib diisi." walau kolom divisi sudah terisi.
+    """
     route = _find_route(app, path, method)
     if not route:
         raise HTTPException(500, f"Endpoint transaksi tidak tersedia: {path}")
+    try:
+        params = inspect.signature(route.endpoint).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if "body" in params and "user" in params:
+        return await route.endpoint(body=body, user=user)
     return await route.endpoint(body, user)
 
 
@@ -533,7 +555,9 @@ async def _transaction_payload(server, key, group, maps, errors, user=None):
         })
     if key in ("mro", "ro"):
         h.update({"requester": _text(first.get("requester")) or None, "department": _text(first.get("department")) or None})
-    if key == "mro": h["need_date"] = _date(first.get("need_date"))
+    if key == "mro":
+        h["need_date"] = _date(first.get("need_date"))
+        h["no"] = _text(first.get("no")) or None  # opsional: nomor MRO manual dari kolom `no` (kosong = otomatis)
     if key == "po":
         h.update({"supplier_id": rid("suppliers", "supplier_code", True), "buyer_contact_id": rid("contacts", "buyer_contact_code"), "payment_term": _text(first.get("payment_term")), "delivery_term": _text(first.get("delivery_term")), "currency": _text(first.get("currency")) or "IDR", "eta": _date(first.get("eta")), "tax_inclusive": _bool(first.get("tax_inclusive")), "supplier_notes": _text(first.get("supplier_notes")), "internal_notes": _text(first.get("internal_notes"))})
     elif key == "do":
@@ -569,6 +593,9 @@ async def _import_transactions(server, key, rows, user, tracker=None):
     for batch, payload in prepared:
         batch_rows = groups.get(batch) or []
         try:
+            if key == "mro" and not _text(payload.get("no")):
+                # MRO mewajibkan nomor dokumen; impor membuat nomornya bila kolom `no` di file kosong.
+                payload["no"] = await server.next_number("MRO")
             if key == "loan_return":
                 first = payload[0]
                 loan = await server.db.loans.find_one({"no": _text(first.get("source_loan_no"))}, {"_id": 0})
@@ -584,7 +611,7 @@ async def _import_transactions(server, key, rows, user, tracker=None):
                     ret_lines.append({"loan_line_id": choices[0]["id"], "qty": _float(r.get("qty"), 0)})
                 route = _find_route(server.app, "/api/loans/{did}/return", "POST")
                 if not route: raise HTTPException(500, "Endpoint return loan tidak tersedia")
-                result = await route.endpoint(loan["id"], {"date": _date(first.get("date")), "notes": _text(first.get("notes")), "lines": ret_lines}, user)
+                result = await route.endpoint(loan["id"], body={"date": _date(first.get("date")), "notes": _text(first.get("notes")), "lines": ret_lines}, user=user)
             elif key == "opname":
                 counted = payload.pop("lines")
                 result = await _call(server.app, "/api/opname", payload, user)
@@ -593,10 +620,9 @@ async def _import_transactions(server, key, rows, user, tracker=None):
                 by_item = {x["item_id"]: x for x in existing}
                 count_lines = [{"line_id": by_item[x["item_id"]]["id"], "counted": x["counted"]} for x in counted if x.get("item_id") in by_item]
                 route = _find_route(server.app, "/api/opname/{did}/count", "PUT")
-                if route and count_lines: result = await route.endpoint(did, {"lines": count_lines, "status": "Review"}, user)
+                if route and count_lines: result = await route.endpoint(did, body={"lines": count_lines, "status": "Review"}, user=user)
             elif key == "adjustment":
-                # Penyesuaian Stok: panggil endpoint dengan keyword agar layer validasi (input guard divisi, dll.)
-                # menerima body. (Pemanggilan positional pada modul lain tidak diubah di scope ini.)
+                # Penyesuaian Stok: keyword wajib agar layer guard input (divisi, qty) menerima body.
                 route = _find_route(server.app, TRANSACTION_DATASETS[key]["path"], "POST")
                 if not route: raise HTTPException(500, "Endpoint transaksi tidak tersedia")
                 result = await route.endpoint(body=payload, user=user)
