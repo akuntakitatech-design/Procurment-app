@@ -75,8 +75,8 @@ const CONFIGS = {
     { k: "plate_no", l: "Nomor Polisi" }, { k: "asset_no", l: "Nomor Asset" }, { k: "brand", l: "Merk" }, { k: "model", l: "Model" },
     { k: "year", l: "Tahun" }, { k: "division_id", l: "Divisi", ref: "divisions" },
   ] },
-  suppliers: { label: "Supplier", fields: [
-    { k: "code", l: "Kode Supplier", auto: true, req: true }, { k: "name", l: "PIC Utama", req: true },
+  suppliers: { label: "Supplier", cols: 6, fields: [
+    { k: "code", l: "Kode Supplier", auto: true, req: true }, { k: "legal_name", l: "Nama Legal Perusahaan" }, { k: "name", l: "PIC Utama", req: true },
     { k: "supplier_category_id", l: "Kategori Supplier", ref: "supplier_categories", req: true },
     { k: "phone", l: "No. Telepon" }, { k: "email", l: "Email" },
   ] },
@@ -428,11 +428,11 @@ function GenericMasterTab({ name }) {
     </div>}
     <div className="border rounded-xl overflow-x-auto bg-card shadow-sm"><table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
       {selectable && <th className="w-10 p-3"><Checkbox checked={allOn} onCheckedChange={() => setSel(allOn ? new Set() : new Set(rows.map((r) => r.id)))} aria-label="Pilih semua di halaman ini" data-testid={`master-${name}-select-all`} /></th>}
-      {cfg.fields.slice(0, 5).map((f) => <SortTh key={f.k} label={f.l} k={sortKey(f)} sort={list.sort} onSort={onSort} testid={`master-${name}`} />)}<SortTh label="Status" k="status_label" sort={list.sort} onSort={onSort} testid={`master-${name}`} /><th className="p-3 w-40 text-right">Aksi</th></tr></thead>
-      <tbody>{rows.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-muted-foreground" data-testid={`master-${name}-empty`}>{list.loading ? "Memuat..." : list.error ? "Gagal memuat data" : list.q || status ? "Tidak ada data yang cocok" : "Belum ada data"}</td></tr>}
+      {cfg.fields.slice(0, cfg.cols || 5).map((f) => <SortTh key={f.k} label={f.l} k={sortKey(f)} sort={list.sort} onSort={onSort} testid={`master-${name}`} />)}<SortTh label="Status" k="status_label" sort={list.sort} onSort={onSort} testid={`master-${name}`} /><th className="p-3 w-40 text-right">Aksi</th></tr></thead>
+      <tbody>{rows.length === 0 && <tr><td colSpan={cfg.fields.slice(0, cfg.cols || 5).length + (selectable ? 1 : 0) + 2} className="p-8 text-center text-muted-foreground" data-testid={`master-${name}-empty`}>{list.loading ? "Memuat..." : list.error ? "Gagal memuat data" : list.q || status ? "Tidak ada data yang cocok" : "Belum ada data"}</td></tr>}
         {rows.map((r) => <tr key={r.id} className={`border-t hover:bg-accent/40 transition-colors ${sel.has(r.id) ? "bg-primary/5" : ""}`} data-testid={`master-${name}-row-${r.code || r.id}`}>
           {selectable && <td className="p-3"><Checkbox checked={sel.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label={`Pilih ${labelOf(r)}`} data-testid={`master-${name}-select-${r.code || r.id}`} /></td>}
-          {cfg.fields.slice(0, 5).map((f) => <td key={f.k} className={`p-3 ${f.k === "code" ? "font-mono text-xs font-semibold" : ""}`}>{displayField(f, r)}</td>)}
+          {cfg.fields.slice(0, cfg.cols || 5).map((f) => <td key={f.k} className={`p-3 ${f.k === "code" ? "font-mono text-xs font-semibold" : ""}`}>{displayField(f, r)}</td>)}
           <td className="p-3"><StatusBadge status={r.is_active ? "Aktif" : "Nonaktif"} className={r.is_active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : ""} /></td>
           <td className="p-3"><div className="flex justify-end gap-1">
             {can("edit", name) && <Button variant="ghost" size="sm" className="h-8" onClick={() => openEdit(r)} data-testid={`master-${name}-edit-${r.code || r.id}`}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button>}
