@@ -47,7 +47,8 @@ async def load_po_rows(server, user, lo=None, hi=None, show_price=True):
         return []
     m = await doc_procurement.maps()
     for d in docs:
-        d["supplier_name"] = (m["suppliers"].get(d.get("supplier_id")) or {}).get("name")
+        d["supplier_name"] = (m["suppliers"].get(d.get("supplier_id")) or {}).get("legal_name") or (m["suppliers"].get(d.get("supplier_id")) or {}).get("name")
+        d["supplier_legal_name"] = d["supplier_name"]  # dipakai funnel laporan agar tampilan & pencarian pakai nama legal
         d["division_name"] = (m["divisions"].get(d.get("division_id")) or {}).get("name")
         if not show_price:
             d["grand_total"] = None

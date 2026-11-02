@@ -27,6 +27,22 @@ MASTER_LABEL = {"warehouse": "warehouses", "category": "item_categories", "item"
                 "unit": "units", "supplier": "suppliers"}
 
 
+def _prefer_legal_supplier(rows):
+    """Nama supplier pada laporan (tampilan, pencarian, export) memakai nama legal perusahaan.
+
+    Hanya baris yang membawa `supplier_legal_name` yang diubah — baris multi-supplier atau yang tidak
+    punya data legal dibiarkan apa adanya (fallback ke nama lama).
+    """
+    for r in rows:
+        legal = r.get("supplier_legal_name")
+        if not legal:
+            continue
+        for k in ("supplier_name", "supplier", "vendor", "vendor_name"):
+            if k in r:
+                r[k] = legal
+    return rows
+
+
 def _iso(v, label):
     v = (v or "").strip()
     if not v:
@@ -126,8 +142,12 @@ async def _filters_applied(server, spec, p, q, user=None, sort=None, cols=()):
         elif f and f.type == "date":
             val = fmt_day(v)
         elif f and f.type in MASTER_LABEL:
-            d = await getattr(server.db, MASTER_LABEL[f.type]).find_one({"id": v}, {"_id": 0, "name": 1, "code": 1})
-            val = " — ".join(x for x in ((d or {}).get("code"), (d or {}).get("name")) if x) or v
+            proj = {"_id": 0, "name": 1, "code": 1}
+            if MASTER_LABEL[f.type] == "suppliers":
+                proj["legal_name"] = 1  # keterangan filter memakai nama legal perusahaan
+            d = await getattr(server.db, MASTER_LABEL[f.type]).find_one({"id": v}, proj)
+            nm = (d or {}).get("legal_name") or (d or {}).get("name")
+            val = " — ".join(x for x in ((d or {}).get("code"), nm) if x) or v
         elif f and f.type == "select":
             val = dict(f.options).get(v, v)
         out.append({"key": k, "label": f.label if f else k, "value": val})
@@ -165,6 +185,7 @@ async def run(server, user, key, qp) -> dict:
     if "q" in spec.passthrough:
         p["q"] = q
     rows = [] if missing else await spec.builder(server, user, p)
+    rows = _prefer_legal_supplier(rows)  # tampilan & pencarian supplier memakai nama legal perusahaan
     if q and spec.search_keys:
         terms = q.lower().split()
         rows = [r for r in rows if r.get("_kind") or all(t in " ".join(str(r.get(k) or "") for k in spec.search_keys).lower() for t in terms)]

@@ -135,10 +135,15 @@ async def _att_counts(server, inv_ids):
     return inv, pay
 
 
+def _sup_name(i):
+    """Nama supplier untuk tampilan & pencarian laporan: nama legal perusahaan bila ada."""
+    return i.get("supplier_legal_name") or i.get("supplier_name") or "-"
+
+
 def _inv_head(i):
     return {"id": i["id"], "no": i.get("no") or "-", "invoice_no": i.get("invoice_no") or "-",
             "invoice_date": S.day(i, "invoice_date") or None, "received_date": S.day(i, "received_date") or None,
-            "due_date": S.day(i, "due_date") or None, "supplier_id": i.get("supplier_id"), "supplier": i.get("supplier_name") or "-",
+            "due_date": S.day(i, "due_date") or None, "supplier_id": i.get("supplier_id"), "supplier": _sup_name(i),
             "do_nos": i.get("do_nos") or "-", "do_count": len(i.get("do_ids") or []),
             "division": _div_label(i), "project": _proj_label(i)}
 
@@ -233,7 +238,7 @@ async def payments(server, user, p):
                 continue
             cancelled = x.get("status") != "Aktif"
             out.append({"invoice_id": iid, "payment_id": x.get("id"), "no": i.get("no") or "-", "invoice_no": i.get("invoice_no") or "-",
-                        "supplier": i.get("supplier_name") or "-", "invoice_date": S.day(i, "invoice_date") or None,
+                        "supplier": _sup_name(i), "invoice_date": S.day(i, "invoice_date") or None,
                         "invoice_amount": _r(i.get("amount")), "seq": n, "date": S.day(x, "date") or None,
                         "amount": _r(x.get("amount")), "amount_effective": _r(x.get("amount")) if active else 0.0,
                         "cumulative": _r(cum) if active else None,
@@ -272,7 +277,7 @@ def _group_key(i, by):
     if by == "project":
         ids = i.get("trace_project_ids") or []
         return (ids[0], i.get("trace_project") or ids[0]) if len(ids) == 1 else (("_multi", MULTI_PROJ) if ids else ("_none", NONE_PROJ))
-    return i.get("supplier_id") or "_none", i.get("supplier_name") or "-"
+    return i.get("supplier_id") or "_none", _sup_name(i)
 
 
 async def outstanding_summary(server, user, p):
@@ -331,7 +336,7 @@ async def aging(server, user, p):
         o = _r(F.outstanding(i))
         b = {f"b_{k}": (o if k == bucket else 0.0) for k, _ in BUCKETS}
         if level == "supplier":
-            a = sup.setdefault(i.get("supplier_id") or "_none", {"supplier_id": i.get("supplier_id"), "supplier": i.get("supplier_name") or "-",
+            a = sup.setdefault(i.get("supplier_id") or "_none", {"supplier_id": i.get("supplier_id"), "supplier": _sup_name(i),
                                                                  "invoice_count": 0, "remaining": 0.0, **{k: 0.0 for k in b}})
             a["invoice_count"] += 1
             a["remaining"] += o
@@ -355,7 +360,7 @@ async def aging(server, user, p):
 def _sums(rows):
     out = {}
     for i in rows:
-        a = out.setdefault(i.get("supplier_id") or "_none", {"name": i.get("supplier_name") or "-", "n": 0, "amount": 0.0, "paid": 0.0,
+        a = out.setdefault(i.get("supplier_id") or "_none", {"name": _sup_name(i), "n": 0, "amount": 0.0, "paid": 0.0,
                                                              "dp": 0.0, "rem": 0.0, "open": 0})
         a["n"] += 1
         a["amount"] += float(i.get("amount") or 0)

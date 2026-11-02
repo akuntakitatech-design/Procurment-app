@@ -244,7 +244,7 @@ export default function ReportCenter() {
     } catch (e) { toast.error(await errMsg(e)); } finally { setBusy(""); }
   };
 
-  const masterOpts = (name) => (m?.[name] || []).map((d) => ({ value: d.id, label: name === "divisions" ? d.name : `${d.code ? d.code + " — " : ""}${d.name}` }));
+  const masterOpts = (name) => (m?.[name] || []).map((d) => ({ value: d.id, label: name === "divisions" ? d.name : `${d.code ? d.code + " — " : ""}${name === "suppliers" ? (d.legal_name || d.name) : d.name}` }));
 
   return (
     <div data-testid="report-center-page">

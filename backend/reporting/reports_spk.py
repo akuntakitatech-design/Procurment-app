@@ -115,11 +115,17 @@ async def spk_budget(server, user, p):
 async def _po_info(server, po_ids, pl_ids):
     po_ids, pl_ids = sorted({x for x in po_ids if x}), sorted({x for x in pl_ids if x})
     heads = await server.db.po.find({"id": {"$in": po_ids}}, {"_id": 0, "id": 1, "no": 1, "date": 1, "status": 1,
-                                                             "supplier_name": 1}).to_list(None) if po_ids else []
+                                                             "supplier_id": 1, "supplier_name": 1}).to_list(None) if po_ids else []
     lines = await server.db.po_lines.find({"id": {"$in": pl_ids}}, {"_id": 0, "id": 1, "po_id": 1, "item_id": 1,
                                                                    "unit": 1}).to_list(None) if pl_ids else []
     import doc_procurement
     items = (await doc_procurement.maps())["items"]
+    if heads:
+        # Kolom Supplier pada laporan memakai nama legal perusahaan (fallback ke nama tersimpan).
+        sups = {s["id"]: (s.get("legal_name") or s.get("name")) for s in
+                await server.db.suppliers.find({}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(None)}
+        for h in heads:
+            h["supplier_name"] = sups.get(h.get("supplier_id")) or h.get("supplier_name") or "-"
     return {h["id"]: h for h in heads}, {x["id"]: x for x in lines}, items
 
 
@@ -218,7 +224,7 @@ async def contract_list(server, user, p):
     pos = {r["id"]: r for r in PC.contract_rows(data["contracts"], data["items"], f, cut)}  # = KPI / drill Dashboard
     groups, hidx = PC._groups(data), CH.index(data.get("history"))
     pick = server.pick_vendor_contract_price
-    sup_names = {s["id"]: s.get("name") for s in await server.db.suppliers.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(None)}
+    sup_names = {s["id"]: (s.get("legal_name") or s.get("name")) for s in await server.db.suppliers.find({}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(None)}
     items_of = {}
     for it in data["items"]:
         items_of.setdefault(it.get("contract_id"), []).append(it)
@@ -238,7 +244,7 @@ async def contract_list(server, user, p):
             continue
         end = S.day(c, "end_date") or None
         head = {"contract_id": c["id"], "no": c.get("contract_number") or "-",
-                "supplier": c.get("supplier_name") or sup_names.get(c.get("supplier_id")) or "-",
+                "supplier": sup_names.get(c.get("supplier_id")) or c.get("supplier_legal_name") or c.get("supplier_name") or "-",
                 "contract_date": S.day(c, "contract_date") or None, "start_date": S.day(c, "start_date") or None,
                 "end_date": end, "status": label, "days_left": _days(cut, end) if end and key in ("active", "expiring") else None}
         its = sorted(items_of.get(c["id"], []), key=lambda i: (str(i.get("item_code") or ""), float(i.get("min_qty") or 0)))

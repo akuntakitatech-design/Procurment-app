@@ -283,7 +283,7 @@ def _po_line_values(pl):
 def _group_key(gb, day, sup, item, div, proj, m):
     it = m["items"].get(item) or {}
     if gb == "supplier":
-        return sup or "-", (m["suppliers"].get(sup) or {}).get("name") or "(Tanpa Supplier)"
+        return sup or "-", (m["suppliers"].get(sup) or {}).get("legal_name") or (m["suppliers"].get(sup) or {}).get("name") or "(Tanpa Supplier)"
     if gb == "item":
         return item or "-", f"{it.get('code') or ''} — {it.get('name') or ''}".strip(" —") or "(Tanpa Barang)"
     if gb == "category":

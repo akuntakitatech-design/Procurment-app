@@ -59,7 +59,8 @@ def _project_name(proj):
 
 
 def _supplier_name(sup):
-    return (sup or {}).get("name") or ""
+    """Nama supplier pada laporan: nama legal perusahaan (fallback ke `name` yang berisi PIC)."""
+    return (sup or {}).get("legal_name") or (sup or {}).get("name") or ""
 
 
 async def _attach_invoices(server, rows, show_financial):
