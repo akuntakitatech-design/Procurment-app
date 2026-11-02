@@ -23,7 +23,7 @@ def _po(r, prio, tabs, price):
 
 def _inv(i, prio, tabs):
     return {"key": f"inv:{i['id']}", "doc_type": "Invoice", "id": i["id"], "no": i.get("invoice_no") or i.get("no"),
-            "path": f"/invoice/{i['id']}", "date": i.get("invoice_date"), "supplier_name": i.get("supplier_name"),
+            "path": f"/invoice/{i['id']}", "date": i.get("invoice_date"), "supplier_name": i.get("supplier_legal_name") or i.get("supplier_name"),
             "project": i.get("trace_project") or "", "division": i.get("trace_division") or "", "value": round(F.outstanding(i), 2),
             "document_status": i.get("status"), "receipt_status": None, "payment_status": i.get("payment_status"),
             "due_date": i.get("due_date"), "due_state": i.get("due_state"), "eta": None, "priority": prio,
@@ -32,7 +32,7 @@ def _inv(i, prio, tabs):
 
 def _do(d):
     return {"key": f"do:{d['do_id']}", "doc_type": "DO", "id": d["do_id"], "no": d.get("do_no"), "path": f"/do/{d['do_id']}",
-            "date": d.get("date"), "supplier_name": d.get("supplier_name"), "project": d.get("project") or "",
+            "date": d.get("date"), "supplier_name": d.get("supplier_legal_name") or d.get("supplier_name"), "project": d.get("project") or "",
             "division": d.get("division") or "", "value": float(d.get("remaining") or 0), "document_status": d.get("billing_status"),
             "receipt_status": None, "payment_status": None, "due_date": None, "due_state": None, "eta": None,
             "priority": 6, "reason": REASON[6], "tabs": ["unbilled"], "sort": str(d.get("date") or "")}

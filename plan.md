@@ -2003,3 +2003,45 @@ Permintaan: tampilkan **Nama Legal Perusahaan, PIC, dan Alamat** pada:
 - `CI=true yarn build` → sukses (29,62 s) tanpa warning ESLint; bundle memuat `supplier_legal_name` dan `PIC: `.
 - Verifikasi data produksi (read-only): supplier pada tenant aktif semuanya punya `legal_name` dan `address`
   (20/20 sampel), `city` kosong karena alamat sudah memuat kota → cukup memakai `address`.
+
+---
+
+## 2026-11-02 — Laporan: nama supplier = nama legal perusahaan (tampilan & pencarian)
+
+### Tujuan (permintaan pemilik)
+Pada semua laporan yang memuat nama supplier, nama yang **ditampilkan** dan yang **dicari** harus
+**nama legal perusahaan** (`legal_name`), bukan nama PIC (`name`).
+
+### Diubah (~)
+- `backend/reporting/report_center.py`
+  - funnel `_prefer_legal_supplier(rows)` di `run()`: setiap baris yang membawa `supplier_legal_name`
+    menimpa `supplier_name`/`supplier`/`vendor`/`vendor_name` sebelum pencarian, pengurutan, proyeksi,
+    dan export (JSON, Excel, PDF memakai hasil `run()` yang sama → konsisten).
+  - keterangan filter (chip "Filter diterapkan") untuk filter supplier memakai `legal_name` (proyeksi
+    ditambah `legal_name`, chip jadi "KODE — Nama Legal").
+- `backend/reporting/procurement.py` — `load_po_rows` mengisi `supplier_name` dengan
+  `legal_name or name` + `supplier_legal_name` (sumber utama laporan procurement & dashboard).
+- `backend/reporting/reports_ap.py` — helper `_sup_name()` (legal → lama) dipakai pada register invoice,
+  daftar pembayaran, aging, dan rekap per supplier.
+- `backend/reporting/reports_procurement_ops.py` — `nm()` (dipakai divisi & supplier) memilih
+  `legal_name` bila ada; baris multi-supplier digabung dari nama legal.
+- `backend/reporting/reports_procurement_outstanding.py` — grup per supplier memakai nama legal.
+- `backend/reporting/reports_spk.py` — `_po_info()` me-resolve supplier dari `supplier_id` ke nama legal
+  (sebelumnya mengambil `supplier_name` tersimpan yang bisa PIC/kosong); daftar kontrak vendor memakai
+  peta supplier legal lebih dulu, baru nilai tersimpan.
+- `backend/reporting/price_control.py` — baris kontrak & baris harga PO memakai `supplier_legal_name` lebih dulu.
+- `backend/reporting/attention.py` — daftar "Perlu Tindakan" (invoice & DO billing) memakai nama legal.
+- `backend/report_trace_detail.py` — `_supplier_name()` mengembalikan `legal_name or name`, sehingga
+  laporan MRO Traceability (dan endpoint legacy-nya) ikut benar.
+- `frontend/src/pages/ReportCenter.jsx` — opsi filter Supplier memakai `d.legal_name || d.name`
+  (label "KODE — Nama Legal") agar pencarian di dropdown juga memakai nama legal.
+
+### Pengujian (data produksi, read-only)
+- Dijalankan **19 laporan** yang memiliki kolom supplier terhadap tenant aktif, lalu setiap nilai supplier
+  pada hasil diklasifikasikan ke master supplier: hasil akhir **legal = semua, PIC = 0** pada 19/19 laporan
+  (sebelum perbaikan: MRO Traceability 2 nilai PIC, daftar kontrak vendor 4 nilai PIC).
+- Pencarian: `q` = nama legal → baris ditemukan (register-po 2 baris, txn-po 2, txn-do 1);
+  `q` = nama PIC pada `register-po` → **0 baris** (tidak lagi mencocokkan nama PIC).
+  Pada export daftar transaksi (txn-*) nama PIC lama masih ikut cocok karena daftar sumber juga menyimpan
+  nama PIC — superset, tidak menghilangkan hasil.
+- `py_compile` 10 file backend → OK. `CI=true yarn build` → sukses (59,23 s) tanpa warning ESLint.

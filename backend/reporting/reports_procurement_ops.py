@@ -72,7 +72,7 @@ async def register_rows(server, user, mod, p):
         rows = [r for r in rows if r.get("supplier_id") == p["supplier_id"]]
     m = await DP.maps()
     lines = await DP.lines_by_doc(f"{mod}_lines", f"{mod}_id", [r["id"] for r in rows])
-    nm = lambda coll, i: (m[coll].get(i) or {}).get("name") if i else None  # noqa: E731
+    nm = lambda coll, i: ((m[coll].get(i) or {}).get("legal_name") or (m[coll].get(i) or {}).get("name")) if i else None  # noqa: E731
     if mod == "mro":
         mon = await DP.mro_monitor_batch([ln for v in lines.values() for ln in v])
     elif mod == "ro":
@@ -224,7 +224,7 @@ async def lead_time(server, user, p):
         out.append({"mro_id": r.get("mro_id"), "mro_no": r.get("mro_no"), "mro_date": d_mro, "item_code": r.get("item_code"),
                     "item_name": r.get("item_name"), "unit": r.get("unit"), "request": r.get("request"),
                     "project": ", ".join(sorted(filter(None, ((m["projects"].get(x) or {}).get("name") for x in projects)))) or "-",
-                    "supplier": ", ".join(sorted(filter(None, ((m["suppliers"].get(x) or {}).get("name") for x in sups)))) or "-",
+                    "supplier": ", ".join(sorted(filter(None, ((m["suppliers"].get(x) or {}).get("legal_name") or (m["suppliers"].get(x) or {}).get("name") for x in sups)))) or "-",
                     "ro_date": d_ro, "po_date": d_po, "do_date": d_do, "mi_date": d_mi, "done_date": d_done,
                     "mro_to_ro": _days(d_mro, d_ro), "ro_to_po": _days(d_ro, d_po), "po_to_do": _days(d_po, d_do),
                     "do_to_mi": _days(d_do, d_mi), "mro_to_mi": _days(d_mro, d_mi), "mro_to_done": _days(d_mro, d_done),

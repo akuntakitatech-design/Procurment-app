@@ -100,7 +100,7 @@ def contract_rows(contracts, items, f, cut):
             continue  # belum mulai pada cut-off
         expired = bool(e0 and e0 < cut)
         out.append({"id": c["id"], "contract_number": c.get("contract_number"), "supplier_id": c.get("supplier_id"),
-                    "supplier_name": c.get("supplier_name"), "start_date": s0 or None, "end_date": e0 or None,
+                    "supplier_name": c.get("supplier_legal_name") or c.get("supplier_name"), "start_date": s0 or None, "end_date": e0 or None,
                     "items": n_items.get(c["id"], 0), "active": not expired,
                     "expiring": bool(not expired and e0 and e0 <= soon), "expired": expired,
                     "status_at": "expired" if expired else "active"})
@@ -150,7 +150,7 @@ def price_lines(po_rows, data, pick):
             sup = po.get("supplier_id")
             res = CH.resolve(pick, sup, ln.get("item_id"), uom, groups.get((sup, ln.get("item_id"), uom), []), d, qty, hidx)
             row = {"po_id": po["id"], "po_no": po.get("no"), "po_date": d, "supplier_id": sup,
-                   "supplier_name": po.get("supplier_name"), "item_id": ln.get("item_id"), "item_name": ln.get("item_name"),
+                   "supplier_name": po.get("supplier_legal_name") or po.get("supplier_name"), "item_id": ln.get("item_id"), "item_name": ln.get("item_name"),
                    "qty": qty, "uom_id": uom, "uom": ln.get("display_unit") or ln.get("unit"), "po_price": price,
                    "po_line_id": ln.get("id"), "po_status": po.get("status"),
                    "price_status_snapshot": ln.get("price_status"), "price_change_reason": ln.get("price_change_reason"),
