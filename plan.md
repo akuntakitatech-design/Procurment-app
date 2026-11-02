@@ -1961,3 +1961,45 @@ but 5 were given` dan tertangkap `except` generik di worker.
 - Uji deteksi yatim (koleksi palsu) -> **12/12 cek lulus**: job baru/memiliki heartbeat/worker aktif/`done`/
   milik user lain tidak disentuh; job tanpa heartbeat 400 detik ditandai `failed`.
 - `py_compile` OK.
+
+---
+
+## 2026-11-02 — Nama supplier: pakai Nama Legal Perusahaan (PIC + alamat tetap terlihat)
+
+### Tujuan (permintaan pemilik)
+Pada master supplier, kolom `name` berisi **nama PIC** (mis. "Aliang") dan nama perusahaan ada di `legal_name`
+(mis. "PT Riau Indo Pasifik"). Akibatnya dropdown supplier menampilkan nama orang, sehingga sulit memilih vendor.
+Permintaan: tampilkan **Nama Legal Perusahaan, PIC, dan Alamat** pada:
+- input PO dan Invoice (dan DO yang memakai picker yang sama),
+- kolom **Supplier** pada daftar transaksi PO, DO, Invoice, Status Penagihan DO, dan Transmittal.
+
+### Ditambah (+)
+- `frontend/src/lib/supplierOption.js` — `supplierOption(d)` menghasilkan opsi Combobox
+  `{ label: legal_name || name, selectedLabel, sublabel: "PIC: <name> · <address>" }`, dan
+  `supplierLegalName(r)` untuk kolom daftar (`supplier_legal_name` → fallback `supplier_name`).
+
+### Diubah (~)
+- `frontend/src/components/Combobox.jsx` — opsi boleh punya `sublabel` (baris kedua, muted) dan
+  teks pencarian mencakup label + sublabel (cari "Aliang" atau "Pekanbaru" tetap ketemu).
+- `frontend/src/hooks/useMasters.js` — `opts(name, labelFn)`: `labelFn` boleh mengembalikan string
+  (perilaku lama) atau objek `{ label, selectedLabel, sublabel }`. Backward compatible.
+- `frontend/src/pages/Po.jsx`, `Do.jsx`, `InvoiceForm.jsx` — picker supplier memakai `supplierOption`;
+  tampilan supplier read-only (DO mengikuti PO, Invoice tersimpan) memakai nama legal.
+- `frontend/src/pages/InvoiceMonitoring.jsx` — kolom Supplier pada tab Invoice & Status Penagihan DO
+  memakai `supplierLegalName`.
+- `frontend/src/pages/InvoiceTransmittalForm.jsx` — daftar invoice terpilih & hasil pilih memakai nama legal.
+- `backend/doc_procurement.py` — `list_po` & `list_do` menambah `supplier_legal_name` (dari `maps()` yang
+  memuat dokumen supplier penuh; `supplier_name` tetap seperti sebelumnya).
+- `backend/vendor_invoice_layer.py` — `enrich()` (daftar invoice) dan `do_billing_rows()` menambah
+  `supplier_legal_name`; proyeksi supplier ditambah `legal_name`.
+- `backend/invoice_transmittal_layer.py` — daftar transmittal meresolusi ulang `suppliers` dari
+  `supplier_ids` (tanpa migrasi data), dan `eligible-invoices` menambah `supplier_legal_name`.
+
+### Pengujian
+- `node` — 11/11 cek `supplierOption`/`supplierLegalName` lulus: judul = nama legal; subjudul = `PIC: X · alamat`;
+  tanpa `legal_name` → judul = PIC dan subjudul alamat saja (tidak dobel); `legal_name == name` tidak mengulang PIC;
+  tanpa alamat → subjudul PIC; data kosong aman (`-`).
+- `py_compile` 3 file backend → OK.
+- `CI=true yarn build` → sukses (29,62 s) tanpa warning ESLint; bundle memuat `supplier_legal_name` dan `PIC: `.
+- Verifikasi data produksi (read-only): supplier pada tenant aktif semuanya punya `legal_name` dan `address`
+  (20/20 sampel), `city` kosong karena alamat sudah memuat kota → cukup memakai `address`.

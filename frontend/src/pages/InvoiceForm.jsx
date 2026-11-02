@@ -8,6 +8,7 @@ import { Field } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
 import { StatusBadge } from "@/components/StatusBadge";
 import { DoAllocationTable } from "@/components/invoice/DoAllocationTable";
+import { supplierOption } from "@/lib/supplierOption";
 import { DpAllocationDialog } from "@/components/invoice/DpAllocationDialog";
 import { sumDp } from "@/lib/supplierDp";
 import { Card, CardContent } from "@/components/ui/card";
@@ -130,8 +131,8 @@ export default function InvoiceForm() {
       </TransactionPageHeader>
       <Card><CardContent className="space-y-6 pt-6">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Field label="Supplier"><div data-testid="invoice-supplier">{id ? <Input value={h.supplier_name || ""} disabled /> :
-            <Combobox options={masters.opts("suppliers", (d) => d.name)} value={h.supplier_id} onChange={(v) => { setAlloc({}); setDpAlloc({}); setAutoAmount(true); setH((c) => ({ ...c, supplier_id: v })); }} testid="invoice-supplier-combobox" />}</div></Field>
+          <Field label="Supplier"><div data-testid="invoice-supplier">{id ? <Input value={masters.map("suppliers")[h.supplier_id]?.legal_name || h.supplier_legal_name || h.supplier_name || ""} disabled /> :
+            <Combobox options={masters.opts("suppliers", supplierOption)} value={h.supplier_id} onChange={(v) => { setAlloc({}); setDpAlloc({}); setAutoAmount(true); setH((c) => ({ ...c, supplier_id: v })); }} testid="invoice-supplier-combobox" />}</div></Field>
           <Field label="No Invoice"><Input value={h.invoice_no} onChange={set("invoice_no")} data-testid="invoice-no-input" /></Field>
           <Field label="Tanggal Invoice"><Input type="date" value={h.invoice_date} onChange={set("invoice_date")} data-testid="invoice-date-input" /></Field>
           <Field label="Tanggal Invoice Diterima"><Input type="date" value={h.received_date} onChange={set("received_date")} data-testid="invoice-received-date-input" /></Field>

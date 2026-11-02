@@ -43,8 +43,13 @@ export function useMasters(names = ["divisions", "contacts", "warehouses", "proj
   const lookupState = useCallback((name) => ({ ...statusOf(name), retry: () => load(name) }), [statusOf, load]);
 
   // opts() membawa status lookup (non-enumerable) agar Combobox bisa menampilkan loading/error/izin secara jujur.
+  // labelFn boleh mengembalikan string (judul saja) atau objek { label, selectedLabel, sublabel }
+  // (mis. supplierOption: judul = nama legal, subjudul = PIC + alamat).
   const opts = (name, labelFn) => {
-    const rows = (data[name] || []).map((d) => ({ value: d.id, label: labelFn ? labelFn(d) : `${d.code ? d.code + " — " : ""}${d.name}` }));
+    const rows = (data[name] || []).map((d) => {
+      const l = labelFn ? labelFn(d) : `${d.code ? d.code + " — " : ""}${d.name}`;
+      return typeof l === "string" ? { value: d.id, label: l } : { value: d.id, ...l };
+    });
     Object.defineProperty(rows, "__lookup", { value: lookupState(name), enumerable: false });
     return rows;
   };

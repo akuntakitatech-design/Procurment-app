@@ -180,7 +180,7 @@ export default function InvoiceTransmittalForm() {
                   return (
                     <tr key={r.id} className="border-t" data-testid={`transmittal-pick-${r.invoice_no}`}>
                       <td className="p-2.5"><input type="checkbox" checked={checked.includes(r.id)} onChange={() => toggle(r.id)} aria-label={`Pilih ${r.invoice_no}`} data-testid={`transmittal-pick-check-${r.id}`} /></td>
-                      <td className="p-2.5">{r.supplier_name}</td>
+                      <td className="p-2.5">{r.supplier_legal_name || r.supplier_name}</td>
                       <td className="p-2.5 font-mono text-xs font-semibold">{r.invoice_no}</td>
                       <td className="p-2.5 font-mono text-xs">{r.tax_invoice_no || "-"}</td>
                       <td className="p-2.5 font-mono text-xs">{r.po_nos || "-"}</td>
@@ -204,7 +204,7 @@ export default function InvoiceTransmittalForm() {
                 const c = checklistSummary(i.checklist);
                 return (
                   <tr key={i.id} className="border-t" data-testid={`transmittal-item-${i.invoice_no}`}>
-                    <td className="p-2.5">{i.supplier_name}</td>
+                    <td className="p-2.5">{i.supplier_legal_name || i.supplier_name}</td>
                     <td className="p-2.5 font-mono text-xs font-semibold">{i.invoice_no}</td>
                     <td className="p-2.5 font-mono text-xs">{i.tax_invoice_no || "-"}<div className="text-[10px] text-muted-foreground">{i.tax_invoice_date ? fmtD(i.tax_invoice_date) : ""}</div></td>
                     <td className="p-2.5 font-mono text-xs">{i.po_nos || "-"}</td>

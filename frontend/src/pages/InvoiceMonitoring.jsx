@@ -11,13 +11,14 @@ import { DataTable } from "@/components/invoice/DataTable";
 import { InvoiceSummary } from "@/components/invoice/InvoiceSummary";
 import { fmtD, optsOf } from "@/lib/invoice";
 import { checklistSummary } from "@/lib/docChecklist";
+import { supplierLegalName } from "@/lib/supplierOption";
 import { useServerList } from "@/lib/serverList";
 import { useReportParams } from "@/components/dashboard/ReportFilterChip";
 import { useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 
 const INV_COLS = [
-  { key: "supplier_name", label: "Supplier" },
+  { key: "supplier_name", label: "Supplier", render: supplierLegalName },
   { key: "invoice_no", label: "No Invoice", mono: true },
   { key: "tax_invoice_no", label: "No Faktur Pajak", mono: true },
   { key: "trace_po", label: "PO", wrap: true },
@@ -46,7 +47,7 @@ const INV_COLS = [
 const DO_COLS = [
   { key: "do_no", label: "No DO", mono: true },
   { key: "date", label: "Tgl DO", date: true },
-  { key: "supplier_name", label: "Supplier" },
+  { key: "supplier_name", label: "Supplier", render: supplierLegalName },
   { key: "po_nos", label: "PO", wrap: true },
   { key: "spk", label: "SPK", wrap: true },
   { key: "project", label: "Proyek", wrap: true },

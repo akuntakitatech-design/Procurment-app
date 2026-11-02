@@ -503,7 +503,10 @@ async def list_po(user=Depends(current_user)):
     by_doc = await lines_by_doc("po_lines", "po_id", [d["id"] for d in docs])
     for d in docs:
         d["line_count"] = len(by_doc.get(d["id"], []))
-        d["supplier_name"] = m["suppliers"].get(d.get("supplier_id"), {}).get("name")
+        sup = m["suppliers"].get(d.get("supplier_id")) or {}
+        d["supplier_name"] = sup.get("name")
+        # Nama perusahaan untuk kolom daftar: `name` pada master supplier berisi nama PIC.
+        d["supplier_legal_name"] = sup.get("legal_name") or sup.get("name")
         d["division_name"] = m["divisions"].get(d.get("division_id"), {}).get("name")
         if not show_price:
             d["grand_total"] = None
@@ -928,7 +931,10 @@ async def list_do(user=Depends(current_user)):
     m = await maps()
     by_doc = await lines_by_doc("do_lines", "do_id", [d["id"] for d in docs])
     for d in docs:
-        d["supplier_name"] = m["suppliers"].get(d.get("supplier_id"), {}).get("name")
+        sup = m["suppliers"].get(d.get("supplier_id")) or {}
+        d["supplier_name"] = sup.get("name")
+        # Nama perusahaan untuk kolom daftar: `name` pada master supplier berisi nama PIC.
+        d["supplier_legal_name"] = sup.get("legal_name") or sup.get("name")
         d["line_count"] = len(by_doc.get(d["id"], []))
     return docs
 

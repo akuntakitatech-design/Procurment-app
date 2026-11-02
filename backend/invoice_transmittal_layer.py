@@ -219,6 +219,7 @@ def install(server):
     async def list_transmittals(user=Depends(cu)):
         need(user, "transmittal.view", "melihat")
         rows = await db().invoice_transmittals.find({}, {"_id": 0}).to_list(50000)
+        rows = await with_legal_suppliers(rows)
         if server.is_global(user):
             return rows
         allowed, out = set(), []
@@ -236,13 +237,31 @@ def install(server):
                 out.append(t)
         return out
 
+    async def with_legal_suppliers(rows):
+        """Kolom Supplier pada daftar memakai nama legal perusahaan (fallback ke nilai tersimpan).
+        Nilai `suppliers` disimpan saat transmittal dibuat, jadi diresolusi ulang dari `supplier_ids`."""
+        ids = sorted({sid for r in rows for sid in (r.get("supplier_ids") or [])})
+        if not ids:
+            return rows
+        sups = {s["id"]: s for s in await db().suppliers.find({"id": {"$in": ids}}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(len(ids) + 5)}
+        for r in rows:
+            names = []
+            for sid in r.get("supplier_ids") or []:
+                rec = sups.get(sid) or {}
+                nm = rec.get("legal_name") or rec.get("name")
+                if nm and nm not in names:
+                    names.append(nm)
+            if names:
+                r["suppliers"] = ", ".join(names)
+        return rows
+
     @app.get("/api/invoice-transmittals/eligible-invoices", tags=["transmittal"])
     async def eligible_invoices(user=Depends(cu)):
         """Invoice yang boleh dibuatkan transmittal (belum ada di transmittal aktif)."""
         need(user, "transmittal.view", "melihat")
         active = await active_links()
         invs = await db().vendor_invoices.find({}, {"_id": 0}).to_list(100000)
-        sups = {s["id"]: s.get("name") for s in await db().suppliers.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(5000)}
+        sups = {s["id"]: s for s in await db().suppliers.find({}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(5000)}
         out = []
         picked = []
         for inv in invs:
@@ -261,7 +280,9 @@ def install(server):
         for inv in picked:
             out.append({
                 "id": inv["id"], "no": inv.get("no"), "invoice_no": inv.get("invoice_no"),
-                "invoice_date": inv.get("invoice_date"), "supplier_name": sups.get(inv.get("supplier_id")) or "",
+                "invoice_date": inv.get("invoice_date"),
+                "supplier_name": (sups.get(inv.get("supplier_id")) or {}).get("name") or "",
+                "supplier_legal_name": (sups.get(inv.get("supplier_id")) or {}).get("legal_name") or (sups.get(inv.get("supplier_id")) or {}).get("name") or "",
                 "tax_invoice_no": str(inv.get("tax_invoice_no") or ""),
                 "po_nos": (tr.get(inv["id"]) or {}).get("po_nos", ""),
                 "do_nos": (tr.get(inv["id"]) or {}).get("do_nos", ""),
