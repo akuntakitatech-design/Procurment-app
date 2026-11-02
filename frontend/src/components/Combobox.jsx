@@ -61,10 +61,13 @@ export function Combobox({ options, value, onChange, placeholder = "Pilih...", t
             </CommandEmpty>
             <CommandGroup>
               {list.map((o) => (
-                <CommandItem key={o.value} value={o.label} onSelect={() => { onChange(o.value); setOpen(false); }} className="items-start py-2.5"
+                <CommandItem key={o.value} value={o.sublabel ? `${o.label} ${o.sublabel}` : o.label} onSelect={() => { onChange(o.value); setOpen(false); }} className="items-start py-2.5"
                   data-testid={testid ? `${testid}-option-${o.value}` : undefined}>
                   <Check className={cn("mr-2 mt-0.5 h-4 w-4 shrink-0", value === o.value ? "opacity-100" : "opacity-0")} />
-                  <span className="whitespace-normal break-words leading-5">{o.label}</span>
+                  <span className="min-w-0">
+                    <span className="block whitespace-normal break-words leading-5">{o.label}</span>
+                    {o.sublabel ? <span className="mt-0.5 block whitespace-normal break-words text-xs text-muted-foreground">{o.sublabel}</span> : null}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>

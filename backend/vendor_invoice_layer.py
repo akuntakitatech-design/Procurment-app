@@ -233,7 +233,7 @@ def install(server):
         do_ids = sorted({d for i in invs for d in i.get("do_ids") or []})
         dos = await db().do.find({"id": {"$in": do_ids}}, {"_id": 0}).to_list(len(do_ids) + 5) if do_ids else []
         tr = await traces(dos)
-        sups = {s["id"]: s for s in await db().suppliers.find({}, {"_id": 0, "id": 1, "name": 1, "code": 1}).to_list(5000)}
+        sups = {s["id"]: s for s in await db().suppliers.find({}, {"_id": 0, "id": 1, "name": 1, "code": 1, "legal_name": 1}).to_list(5000)}
         tmap = await transmittal_map([i["id"] for i in invs])
         td = today()
         for i in invs:
@@ -242,6 +242,8 @@ def install(server):
             i["payment_status"] = pay_status(float(i.get("amount") or 0), float(i.get("paid_total") or 0), float(i.get("dp_allocated_total") or 0))
             i.update({
                 "supplier_name": (sups.get(i.get("supplier_id")) or {}).get("name"),
+                # Kolom Supplier pada daftar memakai nama legal perusahaan (fallback ke nama lama).
+                "supplier_legal_name": (sups.get(i.get("supplier_id")) or {}).get("legal_name") or (sups.get(i.get("supplier_id")) or {}).get("name"),
                 "do_nos": ", ".join(t.get("no") for t in ts if t.get("no")),
                 "trace_po": join(ts, "trace_po"), "trace_ro": join(ts, "trace_ro"), "trace_mro": join(ts, "trace_mro"),
                 "trace_spk": join(ts, "trace_spk"), "trace_project": join(ts, "trace_project"),
@@ -427,12 +429,14 @@ def install(server):
         ids = [d["id"] for d in dos]
         vals, allocs = await do_values(ids), await allocs_for(ids)
         billed, tr = billed_of(allocs, exclude=exclude), await traces(dos)
-        sups = {s["id"]: s.get("name") for s in await db().suppliers.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(5000)}
+        sups = {s["id"]: s for s in await db().suppliers.find({}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(5000)}
         out = []
         for d in dos:
             t, v, b = tr.get(d["id"]) or {}, vals[d["id"]]["total"], billed.get(d["id"], 0.0)
             out.append({"do_id": d["id"], "do_no": d.get("no"), "date": d.get("date"), "supplier_id": d.get("supplier_id"),
-                        "supplier_name": sups.get(d.get("supplier_id")), "po_nos": t.get("trace_po"), "ro_nos": t.get("trace_ro"),
+                        "supplier_name": (sups.get(d.get("supplier_id")) or {}).get("name"),
+                        "supplier_legal_name": (sups.get(d.get("supplier_id")) or {}).get("legal_name") or (sups.get(d.get("supplier_id")) or {}).get("name"),
+                        "po_nos": t.get("trace_po"), "ro_nos": t.get("trace_ro"),
                         "mro_nos": t.get("trace_mro"), "project": t.get("trace_project"), "division": t.get("trace_division"),
                         "spk": t.get("trace_spk"), "do_value": v, "do_net": vals[d["id"]]["net"], "do_tax": vals[d["id"]]["tax"],
                         "billed": b, "remaining": round(v - b, 2), "billing_status": bill_status(v, b),
