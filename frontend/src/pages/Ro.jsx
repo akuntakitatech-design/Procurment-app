@@ -6,6 +6,8 @@ import { useReportParams } from "@/components/dashboard/ReportFilterChip";
 import { useMasters } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
+import { StatusTabs } from "@/components/StatusTabs";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
 import { ItemLines } from "@/components/ItemLines";
 import { DocMetaTabs } from "@/components/DocMetaTabs";
@@ -35,8 +37,13 @@ import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
 export function RoList() {
-  const rp=useReportParams(); const list=useServerList("/ro",rp.params); const load=()=>list.reload();
-  return <DocList txType="ro" createPath="/ro/new" basePath="/ro" module="ro" printType="RO" printOpts={{title:"REQUEST ORDER"}} onReload={load} testidPrefix="ro" server={list} filters={rp.chip} minWidth={1200} columns={[noCol("No. RO"),dateCol(fmtDate),{key:"requester",label:"Pemohon"},traceCol("mro"),traceCol("project"),{key:"division_name",label:"Divisi"},traceCol("spk"),{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;
+  const rp=useReportParams();
+  const [statusGroup,setStatusGroup]=useState("all");
+  const [range,setRange]=useState({from:rp.params.date_from||"",to:rp.params.date_to||""});
+  const list=useServerList("/ro",{...rp.params,status_group:statusGroup==="all"?"":statusGroup,date_from:range.from,date_to:range.to},{counts:"status_group"});
+  const load=()=>list.reload();
+  const filters=<>{rp.chip}<StatusTabs module="ro" value={statusGroup} onChange={setStatusGroup} counts={list.facets["count:status_group"]||{}} testid="ro"/><DateRangeFilter value={range} onChange={setRange} testid="ro-date"/></>;
+  return <DocList txType="ro" createPath="/ro/new" basePath="/ro" module="ro" printType="RO" printOpts={{title:"REQUEST ORDER"}} onReload={load} testidPrefix="ro" server={list} filters={filters} minWidth={1200} columns={[noCol("No. RO"),dateCol(fmtDate),{key:"requester",label:"Pemohon"},traceCol("mro"),traceCol("project"),{key:"division_name",label:"Divisi"},traceCol("spk"),{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;
 }
 
 export function RoForm() {
