@@ -5,6 +5,8 @@ import { useServerList } from "@/lib/serverList";
 import { useMasters, STOCK_REFS } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
+import { StatusTabs } from "@/components/StatusTabs";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
 import { DocMetaTabs } from "@/components/DocMetaTabs";
 import { AttachmentPanel, uploadPendingAttachments } from "@/components/DocMeta";
@@ -38,7 +40,7 @@ import { useDocAllocations } from "@/components/SpkAllocationModal";
 import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
-export function MiList(){const list=useServerList("/mi");const load=()=>list.reload();return <DocList txType="mi" createPath="/mi/new" basePath="/mi" module="mi" printType="MI" printOpts={{title:"MATERIAL ISSUED"}} onReload={load} testidPrefix="mi" server={list} minWidth={1300} columns={[noCol("No. MI"),dateCol(fmtDate),traceCol("mro"),traceCol("project"),traceCol("division"),traceCol("spk"),traceCol("requester"),{key:"receiver",label:"Penerima"},{key:"source_type",label:"Sumber",value:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO",render:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
+export function MiList(){const[statusGroup,setStatusGroup]=useState("all");const[range,setRange]=useState({from:"",to:""});const list=useServerList("/mi",{status_group:statusGroup==="all"?"":statusGroup,date_from:range.from,date_to:range.to},{counts:"status_group"});const load=()=>list.reload();const filters=<><StatusTabs module="mi" value={statusGroup} onChange={setStatusGroup} counts={list.facets["count:status_group"]||{}} testid="mi"/><DateRangeFilter value={range} onChange={setRange} testid="mi-date"/></>;return <DocList txType="mi" createPath="/mi/new" basePath="/mi" module="mi" printType="MI" printOpts={{title:"MATERIAL ISSUED"}} onReload={load} testidPrefix="mi" server={list} filters={filters} minWidth={1300} columns={[noCol("No. MI"),dateCol(fmtDate),traceCol("mro"),traceCol("project"),traceCol("division"),traceCol("spk"),traceCol("requester"),{key:"receiver",label:"Penerima"},{key:"source_type",label:"Sumber",value:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO",render:r=>(r.source_mode==="direct"||r.source_type==="Direct")?"Direct":"MRO"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
 
 // Alokasi SPK MI (read-only, sumber MRO): "SPK-001" | "SPK-001 (6), SPK-002 (4)" | "Non-SPK".
 const baseQty=l=>(Number(l.qty)||0)*(Number(l.conversion_factor)||1);

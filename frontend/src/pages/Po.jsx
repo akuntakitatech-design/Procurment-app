@@ -10,6 +10,8 @@ import { useReportParams } from "@/components/dashboard/ReportFilterChip";
 import { useMasters } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
+import { StatusTabs } from "@/components/StatusTabs";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
 import { PoEmailDialog } from "@/components/PoEmailDialog";
 import { PoReceiptProgress } from "@/components/PoReceiptProgress";
@@ -52,8 +54,8 @@ import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
 const RECEIPT_OPTS=["Semua","Belum Diterima","Diterima Sebagian","Diterima Penuh","Over Receipt"];
 const EMAIL_OK=["Approved","Partially Received","Fully Received"];
-export function PoList(){const{can}=useAuth();const[rf,setRf]=useState("Semua");const rp=useReportParams();const list=useServerList("/po",{f_receipt_status:rf==="Semua"?"":rf,...rp.params});const[emailPo,setEmailPo]=useState(null);const load=()=>list.reload();
-  const filters=<>{rp.chip}<select value={rf} onChange={e=>setRf(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm" data-testid="po-receipt-filter">{RECEIPT_OPTS.map(o=><option key={o} value={o}>{o==="Semua"?"Semua Status Penerimaan":o==="Over Receipt"?"Penerimaan Berlebih":o}</option>)}</select>
+export function PoList(){const{can}=useAuth();const[rf,setRf]=useState("Semua");const rp=useReportParams();const[statusGroup,setStatusGroup]=useState("all");const[range,setRange]=useState({from:rp.params.date_from||"",to:rp.params.date_to||""});const list=useServerList("/po",{f_receipt_status:rf==="Semua"?"":rf,...rp.params,status_group:statusGroup==="all"?"":statusGroup,date_from:range.from,date_to:range.to},{counts:"status_group"});const[emailPo,setEmailPo]=useState(null);const load=()=>list.reload();
+  const filters=<>{rp.chip}<StatusTabs module="po" value={statusGroup} onChange={setStatusGroup} counts={list.facets["count:status_group"]||{}} testid="po"/><DateRangeFilter value={range} onChange={setRange} testid="po-date"/><select value={rf} onChange={e=>setRf(e.target.value)} className="h-9 rounded-md border bg-background px-3 text-sm" data-testid="po-receipt-filter">{RECEIPT_OPTS.map(o=><option key={o} value={o}>{o==="Semua"?"Semua Status Penerimaan":o==="Over Receipt"?"Penerimaan Berlebih":o}</option>)}</select>
     <select value={approval2SortValue(list.sort)} onChange={e=>list.setSort(approval2SortFrom(e.target.value))} aria-label="Urutkan berdasarkan tanggal Approval 2" className="h-9 rounded-md border bg-background px-3 text-sm" data-testid="po-approval2-sort">{APPROVAL2_SORT_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></>;
   return <><DocList txType="po" createPath="/po/new" basePath="/po" module="po" printType="PO" printOpts={{title:"PURCHASE ORDER",showPrice:can("view_purchase_price")}} onReload={load} testidPrefix="po" server={list} emptyText="Belum ada data" filters={filters} resetKey={rf} minWidth={1700}
     canEditRow={r=>["Closed","Cancelled"].includes(r.document_status)?`PO ${r.document_status} tidak dapat diedit`:true} onEmail={r=>setEmailPo(r.id)} emailEligible={r=>EMAIL_OK.includes(r.status)}

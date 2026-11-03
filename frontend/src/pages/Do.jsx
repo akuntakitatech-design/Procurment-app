@@ -5,6 +5,8 @@ import { useServerList } from "@/lib/serverList";
 import { useMasters } from "@/hooks/useMasters";
 import { useAuth } from "@/context/AuthContext";
 import { DocList } from "@/components/DocList";
+import { StatusTabs } from "@/components/StatusTabs";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
 import { DocMetaTabs } from "@/components/DocMetaTabs";
 import { DoInvoicePanel } from "@/components/invoice/DoInvoicePanel";
@@ -34,7 +36,7 @@ import { SpkAllocationModal, useDocAllocations, formatAllocText } from "@/compon
 import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
-export function DoList(){const list=useServerList("/do");const load=()=>list.reload();return <DocList txType="do" createPath="/do/new" basePath="/do" module="do" printType="DO" printOpts={{title:"PENERIMAAN BARANG"}} onReload={load} testidPrefix="do" server={list} minWidth={1500} columns={[noCol("No. DO"),dateCol(fmtDate),{key:"supplier_name",label:"Supplier",render:supplierLegalName},{key:"supplier_dn",label:"No. Surat Jalan"},traceCol("mro"),traceCol("ro"),traceCol("po"),traceCol("project"),traceCol("division"),traceCol("spk"),{key:"supplier_invoice",label:"No. Faktur"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
+export function DoList(){const[statusGroup,setStatusGroup]=useState("all");const[range,setRange]=useState({from:"",to:""});const list=useServerList("/do",{status_group:statusGroup==="all"?"":statusGroup,date_from:range.from,date_to:range.to},{counts:"status_group"});const load=()=>list.reload();const filters=<><StatusTabs module="do" value={statusGroup} onChange={setStatusGroup} counts={list.facets["count:status_group"]||{}} testid="do"/><DateRangeFilter value={range} onChange={setRange} testid="do-date"/></>;return <DocList txType="do" createPath="/do/new" basePath="/do" module="do" printType="DO" printOpts={{title:"PENERIMAAN BARANG"}} onReload={load} testidPrefix="do" server={list} filters={filters} minWidth={1500} columns={[noCol("No. DO"),dateCol(fmtDate),{key:"supplier_name",label:"Supplier",render:supplierLegalName},{key:"supplier_dn",label:"No. Surat Jalan"},traceCol("mro"),traceCol("ro"),traceCol("po"),traceCol("project"),traceCol("division"),traceCol("spk"),{key:"supplier_invoice",label:"No. Faktur"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
 
 const LBL = "mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground";
 const commonOf=(lines,k)=>{const v=[...new Set(lines.map(l=>l[k]||""))];return v.length===1?v[0]:(v.length?"__mixed__":"");};

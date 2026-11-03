@@ -313,6 +313,10 @@ attachment_query_token_compat_layer.install(server)
 import txn_list_paging_layer  # noqa: E402
 txn_list_paging_layer.install(server)
 
+# Kelompok status daftar transaksi (tab): definisi tunggal untuk filter & hitungan.
+import status_groups_layer  # noqa: E402
+status_groups_layer.install(server)
+
 # Server-side pagination/search/filter/sort untuk 14 Master Data (setelah tenant, permission & divisi).
 import master_list_paging_layer  # noqa: E402
 master_list_paging_layer.install(server)

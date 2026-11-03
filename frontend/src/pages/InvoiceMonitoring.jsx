@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Combobox } from "@/components/Combobox";
 import { StatusBadge } from "@/components/StatusBadge";
+import { StatusTabs } from "@/components/StatusTabs";
 import { DataTable } from "@/components/invoice/DataTable";
 import { InvoiceSummary } from "@/components/invoice/InvoiceSummary";
 import { fmtD, optsOf } from "@/lib/invoice";
@@ -76,13 +77,15 @@ function RangeUI({ from, to, setFrom, setTo }) {
 }
 
 // Satu tab = satu list server-side (search/filter/sort/pagination di backend). Tab DO baru dimuat saat dibuka.
-function ServerTable({ url, defs, cols, from, to, setFrom, setTo, extra = {}, chip = null, ...rest }) {
+function ServerTable({ url, defs, cols, from, to, setFrom, setTo, extra = {}, chip = null, statusModule = "", ...rest }) {
   const [fParams, setFParams] = useState(() => Object.fromEntries(defs.map(([k]) => [`f_${k}`, ""])));
-  const list = useServerList(url, { ...fParams, ...extra, date_from: from, date_to: to }, { facets: defs.map(([k]) => k).join(",") });
+  const [statusGroup, setStatusGroup] = useState("all");
+  const list = useServerList(url, { ...fParams, ...extra, date_from: from, date_to: to, status_group: statusGroup === "all" ? "" : statusGroup },
+    { facets: defs.map(([k]) => k).join(","), counts: statusModule ? "status_group" : "" });
   const fx = useFilterUI(defs, list.facets);
   const key = JSON.stringify(fx.params);
   useEffect(() => { setFParams(JSON.parse(key)); }, [key]);
-  return <DataTable columns={cols} server={list} filters={<>{chip}{fx.ui}<RangeUI from={from} to={to} setFrom={setFrom} setTo={setTo} /></>} {...rest} />;
+  return <DataTable columns={cols} server={list} filters={<>{chip}{statusModule && <StatusTabs module={statusModule} value={statusGroup} onChange={setStatusGroup} counts={list.facets["count:status_group"] || {}} testid={`${statusModule}-status`} />}{fx.ui}<RangeUI from={from} to={to} setFrom={setFrom} setTo={setTo} /></>} {...rest} />;
 }
 
 export default function InvoiceMonitoring() {
@@ -106,7 +109,7 @@ export default function InvoiceMonitoring() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="h-auto w-full sm:w-auto flex-wrap justify-start"><TabsTrigger value="invoice" data-testid="tab-invoice">Invoice Vendor</TabsTrigger><TabsTrigger value="do" data-testid="tab-do-billing">Status Penagihan DO</TabsTrigger></TabsList>
         <TabsContent value="invoice" className="mt-4">
-          <ServerTable url="/vendor-invoices" extra={tab === "invoice" ? rfx : {}} chip={tab === "invoice" && rpt.chip} defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={2080}
+          <ServerTable url="/vendor-invoices" extra={tab === "invoice" ? rfx : {}} chip={tab === "invoice" && rpt.chip} statusModule={tab === "invoice" ? "invoice" : ""} defs={INV_FILTERS} cols={INV_COLS} {...rp} testidPrefix="invoice" countLabel="invoice" minWidth={2080}
             emptyText="Belum ada invoice" searchPlaceholder="Cari supplier, no invoice, PO, DO, SPK, proyek..." onOpen={(r) => nav(`/invoice/${r.id}`)}
             selectable selected={sel} onToggleAll={setSel} onToggle={(id) => setSel((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
             canSelect={(r) => !["Draft", "Dikirim"].includes(r.transmittal_status)} />

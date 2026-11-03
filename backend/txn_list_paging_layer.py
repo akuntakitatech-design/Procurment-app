@@ -12,6 +12,8 @@ import os
 from fastapi import Depends, Request
 from fastapi.routing import APIRoute
 
+import status_groups_layer as SG
+
 LISTS = {"/api/mro": "mro", "/api/ro": "ro", "/api/po": "po", "/api/do": "do", "/api/mi": "mi",
          "/api/transfers": "transfer", "/api/loans": "loan", "/api/adjustments": "adjustment", "/api/opname": "opname",
          "/api/vendor-invoices": "invoice", "/api/vendor-invoices/do-billing": "do_billing",
@@ -138,7 +140,7 @@ async def filter_sort(module, rows, qp, lifecycle=True):
     facets = {}
     for key in _split(qp.get("facets")):
         facets[key] = sorted({x for r in rows for x in _split(_get(r, key))}, key=str.lower)
-    if qp.get("counts"):
+    if qp.get("counts") and qp["counts"] != "status_group":
         key = qp["counts"]
         cnt = {}
         for r in rows:
@@ -155,6 +157,12 @@ async def filter_sort(module, rows, qp, lifecycle=True):
     terms = (qp.get("q") or "").strip().lower().split()
     if terms:
         rows = [r for r in rows if all(t in _hay(r) for t in terms)]
+    # Kelompok status (tab daftar): hitungan memakai baris setelah filter f_/periode/pencarian, lalu penyaringan grup.
+    grp = (qp.get("status_group") or "").strip()
+    if qp.get("counts") == "status_group" and SG.has_groups(module):
+        facets["count:status_group"] = SG.count_groups(module, rows)
+    if grp and grp != "all" and SG.has_groups(module):
+        rows = [r for r in rows if SG.group_of(module, r) == grp]
     sort = qp.get("sort")
     if sort:
         desc = qp.get("dir") == "desc"
@@ -217,6 +225,8 @@ def fast_ok(server, module, qp, user):
             continue
         if k in ("date_from", "date_to"):
             continue
+        if k == "status_group" or (k == "counts" and v == "status_group"):
+            return False  # butuh field status hasil enrichment (header saja tidak cukup)
         if module == "mro" and ((k == "counts" and v == "lifecycle_stage") or k == "f_lifecycle_stage"):
             continue
         if k == "q" and not str(v).strip():

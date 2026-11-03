@@ -31,6 +31,8 @@ import { uploadPendingAttachments } from "@/components/DocMeta";
 import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 import { TxnList } from "@/components/TxnList";
+import { StatusTabs } from "@/components/StatusTabs";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { traceCol, noCol, dateCol } from "@/lib/txnList";
 
 const FLOW = ["MRO", "RO", "PO", "DO", "MI"];
@@ -43,7 +45,11 @@ export function MroList() {
   const nav = useNavigate(); const [stageFilter, setStageFilter] = useState("all");
   // Server-side: lifecycle (Request/RO/PO/DO/MI) & tahap dihitung backend dalam batch; tanpa /reports/mro-traceability.
   const rp = useReportParams();
-  const list = useServerList("/mro", { f_lifecycle_stage: stageFilter === "all" ? "" : stageFilter, ...rp.params });
+  const [statusGroup, setStatusGroup] = useState("all");
+  const [range, setRange] = useState({ from: rp.params.date_from || "", to: rp.params.date_to || "" });
+  const list = useServerList("/mro", { f_lifecycle_stage: stageFilter === "all" ? "" : stageFilter, ...rp.params,
+    status_group: statusGroup === "all" ? "" : statusGroup, date_from: range.from, date_to: range.to },
+    { counts: "status_group" });
   // P7: hitungan tahap (seluruh MRO, tanpa batas) dimuat terpisah agar daftar tampil cepat; kartu menampilkan "…" saat memuat.
   const [stageCounts, setStageCounts] = useState(null);
   const rpKey = JSON.stringify(rp.params);
@@ -65,7 +71,7 @@ export function MroList() {
     <div className="grid grid-cols-2 gap-2 sm:gap-3 min-[400px]:grid-cols-3 md:grid-cols-4 xl:grid-cols-7 mb-4 sm:mb-5">{cards.map((c) => <button key={c.key} onClick={() => setStageFilter(c.key)} aria-pressed={stageFilter === c.key} className={`rounded-xl border bg-card p-3 sm:p-4 text-left shadow-sm transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${stageFilter === c.key ? "border-primary ring-1 ring-primary/20" : ""}`}><div className="text-xl sm:text-2xl font-bold tabular-nums" data-testid={`mro-stage-count-${c.key}`}>{counts ? (counts[c.key] || 0) : "…"}</div><div className="mt-1 text-[13px] sm:text-sm font-semibold leading-tight">{c.label}</div><div className="mt-0.5 hidden sm:block text-[11px] text-muted-foreground">{c.desc}</div></button>)}</div>
     {list.error && !list.loading && <div className="rounded-xl border bg-card p-10 text-center shadow-sm" data-testid="mro-error"><p className="mb-3 text-muted-foreground">Daftar MRO belum dapat dimuat.</p><Button variant="outline" onClick={reload} data-testid="mro-retry">Coba Lagi</Button></div>}
     {!(list.error && !list.loading) && <TxnList module="mro" columns={columns} server={list} testidPrefix="mro" onReload={reload} resetKey={stageFilter} minWidth={1600} emptyText="Belum ada transaksi pada filter ini"
-      filters={<>{rp.chip}{stageFilter !== "all" && <Button variant="outline" onClick={()=>setStageFilter("all")}>Tampilkan Semua</Button>}</>}
+      filters={<>{rp.chip}<StatusTabs module="mro" value={statusGroup} onChange={setStatusGroup} counts={list.facets["count:status_group"] || {}} testid="mro" /><DateRangeFilter value={range} onChange={setRange} testid="mro-date" />{stageFilter !== "all" && <Button variant="outline" onClick={()=>setStageFilter("all")}>Tampilkan Semua</Button>}</>}
       onOpen={(r)=>nav(`/mro/${r.id}`)} onEdit={(r)=>nav(`/mro/${r.id}?edit=1`)} onPrint={async (r)=>{const d=await api.get(`/mro/${r.id}`);printDoc("MRO",d.data);}}/>}
   </div>;
 }
