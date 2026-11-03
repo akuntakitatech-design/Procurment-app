@@ -71,9 +71,9 @@ export function TxnList({ module, columns, rows, onOpen, onPrint, onEdit, onEmai
         <span className="ml-auto text-xs text-muted-foreground" aria-live="polite" data-testid={`${testidPrefix}-result-count`}>{server?.loading ? "Memuat... · " : ""}{total} transaksi</span>
       </div>
       <TxnSelectionBar module={module} selected={selectedRows} onClear={() => setSel(new Set())} onPrint={onPrint} onEdit={onEdit} onEmail={onEmail} emailEligible={emailEligible} canEditRow={canEditRow} onBulkDelete={() => setBulk(true)} testidPrefix={testidPrefix} />
-      <div className="overflow-x-auto rounded-md border bg-card shadow-sm">
+      <div className="max-h-[calc(100dvh-17rem)] overflow-auto rounded-md border bg-card shadow-sm max-sm:max-h-none">
         <table className="w-full text-sm zebra m-stack m-cards" style={{ minWidth }}>
-          <thead className="bg-muted"><tr className="text-left text-xs font-semibold text-muted-foreground">
+          <thead className="bg-muted [&>tr>th]:sticky [&>tr>th]:top-0 [&>tr>th]:z-10 [&>tr>th]:bg-muted [&>tr>th]:shadow-[inset_0_-1px_0_hsl(var(--border))]"><tr className="text-left text-xs font-semibold text-muted-foreground">
             <th className="w-10 p-3"><Checkbox checked={allOn} onCheckedChange={toggleAll} aria-label="Pilih semua di halaman" data-testid={`${testidPrefix}-select-all`} /></th>
             {columns.map((c) => <SortHead key={c.key} col={c} sort={uiSort} onSort={(k) => setSort(nextSort(uiSort, k))} />)}
           </tr></thead>
