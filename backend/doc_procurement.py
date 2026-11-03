@@ -677,7 +677,13 @@ async def create_po(body: dict, user=Depends(current_user)):
     await assert_line_unit_prices(lines_in)
     computed, totals = compute_po_totals(body, lines_in)
     dp = compute_po_dp(body, totals["grand_total"])  # validasi sebelum nomor/tulis apa pun
-    did = gid(); no = await next_number("PO", project_id=body.get("default_project_id"))
+    # Nomor PO manual (mis. hasil impor Excel) dipakai apa adanya; kosong = dibuat otomatis.
+    no = (body.get("no") or "").strip()
+    if no and await db.po.find_one({"no": no}):
+        raise HTTPException(400, f'Nomor PO "{no}" sudah digunakan. Silakan gunakan nomor lain.')
+    did = gid()
+    if not no:
+        no = await next_number("PO", project_id=body.get("default_project_id"))
     for l, c in zip(lines_in, computed):
         l["total"] = c["total"]
     grand = totals["grand_total"]
