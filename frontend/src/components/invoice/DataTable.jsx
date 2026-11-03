@@ -35,7 +35,7 @@ export function DataTable({ columns, rows, testidPrefix, onOpen, filters, emptyT
     : [...new Set([...cur, ...selectableRows.map(rowId)])]));
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="sticky z-10 -mx-3 mb-4 flex flex-wrap items-center gap-3 border-b border-border/60 bg-background px-3 py-2.5 sm:-mx-6 sm:px-6 lg:-mx-7 lg:px-7 sm:bg-background/95 sm:backdrop-blur-xl sm:supports-[backdrop-filter]:bg-background/90" style={{ top: "var(--page-header-h, 0px)" }} data-testid={`${testidPrefix}-filter-bar`}>
         <div className="relative w-full max-w-sm"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input placeholder={searchPlaceholder || "Cari..."} value={q} onChange={(e) => setQ(e.target.value)} className="pl-9 h-11 sm:h-9" data-testid={`${testidPrefix}-search`} /></div>
         <MobileSortBar columns={columns} sort={sort} onChange={(next) => setSort(() => next)} testidPrefix={testidPrefix} />
