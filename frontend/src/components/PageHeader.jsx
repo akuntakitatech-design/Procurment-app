@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 const NEW_TRANSACTION_LABELS = [
   [/^MRO Baru$/i, "No. MRO"],
   [/^RO Baru$/i, "No. RO"],
@@ -17,11 +19,27 @@ export function PageHeader({ title, subtitle, children, transactionLabel, transa
   const numberLabel = transactionLabel || autoLabel;
   const numberValue = transactionNo || (numberLabel ? "Otomatis saat disimpan" : null);
   const tid = (part) => (testid ? `${testid}-${part}` : undefined);
+  // Tinggi header dipublikasikan sebagai CSS variable agar baris filter daftar bisa sticky tepat di bawahnya.
+  const headRef = useRef(null);
+  useEffect(() => {
+    const el = headRef.current;
+    if (!el) return undefined;
+    const apply = () => document.documentElement.style.setProperty("--page-header-h", `${Math.round(el.getBoundingClientRect().height)}px`);
+    apply();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(apply) : null;
+    if (ro) ro.observe(el);
+    window.addEventListener("resize", apply);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener("resize", apply);
+      document.documentElement.style.removeProperty("--page-header-h");
+    };
+  }, []);
 
   return (
     // Mobile (< sm): tombol aksi pindah ke action bar bawah (fixed, mudah dijangkau satu tangan, membungkus — tidak terpotong).
     // backdrop-filter hanya sm+ karena backdrop-filter menjadikan header containing block bagi elemen fixed.
-    <div data-testid={testid} className="sticky top-0 z-20 -mx-3 sm:-mx-6 lg:-mx-7 -mt-3 sm:mt-0 mb-4 sm:mb-5 border-b border-border/80 bg-background px-3 sm:px-6 lg:px-7 py-3 sm:py-3.5 sm:bg-background/95 sm:backdrop-blur-xl sm:supports-[backdrop-filter]:bg-background/88 shadow-[0_8px_24px_-24px_rgba(15,23,42,0.55)] no-print">
+    <div ref={headRef} data-testid={testid} className="sticky top-0 z-20 -mx-3 sm:-mx-6 lg:-mx-7 -mt-3 sm:mt-0 mb-4 sm:mb-5 border-b border-border/80 bg-background px-3 sm:px-6 lg:px-7 py-3 sm:py-3.5 sm:bg-background/95 sm:backdrop-blur-xl sm:supports-[backdrop-filter]:bg-background/88 shadow-[0_8px_24px_-24px_rgba(15,23,42,0.55)] no-print">
       <div className="sm:min-h-[54px] flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1 sm:min-w-[16rem]">
           {eyebrow && <div data-testid={tid("code")} className="text-xs font-bold tracking-wide text-primary leading-none mb-1">{eyebrow}</div>}
