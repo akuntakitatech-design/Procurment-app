@@ -43,9 +43,9 @@ export function DataTable({ columns, rows, testidPrefix, onOpen, filters, emptyT
         {server?.exportKey && <ListExportButtons reportKey={server.exportKey} query={server.query} total={total} testidPrefix={testidPrefix} />}
         <span className="ml-auto text-xs text-muted-foreground" data-testid={`${testidPrefix}-count`}>{server?.loading ? "Memuat... · " : ""}{total} {countLabel}</span>
       </div>
-      <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
+      <div className="max-h-[calc(100dvh-17rem)] overflow-auto rounded-xl border bg-card shadow-sm max-sm:max-h-none">
         <table className="w-full text-sm zebra m-stack m-cards" style={{ minWidth }}>
-          <thead className="bg-muted"><tr className="text-left text-xs font-semibold text-muted-foreground">
+          <thead className="bg-muted [&>tr>th]:sticky [&>tr>th]:top-0 [&>tr>th]:z-10 [&>tr>th]:bg-muted [&>tr>th]:shadow-[inset_0_-1px_0_hsl(var(--border))]"><tr className="text-left text-xs font-semibold text-muted-foreground">
             {selectable && <th className="p-3 w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Pilih semua baris" data-testid={`${testidPrefix}-select-all`} /></th>}
             {columns.map((c) => <th key={c.key} className={`p-3 ${c.num || c.money ? "text-right" : ""}`}>
               <button type="button" onClick={() => setSort((s) => nextSort(s, c.key))} className="inline-flex items-center gap-1 uppercase tracking-wider transition-colors hover:text-foreground" data-testid={`${testidPrefix}-sort-${c.key}`}>
