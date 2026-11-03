@@ -151,7 +151,7 @@ def install(server, run, check_limit, to_xlsx, to_pdf, wib):
                 await db()[JOBS].update_one({"id": job_id}, {"$set": {
                     "status": "done", "rows": res["total_rows"], "bytes": len(data), "filename": f"{key}_{stamp}.{fmt}",
                     # file memuat kolom harga (laporan tanpa kolom harga selalu price_visible=True di engine -> bukan harga)
-                    "price_visible": bool(res.get("price_visible")) and any(c.price for c in R.REGISTRY[key].columns),
+                    "price_visible": bool(res.get("price_visible")) and R.has_price_columns(R.REGISTRY[key]),
                     "finished_at": _iso(_now()), "expires_at": _iso(_now() + timedelta(seconds=TTL_S))}})
         except Exception:  # pesan generik; detail teknis hanya di log server
             import logging
