@@ -6,6 +6,7 @@ import { nextSort } from "@/lib/txnList";
 import { num } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ListPager } from "@/components/ListPager";
+import { ListExportButtons } from "@/components/ListExportButtons";
 import { MasterDeleteDialog } from "@/components/MasterDeleteDialog";
 import { Combobox } from "@/components/Combobox";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -127,7 +128,10 @@ export function ItemStockTab({ FormDialog, newForm, refNames }) {
         <div className="md:w-52"><Combobox options={ACTIVE_FILTER} value={active} onChange={setActive} placeholder="Semua Status Barang" testid="master-items-status-filter" /></div>
         <Button variant="outline" onClick={reset} disabled={!anyFilter && !list.sort} data-testid="master-items-reset"><RotateCcw className="mr-2 h-4 w-4" />Reset</Button>
       </div>
-      {can("create", "items") && <Button onClick={openAdd} data-testid="master-items-add"><Plus className="mr-2 h-4 w-4" />Tambah Barang</Button>}
+      <div className="flex flex-wrap items-center gap-2">
+        <ListExportButtons reportKey="master-items" query={list.query} total={list.total} testidPrefix="master-items" />
+        {can("create", "items") && <Button onClick={openAdd} data-testid="master-items-add"><Plus className="mr-2 h-4 w-4" />Tambah Barang</Button>}
+      </div>
     </div>
 
     {selRows.length > 0 && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="master-items-selection-bar">

@@ -236,6 +236,15 @@ def summarize(rows: list) -> dict:
     return summary
 
 
+async def scoped_warehouse_list(server, user) -> list:
+    """Gudang aktif dalam cakupan pengguna, urut nama — kolom stok daftar Master Barang & export (aturan sama dengan compute)."""
+    alw, wh_assigned = allowed(server, user), assigned_warehouses(server, user)
+    whs = await server.db.warehouses.find({}, {"_id": 0, "id": 1, "code": 1, "name": 1, "division_id": 1, "is_active": 1}).to_list(5000)
+    out = [w for w in whs if w.get("id") and w.get("is_active") is not False and wh_in_scope(w, alw, wh_assigned)]
+    out.sort(key=lambda w: (str(w.get("name") or "").lower(), str(w.get("code") or "")))
+    return out
+
+
 async def compute(server, user, *, warehouse_id: str = "", division_id: str = "", category_id: str = "",
                   active: str = "", q: str = "", with_value: bool = False, value_as_of: Optional[str] = None) -> dict:
     """Baris per Master Item (sudah di-scope & difilter) + ringkasan canonical.
@@ -319,14 +328,8 @@ async def compute(server, user, *, warehouse_id: str = "", division_id: str = ""
     return out
 
 
-async def list_response(server, user, qp: dict, *, force_active: Optional[str] = None) -> dict:
-    """Response list per item (pagination/sort/sel per gudang) — dipakai Master Barang & Inventory."""
-    size, page = _size(qp.get("page_size")), _page(qp.get("page"))
-    res = await compute(server, user, warehouse_id=qp.get("warehouse_id") or "", division_id=qp.get("division_id") or "",
-                        category_id=qp.get("category_id") or "",
-                        active=force_active if force_active is not None else (qp.get("active") or ""), q=qp.get("q") or "")
-    rows, summary, col_whs, scoped_whs, alw = res["rows"], res["summary"], res["col_whs"], res["scoped_whs"], res["alw"]
-
+async def _filtered_sorted(rows: list, qp: dict) -> list:
+    """Filter status stok + urutan daftar (dipakai daftar ber-halaman & export)."""
     st = qp.get("stock_status") or ""
     if st == "No Stock":
         rows = [r for r in rows if not r["stock_records"]]
@@ -343,30 +346,55 @@ async def list_response(server, user, qp: dict, *, force_active: Optional[str] =
         rows = filled + empty
     else:  # default sama dengan Master Data: terbaru dahulu
         rows.sort(key=lambda r: (str(r.get("created_at") or ""), str(r.get("code") or "")), reverse=True)
+    return rows
 
-    total = len(rows)
-    page = min(page, max(1, -(-total // size)))
-    page_rows = rows[(page - 1) * size: page * size]
 
-    # Batch stok per sel hanya untuk barang di halaman aktif (1 query, IN item_id x IN warehouse_id).
-    col_ids = [w["id"] for w in col_whs]
+async def list_all(server, user, qp: dict, *, force_active: Optional[str] = None) -> dict:
+    """SELURUH baris sesuai filter daftar (tanpa pagination, belum memuat sel stok) + ringkasan & kolom gudang."""
+    res = await compute(server, user, warehouse_id=qp.get("warehouse_id") or "", division_id=qp.get("division_id") or "",
+                        category_id=qp.get("category_id") or "",
+                        active=force_active if force_active is not None else (qp.get("active") or ""), q=qp.get("q") or "")
+    return {**res, "rows": await _filtered_sorted(res["rows"], qp)}
+
+
+async def cells_for(server, item_ids, wh_ids, chunk: int = 800) -> dict:
+    """{item_id: {warehouse_id: {qty, min, max, status}}} — query batch (IN item x IN gudang), dipotong per `chunk`."""
     cells = {}
-    if page_rows and col_ids:
+    ids = [i for i in (item_ids or []) if i]
+    wh_ids = [w for w in (wh_ids or []) if w]
+    if not ids or not wh_ids:
+        return cells
+    for i in range(0, len(ids), chunk):
         iws = await server.db.item_warehouse.find(
-            {"item_id": {"$in": [r["id"] for r in page_rows]}, "warehouse_id": {"$in": col_ids}},
+            {"item_id": {"$in": ids[i:i + chunk]}, "warehouse_id": {"$in": wh_ids}},
             {"_id": 0, "item_id": 1, "warehouse_id": 1, "current_stock": 1, "min_stock": 1, "max_stock": 1}).to_list(None)
         for iw in iws:
             cur = _f(iw.get("current_stock"))
             cells.setdefault(iw["item_id"], {})[iw["warehouse_id"]] = {
                 "qty": cur, "min": _f(iw.get("min_stock")), "max": _f(iw.get("max_stock")),
                 "status": cell_status(cur, iw.get("min_stock"), iw.get("max_stock"))}
+    return cells
+
+
+async def list_response(server, user, qp: dict, *, force_active: Optional[str] = None) -> dict:
+    """Response list per item (pagination/sort/sel per gudang) — dipakai Master Barang & Inventory."""
+    size, page = _size(qp.get("page_size")), _page(qp.get("page"))
+    base = await list_all(server, user, qp, force_active=force_active)
+    rows, summary, col_whs, scoped_whs, alw = base["rows"], base["summary"], base["col_whs"], base["scoped_whs"], base["alw"]
+
+    total = len(rows)
+    page = min(page, max(1, -(-total // size)))
+    page_rows = rows[(page - 1) * size: page * size]
+
+    # Batch stok per sel hanya untuk barang di halaman aktif (1 query, IN item_id x IN warehouse_id).
+    cells = await cells_for(server, [r["id"] for r in page_rows], [w["id"] for w in col_whs])
     for r in page_rows:
         r["stock"] = cells.get(r["id"], {})
 
-    div_opts = [{"id": d["id"], "name": d.get("name")} for d in res["divisions"]
+    div_opts = [{"id": d["id"], "name": d.get("name")} for d in base["divisions"]
                 if d.get("id") and d.get("is_active") is not False and (alw is None or d["id"] in alw)]
     div_opts.sort(key=lambda d: str(d.get("name") or "").lower())
-    cat_opts = sorted([{"id": c["id"], "name": c.get("name")} for c in res["categories"] if c.get("id") and c.get("is_active") is not False],
+    cat_opts = sorted([{"id": c["id"], "name": c.get("name")} for c in base["categories"] if c.get("id") and c.get("is_active") is not False],
                       key=lambda c: str(c.get("name") or "").lower())
     return {"items": page_rows, "total": total, "page": page, "page_size": size, "summary": summary,
             "warehouses": [{"id": w["id"], "code": w.get("code"), "name": w.get("name")} for w in col_whs],

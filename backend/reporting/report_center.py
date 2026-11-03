@@ -180,7 +180,8 @@ async def run(server, user, key, qp) -> dict:
     price_visible = bool(server.has_perm(user, "view_purchase_price"))
     missing = missing_required(spec, p)
     notice = f"Pilih {', '.join(missing)} terlebih dahulu untuk menampilkan laporan." if missing else ""
-    cols = spec.visible_columns(price_visible, lambda k: bool(server.has_perm(user, k)))
+    cols_all = await R.resolve_columns(spec, server, user, p)
+    cols = spec.visible_columns(price_visible, lambda k: bool(server.has_perm(user, k)), cols_all)
     sort = _sort_param(spec, cols, qp)
     if "q" in spec.passthrough:
         p["q"] = q
@@ -191,9 +192,9 @@ async def run(server, user, key, qp) -> dict:
         rows = [r for r in rows if r.get("_kind") or all(t in " ".join(str(r.get(k) or "") for k in spec.search_keys).lower() for t in terms)]
     if sort[0] and not spec.own_sort and not any(r.get("_kind") for r in rows):  # laporan bersaldo tidak diurutkan ulang
         rows = sort_rows(rows, *sort)
-    if price_visible and any(c.perms and c not in cols for c in spec.columns):
+    if price_visible and any(c.perms and c not in cols for c in cols_all):
         price_visible = False  # kolom harga disembunyikan karena izin tambahan (mis. vendor_contract:view) -> catatan UI/Excel/PDF
-    if not any(c.price for c in spec.columns):
+    if not any(c.price for c in cols_all):
         price_visible = True  # laporan tanpa kolom harga (P5: nominal invoice = hak invoice.view) -> tidak ada yang disembunyikan
     keys = [c.key for c in cols]
     out_rows = []
@@ -250,6 +251,7 @@ def install(server):
     import reporting.reports_spk  # noqa: F401  (P4: realisasi anggaran SPK, kontrak harga vendor, kepatuhan harga PO)
     import reporting.reports_ap  # noqa: F401  (P5: register invoice, pembayaran, outstanding, aging, rekap hutang supplier)
     import reporting.reports_txn  # noqa: F401  (P6: export seluruh daftar transaksi; catalog=False)
+    import reporting.reports_master  # noqa: F401  (export daftar Master Barang: stok per gudang; catalog=False)
     app = server.app
 
     async def catalog(user=Depends(server.current_user)):

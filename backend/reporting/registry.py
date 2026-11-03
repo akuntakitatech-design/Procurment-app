@@ -63,7 +63,7 @@ class ReportSpec:
     group: str
     title: str
     description: str
-    columns: tuple
+    columns: object                      # tuple[Column] atau callable(server, user, params) -> tuple[Column] (kolom dinamis)
     builder: Builder                      # async (server, user, params: dict) -> list[dict] (SELURUH baris)
     filters: tuple = ()
     search_keys: tuple = ()
@@ -76,10 +76,28 @@ class ReportSpec:
     param_labels: tuple = ()              # ((param, label), ...) keterangan filter untuk parameter passthrough
     own_sort: bool = False                # True = builder sudah mengurutkan sesuai `sort`/`dir` daftar (P6)
 
-    def visible_columns(self, price_visible: bool, has_perm: Optional[Callable] = None):
+    def visible_columns(self, price_visible: bool, has_perm: Optional[Callable] = None, columns=None):
         """Kolom harga dibuang tanpa view_purchase_price; kolom ber-`perms` dibuang bila salah satu izin tidak dimiliki."""
-        return [c for c in self.columns if (price_visible or not c.price)
+        src = self.columns if columns is None else columns
+        return [c for c in src if (price_visible or not c.price)
                 and (not c.perms or (has_perm is not None and all(has_perm(p) for p in c.perms)))]
+
+
+async def resolve_columns(spec: ReportSpec, server=None, user=None, params=None) -> tuple:
+    """Kolom laporan: tuple statis, atau hasil callable(server, user, params) untuk laporan berkolom dinamis
+    (mis. stok per gudang yang mengikuti filter gudang)."""
+    cols = spec.columns
+    if not callable(cols):
+        return tuple(cols)
+    out = cols(server, user, params or {})
+    if hasattr(out, "__await__"):
+        out = await out
+    return tuple(out)
+
+
+def has_price_columns(spec: ReportSpec) -> bool:
+    """True bila laporan punya kolom harga/nilai (kolom dinamis dianggap bisa punya)."""
+    return True if callable(spec.columns) else any(c.price for c in spec.columns)
 
 
 REGISTRY: dict = {}
@@ -90,7 +108,7 @@ def register(spec: ReportSpec) -> ReportSpec:
         raise ValueError(f"group tidak dikenal: {spec.group}")
     if spec.key in REGISTRY:
         raise ValueError(f"laporan ganda: {spec.key}")
-    keys = [c.key for c in spec.columns]
+    keys = [] if callable(spec.columns) else [c.key for c in spec.columns]
     if len(keys) != len(set(keys)):
         raise ValueError(f"kolom ganda pada {spec.key}")
     REGISTRY[spec.key] = spec
