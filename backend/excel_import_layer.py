@@ -253,6 +253,8 @@ def _template_bytes(key, spec):
         guide.append(["batch_ref", "Baris dengan batch_ref yang sama digabung menjadi 1 transaksi dengan banyak item."])
     if key == "po":
         guide.append(["no", "Opsional. Nomor PO dipakai apa adanya (mis. nomor PO dari sistem lama). Kosong = memakai batch_ref."])
+    if key == "mro":
+        guide.append(["no", "Opsional. Nomor MRO dipakai apa adanya (mis. nomor MRO dari sistem lama). Kosong = memakai batch_ref."])
     if key == "adjustment":
         guide.append(["line_warehouse_code", "Opsional. Gudang per baris barang (multi gudang dalam 1 dokumen). Kosong = memakai warehouse_code (Gudang Default)."])
         guide.append(["Nomor transaksi", "Nomor resmi tetap dibuat otomatis oleh sistem saat import."])
@@ -559,7 +561,9 @@ async def _transaction_payload(server, key, group, maps, errors, user=None):
         h.update({"requester": _text(first.get("requester")) or None, "department": _text(first.get("department")) or None})
     if key == "mro":
         h["need_date"] = _date(first.get("need_date"))
-        h["no"] = _text(first.get("no")) or None  # opsional: nomor MRO manual dari kolom `no` (kosong = otomatis)
+        # Nomor MRO mengikuti file impor: kolom `no`, atau batch_ref bila kolom `no` kosong/tidak ada
+        # (file hasil ekspor sistem lama memakai batch_ref sebagai nomor MRO asli).
+        h["no"] = _text(first.get("no")) or _text(first.get("batch_ref")) or None
     if key == "po":
         h.update({"supplier_id": rid("suppliers", "supplier_code", True), "buyer_contact_id": rid("contacts", "buyer_contact_code"), "payment_term": _text(first.get("payment_term")), "delivery_term": _text(first.get("delivery_term")), "currency": _text(first.get("currency")) or "IDR", "eta": _date(first.get("eta")), "tax_inclusive": _bool(first.get("tax_inclusive")), "supplier_notes": _text(first.get("supplier_notes")), "internal_notes": _text(first.get("internal_notes"))})
         # Nomor PO mengikuti file impor: kolom `no`, atau batch_ref bila kolom `no` kosong
@@ -599,7 +603,7 @@ async def _import_transactions(server, key, rows, user, tracker=None):
         batch_rows = groups.get(batch) or []
         try:
             if key == "mro" and not _text(payload.get("no")):
-                # MRO mewajibkan nomor dokumen; impor membuat nomornya bila kolom `no` di file kosong.
+                # Cadangan: MRO mewajibkan nomor dokumen; hanya dipakai bila `no` dan batch_ref sama-sama kosong.
                 payload["no"] = await server.next_number("MRO")
             if key == "loan_return":
                 first = payload[0]
