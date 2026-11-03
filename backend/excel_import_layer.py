@@ -74,7 +74,7 @@ TRANSACTION_DATASETS = {
     "po": {
         "label": "PO — Pesanan Pembelian",
         "path": "/api/po",
-        "columns": ["batch_ref", "date", "supplier_code", "buyer_contact_code", "division_code", "payment_term", "delivery_term", "currency", "eta", "default_warehouse_code", "default_project_code", "default_unit_code", "spk", "tax_inclusive", "supplier_notes", "internal_notes", "item_code", "qty", "uom_code", "warehouse_code", "project_code", "unit_code", "price", "discount", "tax_code", "line_notes", "source_ro_no"],
+        "columns": ["batch_ref", "date", "supplier_code", "buyer_contact_code", "division_code", "payment_term", "delivery_term", "currency", "eta", "default_warehouse_code", "default_project_code", "default_unit_code", "spk", "tax_inclusive", "supplier_notes", "internal_notes", "item_code", "qty", "uom_code", "warehouse_code", "project_code", "unit_code", "price", "discount", "tax_code", "line_notes", "source_ro_no", "no"],
         "required": ["batch_ref", "date", "supplier_code", "item_code", "qty"],
     },
     "do": {
@@ -251,6 +251,8 @@ def _template_bytes(key, spec):
     guide.append(["Aturan", "Jangan mengubah nama header. Gunakan kode master (bukan ID internal)."])
     if key in TRANSACTION_DATASETS:
         guide.append(["batch_ref", "Baris dengan batch_ref yang sama digabung menjadi 1 transaksi dengan banyak item."])
+    if key == "po":
+        guide.append(["no", "Opsional. Nomor PO dipakai apa adanya (mis. nomor PO dari sistem lama). Kosong = memakai batch_ref."])
     if key == "adjustment":
         guide.append(["line_warehouse_code", "Opsional. Gudang per baris barang (multi gudang dalam 1 dokumen). Kosong = memakai warehouse_code (Gudang Default)."])
         guide.append(["Nomor transaksi", "Nomor resmi tetap dibuat otomatis oleh sistem saat import."])
@@ -560,6 +562,9 @@ async def _transaction_payload(server, key, group, maps, errors, user=None):
         h["no"] = _text(first.get("no")) or None  # opsional: nomor MRO manual dari kolom `no` (kosong = otomatis)
     if key == "po":
         h.update({"supplier_id": rid("suppliers", "supplier_code", True), "buyer_contact_id": rid("contacts", "buyer_contact_code"), "payment_term": _text(first.get("payment_term")), "delivery_term": _text(first.get("delivery_term")), "currency": _text(first.get("currency")) or "IDR", "eta": _date(first.get("eta")), "tax_inclusive": _bool(first.get("tax_inclusive")), "supplier_notes": _text(first.get("supplier_notes")), "internal_notes": _text(first.get("internal_notes"))})
+        # Nomor PO mengikuti file impor: kolom `no`, atau batch_ref bila kolom `no` kosong
+        # (file hasil ekspor sistem lama memakai batch_ref sebagai nomor PO asli).
+        h["no"] = _text(first.get("no")) or _text(first.get("batch_ref")) or None
     elif key == "do":
         h.update({"supplier_id": rid("suppliers", "supplier_code"), "supplier_dn": _text(first.get("supplier_dn")), "supplier_invoice": _text(first.get("supplier_invoice")), "invoice_date": _date(first.get("invoice_date")), "receiver": _text(first.get("receiver"))})
     elif key == "mi": h.update({"receiver": _text(first.get("receiver")), "department": _text(first.get("department")), "source_type": _text(first.get("source_type"))})
