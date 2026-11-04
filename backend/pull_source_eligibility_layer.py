@@ -176,6 +176,7 @@ async def _po_rows(server, supplier_id, user):
     by_doc = await _lines_by_doc(server, "po_lines", "po_id", list(dict.fromkeys(d["id"] for d in docs)))
     done = await _alloc_out_many(server, [ln["id"] for v in by_doc.values() for ln in v], "do")
     for d in docs:
+        sup = m["suppliers"].get(d.get("supplier_id"), {}) or {}
         lines = by_doc.get(d["id"], [])
         for line in lines:
             received = done.get(line["id"], 0)
@@ -185,7 +186,9 @@ async def _po_rows(server, supplier_id, user):
             doc_procurement.enrich_line(line, m)
             out.append({
                 "po_id": d["id"], "po_no": d.get("no"), "supplier_id": d.get("supplier_id"),
-                "supplier_name": m["suppliers"].get(d.get("supplier_id"), {}).get("name"),
+                "supplier_name": sup.get("name"),
+                # Nama perusahaan (field `name` pada master supplier berisi nama PIC).
+                "supplier_legal_name": sup.get("legal_name") or sup.get("name"),
                 "line_id": line["id"], "item_id": line.get("item_id"),
                 "item_code": line.get("item_code"), "item_name": line.get("item_name"),
                 "unit": line.get("unit"), "spk": d.get("spk") or line.get("spk"),
