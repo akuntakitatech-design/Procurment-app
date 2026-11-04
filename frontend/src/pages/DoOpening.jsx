@@ -25,6 +25,7 @@ const EMPTY = {
 export default function DoOpening() {
   const nav = useNavigate();
   const { can } = useAuth();
+  const allowed = can("do.opening");
   const masters = useMasters(["suppliers", "divisions", "projects"]);
   const [params, setParams] = useSearchParams();
   const [rows, setRows] = useState([]);
@@ -34,12 +35,13 @@ export default function DoOpening() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
+    if (!allowed) { setLoading(false); return; }
     setLoading(true);
     api.get("/opening-dos")
       .then((r) => setRows(r.data || []))
       .catch((e) => toast.error(apiError(e.response?.data?.detail) || "Gagal memuat DO saldo awal."))
       .finally(() => setLoading(false));
-  }, []);
+  }, [allowed]);
   useEffect(() => { load(); }, [load]);
 
   const editId = params.get("edit");
@@ -96,10 +98,18 @@ export default function DoOpening() {
       <PageHeader title="DO Saldo Awal" testid="opening-do"
         subtitle="Dokumen DO sebelum periode berjalan. Nilai diinput manual (DPP + PPN), tanpa rincian barang dan tanpa pergerakan stok.">
         <Button variant="outline" onClick={() => nav("/do")} data-testid="opening-do-back"><ArrowLeft className="mr-2 h-4 w-4" />Daftar DO</Button>
-        {can("create", "do") && !form && <Button onClick={openCreate} data-testid="opening-do-add"><Plus className="mr-2 h-4 w-4" />Tambah Saldo Awal</Button>}
+        {allowed && !form && <Button onClick={openCreate} data-testid="opening-do-add"><Plus className="mr-2 h-4 w-4" />Tambah Saldo Awal</Button>}
       </PageHeader>
 
-      {form && (
+      {!allowed && (
+        <Card data-testid="opening-do-denied">
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Anda tidak memiliki izin mengakses DO Saldo Awal. Hubungi admin untuk memberikan izin <b>DO Saldo Awal</b>.
+          </CardContent>
+        </Card>
+      )}
+
+      {allowed && form && (
         <Card className="mb-4" data-testid="opening-do-form">
           <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -129,7 +139,7 @@ export default function DoOpening() {
         </Card>
       )}
 
-      <div className="overflow-x-auto rounded-xl border bg-card">
+      {allowed && <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full min-w-[1450px] text-sm" data-testid="opening-do-table">
           <thead className="bg-muted"><tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {["No. DO", "Tanggal", "Supplier", "No. PO", "No. RO", "No. MRO", "Proyek", "Divisi", "SPK", "DPP", "PPN", "Nilai DO", "Terpakai", "Sisa", ""].map((c, i) => (
@@ -160,13 +170,13 @@ export default function DoOpening() {
                 </td>
                 <td className="p-2.5">
                   <div className="flex justify-end gap-1">
-                    {can("edit", "do") && !(r.billed > 0) && (
+                    {allowed && !(r.billed > 0) && (
                       <Button size="icon" variant="ghost" aria-label={`Ubah ${r.no}`} data-testid={`opening-do-edit-${r.no}`}
                         onClick={() => { setForm({ id: r.id }); setH({ ...EMPTY, ...r, date: String(r.date || "").slice(0, 10), dpp: String(r.dpp ?? ""), ppn: String(r.ppn ?? "") }); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
                         <Pencil className="h-4 w-4" />
                       </Button>
                     )}
-                    {can("delete", "do") && !(r.billed > 0) && (
+                    {allowed && !(r.billed > 0) && (
                       <Button size="icon" variant="ghost" aria-label={`Hapus ${r.no}`} data-testid={`opening-do-delete-${r.no}`} onClick={() => remove(r)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
@@ -177,7 +187,7 @@ export default function DoOpening() {
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
     </div>
   );
 }

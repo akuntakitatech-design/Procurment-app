@@ -137,10 +137,15 @@ def install(server):
             raise HTTPException(409, f"DO {no} sudah dipakai invoice, tidak dapat {action}. "
                                      "Batalkan alokasi invoice terlebih dahulu.")
 
+    def require_opening(user):
+        """Izin khusus `do.opening`: tidak semua pemegang akses DO boleh membuat saldo awal."""
+        if not server.has_perm(user, "do.opening"):
+            raise HTTPException(403, "Anda tidak memiliki izin mengakses DO Saldo Awal.")
+
     # ------------------------------------------------------------------ routes
     @app.get("/api/opening-dos", tags=["opening-do"])
     async def list_opening(user=Depends(server.current_user)):
-        server.require(user, "view")
+        require_opening(user)
         docs = await server.db.do.find({"is_opening": True}, {"_id": 0}).sort("date", -1).to_list(20000)
         alw = allowed_divisions(user)
         if alw is not None:
@@ -151,7 +156,7 @@ def install(server):
 
     @app.post("/api/opening-dos", tags=["opening-do"])
     async def create_opening(body: dict = None, user=Depends(server.current_user)):
-        server.require(user, "create")
+        require_opening(user)
         payload = validate_refs(body)
         await validate_targets(payload, user)
         doc = {
@@ -168,7 +173,7 @@ def install(server):
 
     @app.put("/api/opening-dos/{did}", tags=["opening-do"])
     async def update_opening(did: str, body: dict = None, user=Depends(server.current_user)):
-        server.require(user, "edit")
+        require_opening(user)
         old = await load_opening(did)
         billed = (await billed_by_do([did])).get(did, 0.0)
         assert_not_billed(billed, old.get("no"), "diubah")
@@ -184,7 +189,7 @@ def install(server):
 
     @app.delete("/api/opening-dos/{did}", tags=["opening-do"])
     async def delete_opening(did: str, user=Depends(server.current_user)):
-        server.require(user, "delete")
+        require_opening(user)
         doc = await load_opening(did)
         billed = (await billed_by_do([did])).get(did, 0.0)
         assert_not_billed(billed, doc.get("no"), "dihapus")

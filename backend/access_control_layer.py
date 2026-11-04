@@ -50,6 +50,7 @@ GROUPS = [
     ("pengaturan", "Pengaturan", [("users", "Pengguna & Hak Akses", CRUD)]),
 ]
 SPECIALS = [
+    ("do.opening", "DO Saldo Awal"),
     ("export", "Ekspor Data"), ("upload_attachment", "Unggah Lampiran"), ("view_purchase_price", "Lihat Harga Beli"),
     ("edit_purchase_price", "Ubah Harga Beli"), ("override_qty", "Override Qty"), ("close", "Tutup Dokumen"),
     ("view_all_warehouse", "Lihat Semua Gudang"), ("procurement_budget_policy:view", "Lihat Kebijakan Budget"),
@@ -259,9 +260,8 @@ def install(server):
         if head == "lookup":
             return None, [], []  # authorised inside the lookup endpoint (functional reason)
         if head == "opening-dos":
-            # DO saldo awal (input manual, tanpa stok): izin mengikuti modul DO.
-            act = {"GET": "view", "POST": "create", "PUT": "edit", "DELETE": "delete"}.get(method, "view")
-            return "do", [act], []
+            # DO saldo awal memakai izin khusus `do.opening` (dicek di endpoint), bukan izin modul DO.
+            return None, [], []
         if head == "vendor-invoices":
             sub = seg[1] if len(seg) > 1 else None
             if sub in ("eligible-dos", "dp-candidates"):
