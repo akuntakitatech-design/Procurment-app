@@ -419,6 +419,8 @@ async def _lineage(server, module, lines):
         for l in lines:
             if l.get("po_id") in pos:
                 res[l["id"]]["po"].add(pos[l["po_id"]].get("no"))
+        # DO mewarisi divisi dari PO sumber; dipakai enrich_list saat DO lama belum menyimpan division_id.
+        res["_pos"] = pos
     if module in ("do", "po"):
         po_line_ids = [x for v in chain_po.values() for x in v] if module == "do" else [l["id"] for l in lines]
         up = await _upstream_lineage(server, po_line_ids, "ro")
@@ -489,6 +491,7 @@ async def enrich_list(server, module, rows, items=True):
         _spk_text(server, module, lines, sym) if module in ("mro", "ro", "po", "do", "mi") else _none(),
         _lineage(server, module, lines) if module in ("ro", "po", "do", "mi") else _none())
     mros = lin.pop("_mros", {}) if lin else {}
+    pos = lin.pop("_pos", {}) if lin else {}
     nm = lambda coll_, i: (m[coll_].get(i) or {}).get("name") if i else None
     for r in rows:
         ls = by_doc.get(r["id"], [])
@@ -504,6 +507,10 @@ async def enrich_list(server, module, rows, items=True):
             f = float(l.get("conversion_factor") or 1) or 1.0
             lg = lin.get(l.get("id")) or {}
             mro_s |= lg.get("mro", set()); ro_s |= lg.get("ro", set()); po_s |= lg.get("po", set())
+            if module == "do" and l.get("po_id"):  # divisi DO = divisi PO sumber (DO lama: division_id kosong)
+                po_div = (pos.get(l.get("po_id")) or {}).get("division_id")
+                if po_div:
+                    div_ids.add(po_div)
             for mid in lg.get("mro_docs", set()):
                 md = mros.get(mid) or {}
                 if md.get("requester"):
