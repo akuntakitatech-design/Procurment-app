@@ -42,7 +42,7 @@ export function DoList(){
   const list=useServerList("/do",{status_group:statusGroup==="all"?"":statusGroup,date_from:range.from,date_to:range.to},{counts:"status_group"});
   const load=()=>list.reload();
   const filters=<><StatusTabs module="do" value={statusGroup} onChange={setStatusGroup} counts={list.facets["count:status_group"]||{}} testid="do"/><DateRangeFilter value={range} onChange={setRange} testid="do-date"/></>;
-  const openingBtn=can("create","do")?<Button variant="outline" onClick={()=>nav("/do/opening")} data-testid="do-opening-btn"><FilePlus2 className="h-4 w-4 mr-2"/>Saldo Awal</Button>:null;
+  const openingBtn=can("do.opening")?<Button variant="outline" onClick={()=>nav("/do/opening")} data-testid="do-opening-btn"><FilePlus2 className="h-4 w-4 mr-2"/>Saldo Awal</Button>:null;
   return <DocList txType="do" createPath="/do/new" basePath="/do" module="do" printType="DO" printOpts={{title:"PENERIMAAN BARANG"}} onReload={load} headerActions={openingBtn} testidPrefix="do" server={list} filters={filters} minWidth={1500} columns={[noCol("No. DO"),dateCol(fmtDate),{key:"supplier_name",label:"Supplier",render:supplierLegalName},{key:"supplier_dn",label:"No. Surat Jalan"},traceCol("mro"),traceCol("ro"),traceCol("po"),traceCol("project"),traceCol("division"),traceCol("spk"),{key:"supplier_invoice",label:"No. Faktur"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",render:(r)=><span className="flex flex-wrap items-center gap-1.5"><StatusBadge status={r.status}/>{r.is_opening&&<span className="rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950 dark:text-sky-300">Saldo Awal</span>}</span>}]}/>;
 }
 
