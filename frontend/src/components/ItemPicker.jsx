@@ -17,7 +17,7 @@ function loadWarehouseStock(wid) {
   whCache.set(wid, { at: Date.now(), p });
   return p;
 }
-const COLS = [["code", "Kode Barang"], ["name", "Nama Barang"], ["part_number", "Part Number"], ["brand", "Merk"]];
+const COLS = [["code", "Kode Barang"], ["name", "Nama Barang"]];
 const LIMIT = 100;
 
 /** Label barang untuk dokumen pembelian: Nama · Merk · Part Number (tanpa kode). */
@@ -58,17 +58,17 @@ export function ItemPicker({ items, uoms = {}, value, onChange, warehouseId, dis
       <PopoverContent align="start" className="z-50 w-[min(860px,calc(100vw-2rem))] p-0" data-testid={`${testid || "item-picker"}-panel`}>
         {lkFailed && <div role="alert" className="flex items-start justify-between gap-2 border-b px-3 py-2.5 text-sm text-destructive" data-testid={`${testid || "item-picker"}-lookup-error`}><span className="flex items-start gap-2">{lkState === "denied" ? <Lock className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}{lookup?.message || LOOKUP_MESSAGES.error}</span>{lkState !== "denied" && lookup?.retry && <button type="button" onClick={() => lookup.retry()} data-testid={`${testid || "item-picker"}-lookup-retry`} className="flex shrink-0 items-center gap-1 rounded-sm px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><RotateCw className="h-3.5 w-3.5" />Muat ulang</button>}</div>}
         <div className="relative border-b p-2"><Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari kode, nama, part number, merk..." className="h-9 pl-8" data-testid={`${testid || "item-picker"}-search`} /></div>
+          <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari kode atau nama barang..." className="h-9 pl-8" data-testid={`${testid || "item-picker"}-search`} /></div>
         <div className="max-h-[340px] overflow-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-muted"><tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {COLS.map(([k, l]) => <th key={k} className="p-2"><button type="button" onClick={() => setSort((s) => ({ key: k, dir: s.key === k ? -s.dir : 1 }))} className="uppercase hover:text-foreground" data-testid={`${testid || "item-picker"}-sort-${k}`}>{l}{sort.key === k ? (sort.dir === 1 ? " ↑" : " ↓") : ""}</button></th>)}
               <th className="p-2">Satuan</th><th className="p-2 text-right">Stok Tersedia</th></tr></thead>
             <tbody>
-              {rows.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-muted-foreground" data-testid={`${testid || "item-picker"}-empty`}>{lkLoading ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{LOOKUP_MESSAGES.loading}</span> : lkFailed && !(items || []).length ? "Data barang belum dapat dimuat." : !(items || []).length ? LOOKUP_MESSAGES.empty : "Barang tidak ditemukan"}</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={4} className="p-4 text-center text-muted-foreground" data-testid={`${testid || "item-picker"}-empty`}>{lkLoading ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{LOOKUP_MESSAGES.loading}</span> : lkFailed && !(items || []).length ? "Data barang belum dapat dimuat." : !(items || []).length ? LOOKUP_MESSAGES.empty : "Barang tidak ditemukan"}</td></tr>}
               {rows.slice(0, LIMIT).map((it) => <tr key={it.id} onClick={() => pick(it.id)} className={cn("cursor-pointer border-t transition-colors hover:bg-accent", it.id === value && "bg-primary/5 font-medium")} data-testid={`${testid || "item-picker"}-row-${it.code || it.id}`}>
-                <td className="p-2 font-mono text-xs">{it.code || "-"}</td><td className="p-2">{it.name}</td><td className="p-2 text-xs">{it.part_number || "-"}</td>
-                <td className="p-2 text-xs">{it.brand || "-"}</td><td className="p-2 text-xs">{unitOf(it)}</td>
+                <td className="p-2 font-mono text-xs">{it.code || "-"}</td><td className="p-2">{it.name}</td>
+                <td className="p-2 text-xs">{unitOf(it)}</td>
                 <td className="p-2 text-right tabular-nums">{!warehouseId || !stock ? "-" : num(stock[it.id] || 0)}</td></tr>)}
             </tbody>
           </table>

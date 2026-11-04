@@ -38,8 +38,6 @@ const CONFIGS = {
     { k: "division_id", l: "Divisi", ref: "divisions", req: true },
     { k: "base_uom_id", l: "Satuan Dasar", ref: "uoms", req: true },
     { k: "primary_supplier_id", l: "Supplier Utama", ref: "suppliers" },
-    { k: "brand", l: "Merk" },
-    { k: "part_number", l: "Part Number" },
     { k: "spec", l: "Spesifikasi" },
   ] },
   item_categories: { label: "Kategori Barang", fields: [
