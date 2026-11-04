@@ -4,7 +4,7 @@ import api, { apiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useMasters } from "@/hooks/useMasters";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DashboardPanelsSkeleton } from "@/components/Skeletons";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox } from "@/components/Combobox";
 import { TrendChart } from "@/components/dashboard/TrendChart";
@@ -49,13 +49,6 @@ function SectionLabel({ children, extra, testid }) {
 
 function SectionBadge({ children, testid }) {
   return <span className="rounded-md bg-slate-100/80 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800/60 dark:text-slate-400" data-testid={testid}>{children}</span>;
-}
-
-function LoadingState() {
-  return <div className="space-y-5" data-testid="dash-loading">
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9">{Array.from({ length: 9 }).map((_, i) => <Skeleton key={i} className="h-[122px] rounded-2xl" />)}</div>
-    <div className="grid gap-4 xl:grid-cols-12"><Skeleton className="h-[330px] rounded-2xl xl:col-span-7" /><Skeleton className="h-[330px] rounded-2xl xl:col-span-5" /></div>
-  </div>;
 }
 
 export default function Dashboard() {
@@ -146,16 +139,16 @@ export default function Dashboard() {
         <p className="mt-1 text-sm text-slate-500">Ringkasan pembelian, penerimaan, invoice, dan hutang supplier.</p>
       </div>
       <div className="flex items-center gap-2">
-        <span className="hidden items-center gap-2 text-xs text-slate-400 md:flex" data-testid="dash-updated">
+        {updated && <span className="hidden items-center gap-2 text-xs text-slate-400 md:flex" data-testid="dash-updated">
           <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#5E9C82] opacity-40" /><span className="relative inline-flex h-2 w-2 rounded-full bg-[#5E9C82]" /></span>
-          {updated ? `Diperbarui ${updated.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}` : "Memuat..."}
-        </span>
+          {`Diperbarui ${updated.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}`}
+        </span>}
         <Button variant="outline" size="sm" onClick={load} disabled={loading} className="rounded-xl" data-testid="dash-refresh-btn"><RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />Muat Ulang</Button>
         {can("create", "mro") && <Button variant="outline" size="sm" onClick={() => nav("/mro/new")} className="rounded-xl" data-testid="dashboard-new-mro-btn"><Plus className="mr-2 h-4 w-4" />MRO Baru</Button>}
       </div>
     </div>
 
-    <div className="dash-rise grid grid-cols-1 gap-3 rounded-2xl border border-slate-200/70 bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto] dark:border-slate-800" data-testid="dash-filters">
+    <div className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-200/70 bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto] dark:border-slate-800" data-testid="dash-filters">
       <Field label="Periode">
         <Select value={f.period} onValueChange={set("period")}>
           <SelectTrigger className="h-10 rounded-xl" data-testid="dash-filter-period"><CalendarDays className="mr-2 h-4 w-4 text-slate-400" /><SelectValue /></SelectTrigger>
@@ -170,7 +163,7 @@ export default function Dashboard() {
 
     {error && <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#EEDADA] bg-[#FBF3F3] p-4 text-sm text-[#8F3F3F]" data-testid="dash-error">
       <span>{error}</span><Button size="sm" variant="outline" onClick={load} data-testid="dash-retry-btn">Coba Lagi</Button></div>}
-    {!d && loading && <LoadingState />}
+    {!d && loading && <DashboardPanelsSkeleton />}
 
     {d && <div className={`space-y-5 transition-opacity duration-200 ${loading ? "opacity-60" : "opacity-100"}`}>
       {/* LAYER 1 — Kondisi operasional utama: Procurement | Finance | Aktivitas Pembelian (gaya referensi; data & drill existing) */}
