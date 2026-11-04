@@ -9,10 +9,11 @@ import { useAuth } from "@/context/AuthContext";
 import { printDoc } from "@/lib/print";
 import { toast } from "sonner";
 
-export function DocList({ title, subtitle, txType, createPath, columns, rows, basePath, testidPrefix, module, printType, printOpts, onReload, ...rest }) {
+export function DocList({ title, subtitle, txType, createPath, columns, rows, basePath, testidPrefix, module, printType, printOpts, onReload, headerActions, ...rest }) {
   const nav = useNavigate();
   const { can } = useAuth();
   const print = printType ? async (r) => {
+    if (r?.is_opening) { toast.info("DO saldo awal tidak memiliki rincian item untuk dicetak."); return; }
     try { const d = await api.get(`${basePath}/${r.id}`); await printDoc(printType, d.data, printOpts || {}); }
     catch (e) { toast.error(e?.response?.data?.detail || "Gagal memuat dokumen untuk dicetak."); }
   } : undefined;
@@ -21,7 +22,7 @@ export function DocList({ title, subtitle, txType, createPath, columns, rows, ba
       {(() => {
         const createBtn = createPath && can("create") && <Button onClick={() => nav(createPath)} data-testid={`${testidPrefix}-create-btn`}><Plus className="h-4 w-4 mr-2" />Buat Baru</Button>;
         return txType
-          ? <TransactionPageHeader type={txType} mode="list">{createBtn}</TransactionPageHeader>
+          ? <TransactionPageHeader type={txType} mode="list">{createBtn}{headerActions}</TransactionPageHeader>
           : <PageHeader title={title} subtitle={subtitle}>{createBtn}</PageHeader>;
       })()}
       <TxnList module={module} columns={columns} rows={rows} testidPrefix={testidPrefix} onReload={onReload}

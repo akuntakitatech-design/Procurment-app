@@ -29,14 +29,22 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DoItemRow, DO_COLS, overOf } from "@/components/DoItemRow";
 import { fmtDate, todayISO } from "@/lib/format";
-import { Printer, ArrowLeft, Download, X, Info, Paperclip } from "lucide-react";
+import { Printer, ArrowLeft, Download, X, Info, Paperclip, FilePlus2 } from "lucide-react";
 import { toast } from "sonner";
 import { printDoc } from "@/lib/print";
 import { SpkAllocationModal, useDocAllocations, formatAllocText } from "@/components/SpkAllocationModal";
 import { useCompletenessWarning } from "@/components/CompletenessWarningDialog";
 import { buildTxnWarnings, HEADER_FIELDS, ITEM_FIELDS } from "@/lib/validation";
 
-export function DoList(){const[statusGroup,setStatusGroup]=useState("all");const[range,setRange]=useState({from:"",to:""});const list=useServerList("/do",{status_group:statusGroup==="all"?"":statusGroup,date_from:range.from,date_to:range.to},{counts:"status_group"});const load=()=>list.reload();const filters=<><StatusTabs module="do" value={statusGroup} onChange={setStatusGroup} counts={list.facets["count:status_group"]||{}} testid="do"/><DateRangeFilter value={range} onChange={setRange} testid="do-date"/></>;return <DocList txType="do" createPath="/do/new" basePath="/do" module="do" printType="DO" printOpts={{title:"PENERIMAAN BARANG"}} onReload={load} testidPrefix="do" server={list} filters={filters} minWidth={1500} columns={[noCol("No. DO"),dateCol(fmtDate),{key:"supplier_name",label:"Supplier",render:supplierLegalName},{key:"supplier_dn",label:"No. Surat Jalan"},traceCol("mro"),traceCol("ro"),traceCol("po"),traceCol("project"),traceCol("division"),traceCol("spk"),{key:"supplier_invoice",label:"No. Faktur"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",status:true}]}/>;}
+export function DoList(){
+  const nav=useNavigate();const{can}=useAuth();
+  const[statusGroup,setStatusGroup]=useState("all");const[range,setRange]=useState({from:"",to:""});
+  const list=useServerList("/do",{status_group:statusGroup==="all"?"":statusGroup,date_from:range.from,date_to:range.to},{counts:"status_group"});
+  const load=()=>list.reload();
+  const filters=<><StatusTabs module="do" value={statusGroup} onChange={setStatusGroup} counts={list.facets["count:status_group"]||{}} testid="do"/><DateRangeFilter value={range} onChange={setRange} testid="do-date"/></>;
+  const openingBtn=can("create","do")?<Button variant="outline" onClick={()=>nav("/do/opening")} data-testid="do-opening-btn"><FilePlus2 className="h-4 w-4 mr-2"/>Saldo Awal</Button>:null;
+  return <DocList txType="do" createPath="/do/new" basePath="/do" module="do" printType="DO" printOpts={{title:"PENERIMAAN BARANG"}} onReload={load} headerActions={openingBtn} testidPrefix="do" server={list} filters={filters} minWidth={1500} columns={[noCol("No. DO"),dateCol(fmtDate),{key:"supplier_name",label:"Supplier",render:supplierLegalName},{key:"supplier_dn",label:"No. Surat Jalan"},traceCol("mro"),traceCol("ro"),traceCol("po"),traceCol("project"),traceCol("division"),traceCol("spk"),{key:"supplier_invoice",label:"No. Faktur"},{key:"line_count",label:"Item",num:true},{key:"status",label:"Status",render:(r)=><span className="flex flex-wrap items-center gap-1.5"><StatusBadge status={r.status}/>{r.is_opening&&<span className="rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950 dark:text-sky-300">Saldo Awal</span>}</span>}]}/>;
+}
 
 const LBL = "mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground";
 const commonOf=(lines,k)=>{const v=[...new Set(lines.map(l=>l[k]||""))];return v.length===1?v[0]:(v.length?"__mixed__":"");};
@@ -51,7 +59,7 @@ export function DoForm(){
   const whMap=masters.map("warehouses"),projMap=masters.map("projects"),unitMap=masters.map("units"),supMap=masters.map("suppliers");
   const names={wh:l=>l.warehouse_name||whMap[l.warehouse_id]?.name,project:l=>l.project_name||projMap[l.project_id]?.name,unit:l=>l.unit_name||(unitMap[l.unit_id]?(unitMap[l.unit_id].plate_no||unitMap[l.unit_id].name):"")};
   const whOpts=(masters.data.warehouses||[]).map(d=>({value:d.id,label:`${d.code?d.code+" — ":""}${d.name}`,selectedLabel:d.name}));
-  const load=useCallback(()=>api.get(`/do/${id}`).then(r=>{setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>{const f=Number(l.conversion_factor)||1;return{...l,qty:Number(l.display_qty??((Number(l.qty)||0)/f)),exception_qty:Number(l.exception_qty)||0,_readonly:true};}));setEditing(false);}).catch(e=>{toast.error(apiError(e.response?.data?.detail)||"Gagal memuat DO.");}),[id]);
+  const load=useCallback(()=>api.get(`/do/${id}`).then(r=>{if(r.data?.is_opening){nav(`/do/opening?edit=${r.data.id}`,{replace:true});return;}setDoc(r.data);setH(r.data);setLines(r.data.lines.map(l=>{const f=Number(l.conversion_factor)||1;return{...l,qty:Number(l.display_qty??((Number(l.qty)||0)/f)),exception_qty:Number(l.exception_qty)||0,_readonly:true};}));setEditing(false);}).catch(e=>{toast.error(apiError(e.response?.data?.detail)||"Gagal memuat DO.");}),[id,nav]);
   useEffect(()=>{if(id)load();},[id,load]);
   const beginEdit=()=>{setEditing(true);setLines(cur=>cur.map(l=>({...l,_readonly:false,sources:l.po_line_id?[{po_id:l.po_id,line_id:l.po_line_id,qty:l.qty,base_qty:l.qty*(Number(l.conversion_factor)||1)}]:[]})));};
   const onPull=picked=>{

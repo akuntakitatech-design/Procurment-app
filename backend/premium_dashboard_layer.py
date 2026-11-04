@@ -53,7 +53,7 @@ def install(server):
         po_lines = await server.db.po_lines.find({"po_id": {"$in": po_ids}}, {"_id": 0}).to_list(50000) if po_ids else []
         line_ids = [l.get("id") for l in po_lines if l.get("id")]
 
-        do_docs = await server.db.do.find({"cancelled": {"$ne": True}, "deleted": {"$ne": True}}, {"_id": 0, "id": 1, "status": 1}).to_list(20000)
+        do_docs = await server.db.do.find({"cancelled": {"$ne": True}, "deleted": {"$ne": True}, "is_opening": {"$ne": True}}, {"_id": 0, "id": 1, "status": 1}).to_list(20000)
         active_do_ids = {d.get("id") for d in do_docs if str(d.get("status") or "").lower() not in ("cancelled", "canceled", "rejected")}
         allocs = await server.db.allocations.find({"source_line_id": {"$in": line_ids}, "target_type": "do"}, {"_id": 0}).to_list(100000) if line_ids else []
         received_by_line = defaultdict(float)

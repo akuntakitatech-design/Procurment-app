@@ -195,6 +195,10 @@ do_receipt_condition_layer.install(server)
 # DO/PO receipt control (over receipt, closed PO, source lock) + list traceability — outermost DO wrapper.
 import receipt_control_layer  # noqa: E402
 receipt_control_layer.install(server)
+# DO saldo awal: dokumen DO historis dengan nilai manual (tanpa baris item / tanpa pergerakan stok),
+# tetap muncul sebagai pilihan DO pada Invoice Vendor.
+import opening_do_layer  # noqa: E402
+opening_do_layer.install(server)
 # Register opening inventory before the generic Excel routes are installed.
 opening_inventory_layer.install(server, excel_import_layer)
 # Install last so transaction imports call the final wrapped transaction endpoints.

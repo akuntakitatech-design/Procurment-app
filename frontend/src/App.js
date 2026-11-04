@@ -38,6 +38,7 @@ const RoForm = lazy(() => import("@/pages/Ro").then((m) => ({ default: m.RoForm 
 const PoList = lazy(() => import("@/pages/Po").then((m) => ({ default: m.PoList })));
 const PoForm = lazy(() => import("@/pages/Po").then((m) => ({ default: m.PoForm })));
 const DoList = lazy(() => import("@/pages/Do").then((m) => ({ default: m.DoList })));
+const DoOpening = lazy(() => import("@/pages/DoOpening"));
 const DoForm = lazy(() => import("@/pages/Do").then((m) => ({ default: m.DoForm })));
 const MiList = lazy(() => import("@/pages/Mi").then((m) => ({ default: m.MiList })));
 const MiForm = lazy(() => import("@/pages/Mi").then((m) => ({ default: m.MiForm })));
@@ -164,6 +165,7 @@ function App() {
               <Route path="/po/new" element={<Protected><PoForm /></Protected>} />
               <Route path="/po/:id" element={<Protected><PoForm /></Protected>} />
               <Route path="/do" element={<Protected><DoList /></Protected>} />
+              <Route path="/do/opening" element={<Protected><DoOpening /></Protected>} />
               <Route path="/do/new" element={<Protected><DoForm /></Protected>} />
               <Route path="/do/:id" element={<Protected><DoForm /></Protected>} />
               <Route path="/mi" element={<Protected><MiList /></Protected>} />
