@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 import auth as A
 import storage as S
+from posting_date import is_backdated, wib_date
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("procureflow")
@@ -212,6 +213,34 @@ def _is_retryable_db(exc) -> bool:
     return any(code in s for code in ("1062", "1213", "1205", "Deadlock", "Lock wait timeout", "Duplicate entry"))
 
 
+async def assert_posting_window(item_id, warehouse_id, txn_at=None, doc_id=None):
+    """Tolak posting yang tanggal (WIB) nya lebih awal dari pergerakan stok terakhir di pool.
+
+    Dipakai sebagai guard di `post_movement` dan sebagai pre-flight sebelum dokumen dibuat,
+    supaya dokumen tidak tersimpan ketika postingnya pasti ditolak.
+
+    - Perbandingan memakai tanggal kalender WIB, bukan potongan string UTC (lihat posting_date).
+    - Entri reversal tidak dihitung: entri kompensasi bertanggal "sekarang" dan akan
+      memblokir posting ulang dokumen yang sedang diedit.
+    - Entri milik dokumen itu sendiri tidak dihitung, sehingga edit/posting ulang dokumen
+      bertanggal lampau tidak memblokir dirinya sendiri.
+    """
+    query = {"item_id": item_id, "warehouse_id": warehouse_id, "is_reversal": {"$ne": True}}
+    if doc_id:
+        query["doc_id"] = {"$ne": doc_id}
+    latest = await db.valuation_ledger.find(query, {"_id": 0}).sort("txn_at", -1).to_list(1)
+    if not latest:
+        return
+    last_at = latest[0].get("txn_at") or latest[0].get("at")
+    if not is_backdated(txn_at, last_at):
+        return
+    last_d = wib_date(last_at)
+    ref = latest[0].get("doc_no") or last_d
+    raise StockError(
+        f"Transaksi tidak dapat diposting mundur: sudah ada pergerakan stok pada {last_d} "
+        f"(transaksi terakhir: {ref}). Gunakan tanggal {last_d} atau setelahnya.")
+
+
 async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in, qty_out,
                         project_id=None, unit_id=None, division_id=None, user=None,
                         unit_cost_in=None, value_in=None, line_id=None, uom=None, conversion_factor=1,
@@ -231,7 +260,8 @@ async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in,
         When require_cost and no cost source is given, posting is HARD-BLOCKED (no silent estimate).
       - OUT valued at the average cost snapshot immediately before posting
         (reversal_value overrides to reverse an IN at its original carrying value).
-      - Backdate guard: blocks posting dated earlier than the pool's latest movement.
+      - Backdate guard: blocks posting dated earlier than the pool's latest movement
+        (dibandingkan per tanggal kalender WIB; entri reversal tidak dihitung).
     """
     qty_in = float(qty_in or 0); qty_out = float(qty_out or 0)
     txn_at = txn_at or now_iso()
@@ -249,18 +279,7 @@ async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in,
 
     # ---------- backdate guard ----------
     if backdate_guard and not is_reversal:
-        latest = await db.valuation_ledger.find(
-            {"item_id": item_id, "warehouse_id": warehouse_id}, {"_id": 0}).sort("txn_at", -1).to_list(1)
-        if latest:
-            last_at = latest[0].get("txn_at") or latest[0].get("at")
-            # Compare by DATE (YYYY-MM-DD): same-day postings are allowed (ordered by posting
-            # sequence); only a strictly earlier calendar date is blocked.
-            new_d = str(txn_at)[:10]; last_d = str(last_at or "")[:10]
-            if last_d and new_d and new_d < last_d:
-                ref = latest[0].get("doc_no") or last_d
-                raise StockError(
-                    f"Transaksi tidak dapat diposting mundur karena sudah terdapat transaksi stok "
-                    f"setelah tanggal ini (transaksi terakhir: {ref} pada {last_d}).")
+        await assert_posting_window(item_id, warehouse_id, txn_at, doc_id=doc_id)
 
     # ---------- atomic pool update (optimistic version CAS) ----------
     new_qty = new_val_r = new_avg_r = None; v_in = _Dec(0); v_out = _Dec(0)
