@@ -5,7 +5,8 @@ from fastapi import Depends, HTTPException
 from stock_summary import missing_average
 from server import (api, db, gid, now_iso, clean, current_user, require, has_perm,
                     is_global, audit, notify, next_number, alloc_out, create_alloc,
-                    post_ledger, stock_balance)
+                    post_ledger, stock_balance, assert_posting_window,
+                    reverse_document_valuation, logger)
 
 
 async def maps():
@@ -1041,17 +1042,32 @@ async def resolve_do_acq_cost(po_line_id, item_id=None, doc_id=None, line_id=Non
         f"(PO: {po_no or 'tidak diketahui'}, Item: {item_label})")
 
 
+async def _discard_failed_do(did, user):
+    """Bersihkan sisa DO yang gagal diposting (tidak boleh ada dokumen hantu / alokasi PO terpakai).
+
+    Posting yang terlanjur masuk dibalik lewat engine reversal (bukan dihapus mentah) agar stok
+    dan nilai kembali seperti sebelum percobaan. Bila reversal gagal, dokumen dibiarkan ada
+    supaya tidak ada pergerakan stok yang tidak terlacak.
+    """
+    posted = await db.valuation_ledger.find_one(
+        {"doc_id": did, "is_reversal": {"$ne": True}}, {"_id": 0})
+    if posted:
+        try:
+            await reverse_document_valuation(did, user=user, reason="rollback DO gagal diposting")
+        except Exception:
+            logger.exception("Rollback DO %s gagal; dokumen dibiarkan untuk diperiksa", did)
+            return
+    await db.allocations.delete_many({"target_doc_id": did})
+    await db.do_lines.delete_many({"do_id": did})
+    await db.do.delete_one({"id": did})
+
+
 @api.post("/do")
 async def create_do(body: dict, user=Depends(current_user)):
     require(user, "create")
-    did = gid(); no = await next_number("DO")
-    await db.do.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
-        "supplier_id": body.get("supplier_id"), "supplier_dn": body.get("supplier_dn"),
-        "supplier_invoice": body.get("supplier_invoice"), "invoice_date": body.get("invoice_date"),
-        "default_warehouse_id": body.get("default_warehouse_id"), "default_project_id": body.get("default_project_id"),
-        "receiver": body.get("receiver", user.get("name")), "notes": body.get("notes"),
-        "status": "Posted", "created_by": user.get("email"), "created_at": now_iso()})
-    po_ids = set()
+    # Pre-flight: validasi qty, resolusi biaya, dan guard tanggal dijalankan SEBELUM menulis apa pun,
+    # supaya DO yang pasti ditolak tidak meninggalkan dokumen/alokasi PO yang menggantung.
+    prepared = []
     for l in body.get("lines", []):
         qty = float(l.get("qty", 0))
         if qty <= 0: continue
@@ -1061,24 +1077,42 @@ async def create_do(body: dict, user=Depends(current_user)):
             from receipt_control_layer import over_allowed
             if qty > rem + 1e-6 and not over_allowed(l["po_line_id"]):
                 raise HTTPException(400, "Qty terima melebihi Qty PO")
-        lid = gid()
         wh = l.get("warehouse_id") or body.get("default_warehouse_id")
-        await db.do_lines.insert_one({"id": lid, "do_id": did, "po_id": l.get("po_id"),
-            "po_line_id": l["po_line_id"], "item_id": l["item_id"], "qty": qty, "unit": l.get("unit"),
-            "warehouse_id": wh, "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
-            "spk": l.get("spk"), "condition": l.get("condition", "Baik"), "notes": l.get("notes")})
-        await create_alloc("po", l["po_line_id"], l.get("po_id"), "do", lid, did, qty, l["item_id"])
         # Acquisition cost for Moving Average = PO net per unit (after item + final discount, excl tax).
         # Hard-block (no estimated fallback) if the PO source cannot be resolved.
         acq_cost = await resolve_do_acq_cost(l["po_line_id"], item_id=l["item_id"])
-        await post_ledger("DO", no, did, l["item_id"], wh, qty, 0,
-                          project_id=l.get("project_id"), unit_id=l.get("unit_id"), user=user,
-                          unit_cost_in=acq_cost, line_id=lid, uom=l.get("unit"),
-                          conversion_factor=l.get("conversion_factor", 1),
-                          txn_at=body.get("date"), source_key=f"DO::{lid}", require_cost=True)
-        if l.get("po_id"): po_ids.add(l["po_id"])
-    for pid in po_ids:
-        await _refresh_po_receipt_status(pid)
+        await assert_posting_window(l["item_id"], wh, body.get("date"))
+        prepared.append((l, qty, wh, acq_cost))
+
+    did = gid(); no = await next_number("DO")
+    po_ids = set()
+    try:
+        await db.do.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
+            "supplier_id": body.get("supplier_id"), "supplier_dn": body.get("supplier_dn"),
+            "supplier_invoice": body.get("supplier_invoice"), "invoice_date": body.get("invoice_date"),
+            "default_warehouse_id": body.get("default_warehouse_id"), "default_project_id": body.get("default_project_id"),
+            "receiver": body.get("receiver", user.get("name")), "notes": body.get("notes"),
+            "status": "Draft", "created_by": user.get("email"), "created_at": now_iso()})
+        for l, qty, wh, acq_cost in prepared:
+            lid = gid()
+            await db.do_lines.insert_one({"id": lid, "do_id": did, "po_id": l.get("po_id"),
+                "po_line_id": l["po_line_id"], "item_id": l["item_id"], "qty": qty, "unit": l.get("unit"),
+                "warehouse_id": wh, "project_id": l.get("project_id"), "unit_id": l.get("unit_id"),
+                "spk": l.get("spk"), "condition": l.get("condition", "Baik"), "notes": l.get("notes")})
+            await create_alloc("po", l["po_line_id"], l.get("po_id"), "do", lid, did, qty, l["item_id"])
+            await post_ledger("DO", no, did, l["item_id"], wh, qty, 0,
+                              project_id=l.get("project_id"), unit_id=l.get("unit_id"), user=user,
+                              unit_cost_in=acq_cost, line_id=lid, uom=l.get("unit"),
+                              conversion_factor=l.get("conversion_factor", 1),
+                              txn_at=body.get("date"), source_key=f"DO::{lid}", require_cost=True)
+            if l.get("po_id"): po_ids.add(l["po_id"])
+        await db.do.update_one({"id": did}, {"$set": {"status": "Posted"}})
+        for pid in po_ids:
+            await _refresh_po_receipt_status(pid)
+    except Exception:
+        # Posting gagal di tengah jalan: batalkan sisa tulisan agar tidak ada DO hantu.
+        await _discard_failed_do(did, user)
+        raise
     await audit(user, "create", "do", did, no)
     await notify("Barang diterima", f"DO {no} diposting", "do", None)
     return await get_do(did, user)
