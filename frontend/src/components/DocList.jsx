@@ -7,11 +7,15 @@ import { TxnList } from "@/components/TxnList";
 import { Plus } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { printDoc } from "@/lib/print";
+import { toast } from "sonner";
 
 export function DocList({ title, subtitle, txType, createPath, columns, rows, basePath, testidPrefix, module, printType, printOpts, onReload, ...rest }) {
   const nav = useNavigate();
   const { can } = useAuth();
-  const print = printType ? async (r) => { const d = await api.get(`${basePath}/${r.id}`); printDoc(printType, d.data, printOpts || {}); } : undefined;
+  const print = printType ? async (r) => {
+    try { const d = await api.get(`${basePath}/${r.id}`); await printDoc(printType, d.data, printOpts || {}); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Gagal memuat dokumen untuk dicetak."); }
+  } : undefined;
   return (
     <div>
       {(() => {
