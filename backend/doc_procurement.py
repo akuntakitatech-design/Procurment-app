@@ -914,13 +914,16 @@ async def pull_po_for_do(user=Depends(current_user), supplier_id: str = None):
         query["supplier_id"] = supplier_id
     pos = await db.po.find(query, {"_id": 0}).to_list(1000)
     for d in pos:
+        sup = m["suppliers"].get(d.get("supplier_id"), {}) or {}
         for l in await db.po_lines.find({"po_id": d["id"]}, {"_id": 0}).to_list(500):
             received = await alloc_out(l["id"], "do")
             outstanding = l.get("qty", 0) - received
             if outstanding > 0:
                 enrich_line(l, m)
                 out.append({"po_id": d["id"], "po_no": d["no"], "supplier_id": d.get("supplier_id"),
-                    "supplier_name": m["suppliers"].get(d.get("supplier_id"), {}).get("name"),
+                    "supplier_name": sup.get("name"),
+                    # Nama perusahaan (bukan nama PIC yang tersimpan di field `name`).
+                    "supplier_legal_name": sup.get("legal_name") or sup.get("name"),
                     "line_id": l["id"], "item_id": l["item_id"], "item_code": l["item_code"],
                     "item_name": l["item_name"], "unit": l["unit"], "spk": l.get("spk"),
                     "qty_po": l["qty"], "received": received, "outstanding": outstanding,
