@@ -258,6 +258,10 @@ def install(server):
             return "users", ["view" if method == "GET" else "edit"], []
         if head == "lookup":
             return None, [], []  # authorised inside the lookup endpoint (functional reason)
+        if head == "opening-dos":
+            # DO saldo awal (input manual, tanpa stok): izin mengikuti modul DO.
+            act = {"GET": "view", "POST": "create", "PUT": "edit", "DELETE": "delete"}.get(method, "view")
+            return "do", [act], []
         if head == "vendor-invoices":
             sub = seg[1] if len(seg) > 1 else None
             if sub in ("eligible-dos", "dp-candidates"):

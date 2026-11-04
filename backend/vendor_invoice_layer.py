@@ -151,7 +151,14 @@ def install(server):
         out = {d: {"net": 0.0, "tax": 0.0, "total": 0.0} for d in do_ids}
         if not do_ids:
             return out
-        lines = await db().do_lines.find({"do_id": {"$in": list(do_ids)}}, {"_id": 0, "do_id": 1, "po_line_id": 1, "po_id": 1, "qty": 1}).to_list(100000)
+        # DO saldo awal: nilai dari input manual (DPP + PPN), bukan rasio baris PO.
+        opens = await db().do.find({"id": {"$in": list(do_ids)}, "is_opening": True},
+                                   {"_id": 0, "id": 1, "dpp": 1, "ppn": 1}).to_list(len(do_ids) + 5)
+        for d in opens:
+            dpp, ppn = round(float(d.get("dpp") or 0), 2), round(float(d.get("ppn") or 0), 2)
+            out[d["id"]] = {"net": dpp, "tax": ppn, "total": round(dpp + ppn, 2)}
+        rest = [d for d in do_ids if d not in {x["id"] for x in opens}]
+        lines = await db().do_lines.find({"do_id": {"$in": rest}}, {"_id": 0, "do_id": 1, "po_line_id": 1, "po_id": 1, "qty": 1}).to_list(100000) if rest else []
         pl_ids = list({ln["po_line_id"] for ln in lines if ln.get("po_line_id")})
         pls = {p["id"]: p for p in await db().po_lines.find({"id": {"$in": pl_ids}}, {"_id": 0, "id": 1, "qty": 1, "dpp": 1, "tax_amount": 1, "total": 1}).to_list(len(pl_ids) + 5)} if pl_ids else {}
         for ln in lines:
@@ -430,9 +437,19 @@ def install(server):
         vals, allocs = await do_values(ids), await allocs_for(ids)
         billed, tr = billed_of(allocs, exclude=exclude), await traces(dos)
         sups = {s["id"]: s for s in await db().suppliers.find({}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(5000)}
+        divs = {x["id"]: x.get("name") for x in await db().divisions.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(5000)}
+        projs = {x["id"]: x.get("name") for x in await db().projects.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(5000)}
         out = []
         for d in dos:
             t, v, b = tr.get(d["id"]) or {}, vals[d["id"]]["total"], billed.get(d["id"], 0.0)
+            if d.get("is_opening"):
+                # DO saldo awal tidak punya lineage PO/RO/MRO; kolom diambil dari referensi yang diinput.
+                t = {"trace_po": d.get("po_no_text") or "", "trace_ro": d.get("ro_no_text") or "",
+                     "trace_mro": d.get("mro_no_text") or "", "trace_spk": d.get("spk_text") or "",
+                     "trace_project": projs.get(d.get("project_id")) or "",
+                     "trace_division": divs.get(d.get("division_id")) or "",
+                     "trace_division_ids": [d["division_id"]] if d.get("division_id") else [],
+                     "trace_project_ids": [d["project_id"]] if d.get("project_id") else []}
             out.append({"do_id": d["id"], "do_no": d.get("no"), "date": d.get("date"), "supplier_id": d.get("supplier_id"),
                         "supplier_name": (sups.get(d.get("supplier_id")) or {}).get("name"),
                         "supplier_legal_name": (sups.get(d.get("supplier_id")) or {}).get("legal_name") or (sups.get(d.get("supplier_id")) or {}).get("name"),
@@ -440,6 +457,7 @@ def install(server):
                         "mro_nos": t.get("trace_mro"), "project": t.get("trace_project"), "division": t.get("trace_division"),
                         "spk": t.get("trace_spk"), "do_value": v, "do_net": vals[d["id"]]["net"], "do_tax": vals[d["id"]]["tax"],
                         "billed": b, "remaining": round(v - b, 2), "billing_status": bill_status(v, b),
+                        "is_opening": bool(d.get("is_opening")),
                         "trace_division_ids": t.get("trace_division_ids") or [], "trace_project_ids": t.get("trace_project_ids") or []})
         return out
 
