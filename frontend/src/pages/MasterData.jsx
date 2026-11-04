@@ -97,7 +97,7 @@ const MASTER_GROUPS = [
     title: "Barang & Persediaan",
     subtitle: "Identitas barang, kategori, satuan, dan kontrol stok.",
     cards: [
-      { key: "items", label: "Barang", icon: Package, desc: "Nama barang, kategori, satuan dasar, multi satuan, merk dan spesifikasi." },
+      { key: "items", label: "Barang", icon: Package, desc: "Nama barang, kategori, satuan dasar, multi satuan, dan spesifikasi." },
       { key: "item_categories", label: "Kategori Barang", icon: Tags, desc: "Kelompok barang yang menjadi pilihan dropdown pada master barang." },
       { key: "uoms", label: "Satuan", icon: Ruler, desc: "PCS, Box, Karton, Kg, Liter dan satuan lain untuk transaksi." },
       { key: "iw", label: "Stok Min/Max", icon: Boxes, desc: "Stok minimum, maksimum, dan suggested order per barang-gudang." },

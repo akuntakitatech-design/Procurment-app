@@ -11,7 +11,7 @@ DESCR = ("Export daftar Master Barang: seluruh hasil sesuai filter kategori/guda
          "yang sedang aktif (bukan hanya halaman aktif). Stok per gudang dalam satuan dasar; cakupan gudang & divisi "
          "sama dengan halaman Master Barang.")
 
-BASE = (Column("code", "Kode", width=16), Column("name", "Barang", width=34), Column("part_number", "Part Number", width=16),
+BASE = (Column("code", "Kode", width=16), Column("name", "Barang", width=34),
         Column("category_label", "Kategori", width=16), Column("unit_label", "Satuan", width=10),
         Column("division_label", "Divisi", width=16))
 TAIL = (Column("total_stock", "Total Stok", "qty", total=True, width=12), Column("stock_status", "Status", width=14))
