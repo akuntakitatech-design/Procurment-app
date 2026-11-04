@@ -7,7 +7,8 @@ import { MasterCreateProvider } from "@/components/MasterRefCombobox";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { Layout } from "@/components/Layout";
 import BrandingHead from "@/components/BrandingHead";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
+import { DashboardSkeleton, PageSkeleton } from "@/components/Skeletons";
 
 // P7: halaman dimuat per rute (code splitting) -> bundle awal lebih kecil; Login tetap langsung.
 const RegisterTenant = lazy(() => import("@/pages/RegisterTenant"));
@@ -59,7 +60,9 @@ const SupplierDp = lazy(() => import("@/pages/SupplierDp"));
 const SupplierDpDetail = lazy(() => import("@/pages/SupplierDpDetail"));
 import Login from "@/pages/Login";
 
-function Loading() {
+// Fase bootstrap sesi: sengaja tanpa teks. Shell (sidebar + header) tampil begitu
+// user diketahui, lalu skeleton halaman mengisi area konten.
+function AppBoot() {
   const auth = useAuth();
   // Gangguan sementara saat memulihkan sesi (5xx/network): jangan dianggap anonim, tawarkan coba lagi.
   if (auth?.authError) return (
@@ -69,11 +72,31 @@ function Loading() {
         className="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Coba lagi</button>
     </div>
   );
-  return <div className="min-h-screen flex items-center justify-center text-muted-foreground">Memuat...</div>;
+  return <div className="app-vh bg-background" data-testid="app-boot" aria-busy="true" />;
 }
 
-function RouteLoading() {
-  return <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground" data-testid="route-loading">Memuat halaman...</div>;
+// Fallback rute: skeleton dengan bentuk yang sama seperti halaman tujuan (tanpa teks).
+function RouteFallback() {
+  const { pathname } = useLocation();
+  return pathname === "/" ? <DashboardSkeleton /> : <PageSkeleton />;
+}
+
+// Dashboard adalah halaman pertama setelah login: chunk-nya dipanaskan saat idle
+// supaya fallback skeleton (hampir) tidak sempat terlihat saat pindah/login.
+function PrefetchDashboard() {
+  const { user } = useAuth();
+  const authed = !!user;
+  useEffect(() => {
+    if (!authed) return undefined;
+    const run = () => { import("@/pages/Dashboard").catch(() => {}); };
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(run, { timeout: 3000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(run, 1200);
+    return () => window.clearTimeout(id);
+  }, [authed]);
+  return null;
 }
 
 // URL lama /reports (dan ?tab=trace|lead|usage) -> laporan padanan di Pusat Laporan; endpoint API lama tetap tersedia.
@@ -84,17 +107,19 @@ function LegacyReportsRedirect() {
 
 function Protected({ children }) {
   const { user, subscription } = useAuth();
-  if (user === null) return <Loading />;
+  if (user === null) return <AppBoot />;
   if (user === false) return <Navigate to="/login" replace />;
   if (user?.is_platform_admin) return <Navigate to="/platform" replace />;
-  if (subscription === null) return <Loading />;
+  // Shell tampil lebih awal: selama status langganan dimuat, isi konten berupa skeleton
+  // (bukan layar penuh) supaya sidebar/header tidak hilang-timbul.
+  if (subscription === null) return <Layout><RouteFallback /></Layout>;
   if (subscription?.access_mode === "locked") return <SubscriptionLocked />;
-  return <Layout><Suspense fallback={<RouteLoading />}>{children}</Suspense></Layout>;
+  return <Layout><Suspense fallback={<RouteFallback />}>{children}</Suspense></Layout>;
 }
 
 function PlatformProtected({ children }) {
   const { user } = useAuth();
-  if (user === null) return <Loading />;
+  if (user === null) return <AppBoot />;
   if (user === false) return <Navigate to="/login" replace />;
   if (!user?.is_platform_admin) return <Navigate to="/" replace />;
   return children;
@@ -107,9 +132,10 @@ function App() {
         <BrowserRouter>
           <AuthProvider>
             <BrandingHead />
+            <PrefetchDashboard />
             <Toaster position="top-right" />
             <MasterCreateProvider>
-            <Suspense fallback={<RouteLoading />}>
+            <Suspense fallback={<div className="app-vh bg-background" />}>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/daftar" element={<RegisterTenant />} />

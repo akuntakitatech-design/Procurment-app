@@ -120,6 +120,19 @@ function SubscriptionBanner({ status }) {
   );
 }
 
+const DEFAULT_BRAND = { name: "App Proc", subtitle: "Procurement & Inventory", logo_available: false, logo_version: null };
+
+// Branding terakhir disimpan per user supaya sidebar tidak sempat berkedip "App Proc"
+// sebelum respons /branding tiba. Cache hanya untuk tampilan awal, tetap di-refresh dari API.
+const brandCacheKey = (userId) => `app_brand_cache:${userId || "anon"}`;
+function readBrandCache(userId) {
+  try {
+    const raw = localStorage.getItem(brandCacheKey(userId));
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed?.name ? parsed : null;
+  } catch { return null; }
+}
+
 export function Layout({ children }) {
   const { user, logout, can } = useAuth();
   const nav = useNavigate();
@@ -127,17 +140,19 @@ export function Layout({ children }) {
   const [dark, setDark] = useState(document.documentElement.classList.contains("dark"));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [brand, setBrand] = useState({ name: "App Proc", subtitle: "Procurement & Inventory", logo_available: false, logo_version: null });
+  const [brand, setBrand] = useState(() => readBrandCache(user?.id) || DEFAULT_BRAND);
   const [subscription, setSubscription] = useState(null);
   const location = useLocation();
 
   useEffect(() => {
     api.get("/branding").then((r) => {
-      setBrand(r.data || {});
-      document.title = r.data?.name ? `App Proc | ${r.data.name}` : "App Proc";
+      const next = r.data?.name ? r.data : DEFAULT_BRAND;
+      setBrand(next);
+      document.title = next.name ? `App Proc | ${next.name}` : "App Proc";
+      try { localStorage.setItem(brandCacheKey(user?.id), JSON.stringify(next)); } catch { /* storage penuh/diblokir: abaikan */ }
     }).catch(() => { document.title = "App Proc"; });
     api.get("/subscription/status").then((r) => setSubscription(r.data || null)).catch(() => setSubscription(null));
-  }, []);
+  }, [user?.id]);
 
   // Drawer mobile: tutup saat pindah halaman & dengan tombol Escape.
   useEffect(() => { setMobileOpen(false); setSearchOpen(false); }, [location.pathname]);
