@@ -85,7 +85,7 @@ const docBody = ({ doc, company, logoImg }) => {
           <th style="width:27mm">No. Invoice</th>
           <th style="width:29mm">No. Faktur Pajak</th>
           <th style="width:28mm">No. PO</th>
-          <th style="width:28mm">No DO Sistem</th>
+          <th style="width:34mm">Bukti Penerimaan Barang (PT. REAL)</th>
           <th style="width:32mm">No. DO Supplier</th>
           <th style="width:24mm">Nilai (Inc PPN)</th>
           <th style="width:13mm">Kwitansi</th>
@@ -137,12 +137,12 @@ const pageHtml = ({ title, body, autoPrint }) => `<!doctype html><html><head><me
     .info .lab:after{content:" :"}
     .info .val{font-weight:700}
     table{width:100%;border-collapse:collapse;table-layout:fixed}
-    th,td{border:.25mm solid #000;padding:1mm 1.2mm;vertical-align:middle}
+    th,td{border:.25mm solid #000;padding:1mm 1.2mm;vertical-align:middle;overflow-wrap:anywhere;word-break:break-word}
     th{font-size:9px;text-align:center;font-weight:700;line-height:1.2}
     tbody td{height:6.2mm}
     td.c{text-align:center}
     td.r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-    td.mono{font-family:monospace;font-size:9.5px}
+    td.mono{font-family:monospace;font-size:9.5px;word-break:break-all}
     td.vendor{font-weight:700}
     td.mark{text-align:center;font-weight:700;font-size:12px}
     .notes{margin-top:3mm}

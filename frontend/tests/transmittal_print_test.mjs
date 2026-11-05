@@ -43,10 +43,12 @@ check("kolom: Nama Vendor, No. Invoice, No. Faktur Pajak, No. PO",
 check("header kelompok Item Pemeriksaan Kelengkapan mencakup 9 kolom detail", h.includes("Item Pemeriksaan Kelengkapan") && h.includes('colspan="9"'));
 check("hanya No & Nama Vendor yang 2 baris (rowspan=2)", (h.match(/rowspan="2"/g) || []).length === 2
   && h.includes('<th rowspan="2" style="width:10mm">No</th>') && h.includes('<th rowspan="2" style="width:38mm">Nama Vendor</th>'));
-check("sub-kolom (baris ke-2): No. Invoice, No. Faktur Pajak, No. PO, No DO Sistem, No. DO Supplier, Nilai (Inc PPN)",
-  ["No. Invoice", "No. Faktur Pajak", "No. PO", "No DO Sistem", "No. DO Supplier", "Nilai (Inc PPN)"].every((x) => h.includes(x)));
-check("kolom lama 'Bukti Penerimaan Barang' & 'No DO SUPLIER' sudah tidak ada",
-  !h.includes("Bukti Penerimaan Barang (PT. REAL)") && !h.includes("No DO SUPLIER"));
+check("sub-kolom (baris ke-2): No. Invoice, No. Faktur Pajak, No. PO, Bukti Penerimaan Barang (PT. REAL), No. DO Supplier, Nilai (Inc PPN)",
+  ["No. Invoice", "No. Faktur Pajak", "No. PO", "Bukti Penerimaan Barang (PT. REAL)", "No. DO Supplier", "Nilai (Inc PPN)"].every((x) => h.includes(x)));
+check("label lama 'No DO Sistem' & 'No DO SUPLIER' tidak dipakai",
+  !h.includes("No DO Sistem") && !h.includes("No DO SUPLIER"));
+check("anti-tumpang-tindih: sel membungkus teks panjang (overflow-wrap) & ID monospace break-all",
+  h.includes("overflow-wrap:anywhere") && /td\.mono\{[^}]*word-break:break-all/.test(h));
 check("kolom ✓: Kwitansi, BAST / Timesheet, Kontrak Kerja (Subcon)",
   ["Kwitansi", "BAST / Timesheet", "Kontrak Kerja (Subcon)"].every((x) => h.includes(x)));
 check("PRINT_CHECKLIST = 3 tanda ✓", PRINT_CHECKLIST.map((x) => x.key).join() === "kwitansi,bast,kontrak", PRINT_CHECKLIST.map((x) => x.key));
@@ -63,7 +65,7 @@ check("baris vendor + no invoice + faktur pajak + PO",
   h.includes("PT. PROFITA ABADI") && h.includes("PA/DO/897654") && h.includes("44423675618930") && h.includes("PO/REAL/26/10/000551"));
 const legal = buildTransmittalHtml({ doc: { ...doc, items: [{ ...doc.items[0], supplier_name: "Nama PIC", supplier_legal_name: "PT. LEGAL ABADI" }] }, company: {}, autoPrint: false });
 check("cetak memakai nama legal perusahaan bila tersedia (bukan nama PIC)", legal.includes("PT. LEGAL ABADI") && !legal.includes("Nama PIC"));
-check("No DO Sistem = nomor DO sistem (DO/2026/10/00003)", h.includes("DO/2026/10/00003"));
+check("Bukti Penerimaan Barang (PT. REAL) = nomor DO sistem (DO/2026/10/00003)", h.includes("DO/2026/10/00003"));
 check("No. DO Supplier = nomor surat jalan supplier (121336)", h.includes("121336"));
 check("nilai diformat ribuan koma (1,000,000 & 500,000)", h.includes("1,000,000") && h.includes("500,000"));
 check("tidak ada baris TOTAL nominal (form manual tanpa total)", !h.includes("1,500,000"));
