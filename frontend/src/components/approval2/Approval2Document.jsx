@@ -5,7 +5,7 @@ import { batchTotals, fmtA2Date, fmtMoney, fmtPpn, fmtPpnRp, fmtRp } from "@/lib
 // konsisten walau aplikasi dalam dark mode. 1 PO = 1 baris; Keterangan Transaksi di-wrap (tidak dipotong).
 const COLS = [
   { key: "date", label: "Tanggal", w: 112 },
-  { key: "supplier", label: "Nama Supplier", w: 210 },
+  { key: "supplier", label: "Nama Vendor", w: 210 },
   { key: "desc", label: "Keterangan Transaksi", w: 400 },
   { key: "po", label: "No PO", w: 176 },
   { key: "project", label: "Project", w: 150 },

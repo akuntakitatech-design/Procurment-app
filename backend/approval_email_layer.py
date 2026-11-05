@@ -362,7 +362,9 @@ def install(server):
             context_name = None
             grand_total = None
             if module == "po":
-                context_name = suppliers.get(doc.get("supplier_id"), {}).get("name")
+                sup = suppliers.get(doc.get("supplier_id"), {}) or {}
+                # Nama vendor = nama legal perusahaan (field `name` supplier berisi nama PIC).
+                context_name = sup.get("legal_name") or sup.get("name")
                 grand_total = doc.get("grand_total")
             else:
                 context_name = doc.get("requester") or doc.get("department")

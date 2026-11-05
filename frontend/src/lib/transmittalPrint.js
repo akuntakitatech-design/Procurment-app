@@ -41,7 +41,7 @@ const docBody = ({ doc, company, logoImg }) => {
   };
   const dataRows = items.map((i, n) => `<tr class="row">
       <td class="c">${n + 1}</td>
-      <td class="vendor">${esc(i.supplier_name || "-")}</td>
+      <td class="vendor">${esc(i.supplier_legal_name || i.supplier_name || "-")}</td>
       <td class="mono">${esc(i.invoice_no || "-")}</td>
       <td class="mono">${esc(i.tax_invoice_no || "-")}</td>
       <td class="mono">${esc(i.po_nos || "-")}</td>
