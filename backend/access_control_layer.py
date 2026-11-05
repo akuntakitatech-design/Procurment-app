@@ -443,6 +443,9 @@ def install(server):
         alw = allowed(user)
         if alw is None or name not in DIV_MASTERS | {"spk"}:
             return
+        if name == "spk" and isinstance(body, dict) and not body.get("division_id") and not server.is_global(user):
+            # SPK tanpa divisi berlaku lintas divisi -> hanya user bercakupan semua divisi yang boleh membuatnya.
+            raise HTTPException(403, "Hanya user dengan akses semua divisi yang dapat membuat SPK All Divisi.")
         if rid:
             coll = db().spk if name == "spk" else server._mc(name)
             rec = await coll.find_one({"id": rid}, {"_id": 0, "division_id": 1})

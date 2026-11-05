@@ -34,6 +34,8 @@ const STATUS_OPTS = [
   { value: "closed", label: "Closed" },
   { value: "cancelled", label: "Cancelled" },
 ];
+// SPK tanpa divisi = berlaku untuk semua divisi (dipakai user lintas divisi).
+const ALL_DIVISION = "__all__";
 const POLICY_OPTS = [
   { value: "WARNING_ONLY", label: "Hanya Peringatan" },
   { value: "HARD_BLOCK", label: "Blokir Tegas" },
@@ -180,7 +182,7 @@ export function SpkForm() {
       setForm({
         spk_number: d.spk_number || "", project_name: d.project_name || "", customer: d.customer || "",
         spk_date: d.spk_date || "", start_date: d.start_date || "", end_date: d.end_date || "",
-        division_id: d.division_id || "", pic_id: d.pic_id || "", project_id: d.project_id || "",
+        division_id: d.division_id || ALL_DIVISION, pic_id: d.pic_id || "", project_id: d.project_id || "",
         spk_value: d.spk_value ?? "", procurement_budget: d.procurement_budget ?? "",
         status: d.status || "draft", notes: d.notes || "",
         budget_policy_mode: d.budget_policy_mode || "USE_TENANT_DEFAULT",
@@ -191,13 +193,15 @@ export function SpkForm() {
   }, [id, editing]);
 
   const submit = async () => {
+    if (!form.division_id) return toast.error("Pilih divisi, atau pilih 'All Divisi' bila SPK dipakai lintas divisi.");
     setSaving(true);
     try {
       const payload = {
         ...form,
         spk_value: form.spk_value === "" ? 0 : Number(form.spk_value),
         procurement_budget: form.procurement_budget === "" ? 0 : Number(form.procurement_budget),
-        division_name: divisions.find((d) => d.id === form.division_id)?.name || null,
+        division_id: form.division_id === ALL_DIVISION ? "" : form.division_id,
+        division_name: form.division_id === ALL_DIVISION ? "All Divisi" : (divisions.find((d) => d.id === form.division_id)?.name || null),
         pic_name: contacts.find((c) => c.id === form.pic_id)?.name || null,
       };
       const r = editing ? await api.put(`/spk/${id}`, payload) : await api.post("/spk", payload);
@@ -230,7 +234,7 @@ export function SpkForm() {
           <div className="grid md:grid-cols-2 gap-4">
             <Field label="Tanggal Mulai"><Input type="date" value={form.start_date || ""} onChange={(e) => set("start_date", e.target.value)} /></Field>
             <Field label="Tanggal Berakhir"><Input type="date" value={form.end_date || ""} onChange={(e) => set("end_date", e.target.value)} /></Field>
-            <Field label="Divisi"><Combobox options={divisions.map((d) => ({ value: d.id, label: d.name }))} value={form.division_id} onChange={(v) => set("division_id", v)} placeholder="Pilih divisi" /></Field>
+            <Field label="Divisi"><Combobox options={[{ value: ALL_DIVISION, label: "All Divisi (semua divisi)" }, ...divisions.map((d) => ({ value: d.id, label: d.name }))]} value={form.division_id} onChange={(v) => set("division_id", v)} placeholder="Pilih divisi" /><p className="mt-1 text-xs text-muted-foreground">Pilih <b>All Divisi</b> bila SPK ini dipakai lintas divisi; user dari divisi mana pun dapat memakainya.</p></Field>
             <Field label="PIC"><Combobox options={contacts.map((c) => ({ value: c.id, label: c.name }))} value={form.pic_id} onChange={(v) => set("pic_id", v)} placeholder="Pilih PIC" /></Field>
             <Field label="Project / Site"><MasterProjectCombobox options={projects.map((p) => ({ value: p.id, label: p.name }))} value={form.project_id} onChange={(v) => set("project_id", v)} onCreated={(doc) => setProjects((s) => [...s.filter((x) => x.id !== doc.id), doc])} placeholder="Pilih project" testid="spk-project-site" /></Field>
           </div>
