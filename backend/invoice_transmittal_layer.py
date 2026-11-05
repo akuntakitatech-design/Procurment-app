@@ -171,6 +171,7 @@ def install(server):
         items = await items_of(t["id"])
         # Transmittal lama: PO/DO/Nomor surat jalan supplier tidak tersimpan — lengkapi saat dibaca (tanpa menulis DB).
         need = [i for i in items if "do_supplier_nos" not in i
+                or not str(i.get("do_supplier_nos") or "").strip()
                 or (not str(i.get("po_nos") or "").strip() and not str(i.get("do_nos") or "").strip())]
         if need:
             iids = [i["invoice_id"] for i in need if i.get("invoice_id")]
@@ -182,8 +183,8 @@ def install(server):
                     i["po_nos"] = tt["po_nos"]
                 if not str(i.get("do_nos") or "").strip() and tt.get("do_nos"):
                     i["do_nos"] = tt["do_nos"]
-                if "do_supplier_nos" not in i:
-                    i["do_supplier_nos"] = tt.get("do_supplier_nos", "")
+                if not str(i.get("do_supplier_nos") or "").strip() and tt.get("do_supplier_nos"):
+                    i["do_supplier_nos"] = tt["do_supplier_nos"]
         out = dict(t)
         # Item menyimpan nama saat transmittal dibuat. Lengkapi/resolusi ulang ke nama legal perusahaan
         # (field `name` supplier berisi nama PIC) tanpa menulis DB, supaya transmittal lama ikut benar.

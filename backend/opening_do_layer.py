@@ -84,6 +84,7 @@ def install(server):
         used = round(float(billed or 0), 2)
         return {
             "id": doc.get("id"), "no": doc.get("no"), "date": doc.get("date"),
+            "supplier_dn": doc.get("supplier_dn") or "",
             "supplier_id": doc.get("supplier_id"), "supplier_name": sups.get(doc.get("supplier_id")) or doc.get("supplier_name"),
             "division_id": doc.get("division_id"), "division_name": divs.get(doc.get("division_id")),
             "project_id": doc.get("project_id"), "project_name": projs.get(doc.get("project_id")),
@@ -99,6 +100,7 @@ def install(server):
         payload = body or {}
         return {
             "no": _txt(payload.get("no"), "No. DO", required=True, max_len=64),
+            "supplier_dn": _txt(payload.get("supplier_dn"), "No. Surat Jalan", max_len=64),
             "date": _date(payload.get("date")),
             "supplier_id": _txt(payload.get("supplier_id"), "Supplier", required=True),
             "division_id": _txt(payload.get("division_id"), "Divisi", required=True),
@@ -176,8 +178,20 @@ def install(server):
         require_opening(user)
         old = await load_opening(did)
         billed = (await billed_by_do([did])).get(did, 0.0)
-        assert_not_billed(billed, old.get("no"), "diubah")
         payload = validate_refs(body)
+        # Nilai/identitas dokumen tetap terkunci setelah dipakai invoice. Field referensi teks
+        # (mis. No. Surat Jalan untuk kolom "No. DO Supplier" pada transmittal) tetap boleh diisi.
+        if float(billed or 0) > 0:
+            same_amount = lambda a, b: abs(float(a or 0) - float(b or 0)) < 0.005  # noqa: E731
+            material = (payload["no"] != (old.get("no") or "")
+                        or payload["date"] != (old.get("date") or "")
+                        or payload["supplier_id"] != (old.get("supplier_id") or "")
+                        or payload["division_id"] != (old.get("division_id") or "")
+                        or (payload["project_id"] or None) != (old.get("project_id") or None)
+                        or not same_amount(payload["dpp"], old.get("dpp"))
+                        or not same_amount(payload["ppn"], old.get("ppn")))
+            if material:
+                assert_not_billed(billed, old.get("no"), "diubah")
         await validate_targets(payload, user, exclude_id=did)
         payload["opening_value"] = round(payload["dpp"] + payload["ppn"], 2)
         await server.db.do.update_one({"id": did}, {"$set": {**payload, "updated_at": server.now_iso(),
