@@ -547,6 +547,12 @@ async def enrich_list(server, module, rows, items=True):
             items_.append({"item": " — ".join(x for x in (it.get("code"), it.get("name")) if x) or "-", "desc": desc,
                           "qty": qty, "unit": sym(l), "project": pname or "-", "division": hdiv or "-",
                           "spk": _spk_join(sp) or "-"})
+        if module == "do" and not ls:
+            # DO Saldo Awal tidak punya baris barang: referensi (No. PO/RO/MRO/SPK) tersimpan sebagai
+            # teks pada header, jadi pakai itu agar kolom telusur & "No. PO" pada cetak transmittal terisi.
+            for bucket, key in ((po_s, "po_no_text"), (ro_s, "ro_no_text"),
+                                (mro_s, "mro_no_text"), (spk_s, "spk_text")):
+                bucket |= {t.strip() for t in str(r.get(key) or "").split(",") if t.strip()}
         for k in ("from_name", "to_name", "warehouse_name"):
             if r.get(k):
                 wh_s.add(r[k])
