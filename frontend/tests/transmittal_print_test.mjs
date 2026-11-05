@@ -42,13 +42,20 @@ check("kolom: Nama Vendor, No. Invoice, No. Faktur Pajak, No. PO",
   ["Nama Vendor", "No. Invoice", "No. Faktur Pajak", "No. PO"].every((x) => h.includes(x)));
 check("header kelompok Item Pemeriksaan Kelengkapan mencakup 9 kolom detail", h.includes("Item Pemeriksaan Kelengkapan") && h.includes('colspan="9"'));
 check("hanya No & Nama Vendor yang 2 baris (rowspan=2)", (h.match(/rowspan="2"/g) || []).length === 2
-  && h.includes('<th rowspan="2" style="width:10mm">No</th>') && h.includes('<th rowspan="2" style="width:38mm">Nama Vendor</th>'));
+  && h.includes('<th rowspan="2">No</th>') && h.includes('<th rowspan="2">Nama Vendor</th>'));
+// table-layout:fixed hanya membaca lebar dari baris pertama; baris pertama memakai colspan,
+// jadi lebar wajib ada di colgroup. Tanpa ini semua kolom dibagi rata dan No. PO terpotong.
+check("lebar 11 kolom ada di colgroup, total <= 277mm (area cetak A4 landscape), No. PO 34mm",
+  (() => {
+    const cols = (h.match(/<col style="width:[\d.]+mm"\/>/g) || []).map((c) => Number(c.match(/([\d.]+)mm/)[1]));
+    return cols.length === 11 && cols[4] === 34 && cols.reduce((a, b) => a + b, 0) <= 277;
+  })());
 check("sub-kolom (baris ke-2): No. Invoice, No. Faktur Pajak, No. PO, Bukti Penerimaan Barang (PT. REAL), No. DO Supplier, Nilai (Inc PPN)",
   ["No. Invoice", "No. Faktur Pajak", "No. PO", "Bukti Penerimaan Barang (PT. REAL)", "No. DO Supplier", "Nilai (Inc PPN)"].every((x) => h.includes(x)));
 check("label lama 'No DO Sistem' & 'No DO SUPLIER' tidak dipakai",
   !h.includes("No DO Sistem") && !h.includes("No DO SUPLIER"));
-check("anti-tumpang-tindih: sel membungkus teks panjang (overflow-wrap) & ID monospace break-all",
-  h.includes("overflow-wrap:anywhere") && /td\.mono\{[^}]*word-break:break-all/.test(h));
+check("anti-tumpang-tindih: sel membungkus teks panjang (overflow-wrap) & ID monospace tidak dipotong di tengah token",
+  h.includes("overflow-wrap:anywhere") && /td\.mono\{[^}]*word-break:break-word/.test(h));
 check("kolom ✓: Kwitansi, BAST / Timesheet, Kontrak Kerja (Subcon)",
   ["Kwitansi", "BAST / Timesheet", "Kontrak Kerja (Subcon)"].every((x) => h.includes(x)));
 check("PRINT_CHECKLIST = 3 tanda ✓", PRINT_CHECKLIST.map((x) => x.key).join() === "kwitansi,bast,kontrak", PRINT_CHECKLIST.map((x) => x.key));

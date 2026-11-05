@@ -75,22 +75,27 @@ const docBody = ({ doc, company, logoImg }) => {
       <div class="row"><span class="lab">Total Invoice</span><span class="val">${items.length}</span></div>
     </div>
     <table>
+      <!-- table-layout:fixed hanya membaca lebar dari baris pertama; karena baris pertama memakai
+           colspan, lebar kolom wajib ditulis di colgroup agar tidak dibagi rata (44mm). -->
+      <colgroup>
+        <col style="width:10mm"/><col style="width:38mm"/><col style="width:30mm"/><col style="width:29mm"/><col style="width:34mm"/><col style="width:34mm"/><col style="width:30mm"/><col style="width:23mm"/><col style="width:14mm"/><col style="width:16mm"/><col style="width:18mm"/>
+      </colgroup>
       <thead>
         <tr>
-          <th rowspan="2" style="width:10mm">No</th>
-          <th rowspan="2" style="width:38mm">Nama Vendor</th>
+          <th rowspan="2">No</th>
+          <th rowspan="2">Nama Vendor</th>
           <th colspan="9">Item Pemeriksaan Kelengkapan</th>
         </tr>
         <tr>
-          <th style="width:27mm">No. Invoice</th>
-          <th style="width:29mm">No. Faktur Pajak</th>
-          <th style="width:28mm">No. PO</th>
-          <th style="width:34mm">Bukti Penerimaan Barang (PT. REAL)</th>
-          <th style="width:32mm">No. DO Supplier</th>
-          <th style="width:24mm">Nilai (Inc PPN)</th>
-          <th style="width:13mm">Kwitansi</th>
-          <th style="width:13mm">BAST / Timesheet</th>
-          <th style="width:16mm">Kontrak Kerja (Subcon)</th>
+          <th>No. Invoice</th>
+          <th>No. Faktur Pajak</th>
+          <th>No. PO</th>
+          <th>Bukti Penerimaan Barang (PT. REAL)</th>
+          <th>No. DO Supplier</th>
+          <th>Nilai (Inc PPN)</th>
+          <th>Kwitansi</th>
+          <th>BAST / Timesheet</th>
+          <th>Kontrak Kerja (Subcon)</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -142,7 +147,7 @@ const pageHtml = ({ title, body, autoPrint }) => `<!doctype html><html><head><me
     tbody td{height:6.2mm}
     td.c{text-align:center}
     td.r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-    td.mono{font-family:monospace;font-size:9.5px;word-break:break-all}
+    td.mono{font-family:monospace;font-size:9px;word-break:break-word}
     td.vendor{font-weight:700}
     td.mark{text-align:center;font-weight:700;font-size:12px}
     .notes{margin-top:3mm}
