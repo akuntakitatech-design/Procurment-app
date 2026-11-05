@@ -29,13 +29,19 @@ export function inheritSourceHeader(current, rows) {
   if (!headers.length) return next;
 
   for (const key of HEADER_FIELDS) {
-    const values = headers.map((h) => h?.[key]).filter((v) => !empty(v));
-    const uniq = [...new Set(values.map((v) => typeof v === "boolean" ? String(v) : String(v)))];
-    if (uniq.length === 1) {
+    const raw = headers.map((h) => h?.[key]);
+    const values = raw.filter((v) => !empty(v));
+    const uniq = [...new Set(values.map((v) => String(v)))];
+    if (!values.length) {
+      // Tidak ada satu pun sumber yang mengisi nilai ini -> jangan menebak, biarkan nilai form apa adanya.
+      continue;
+    }
+    if (values.length === raw.length && uniq.length === 1) {
       const sample = values[0];
       next[key] = typeof sample === "boolean" ? sample : sample;
-    } else if (uniq.length > 1) {
-      // Mixed source headers: never pretend one header applies to every line.
+    } else {
+      // Sebagian sumber kosong atau nilainya berbeda: jangan wariskan nilai milik salah satu sumber.
+      // (mis. Tarik MRO dari 2 MRO: satu punya Unit/Aset, satu tidak -> header RO tidak boleh terisi sendiri)
       next[key] = key === "tax_inclusive" ? false : "";
     }
   }
