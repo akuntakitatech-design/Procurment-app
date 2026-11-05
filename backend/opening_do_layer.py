@@ -44,6 +44,16 @@ def _date(value):
     return raw
 
 
+def resolve_supplier_dn(no, supplier_dn):
+    """No. Surat Jalan DO Saldo Awal = No. DO supplier bila tidak diisi manual.
+
+    Nomor DO saldo awal diambil dari nomor DO supplier, dan nomor yang sama dipakai untuk kolom
+    "No. DO Supplier" pada cetak Transmittal Invoice. Nilai manual tetap dihormati bila berbeda.
+    """
+    manual = str(supplier_dn or "").strip()
+    return _txt(manual or str(no or "").strip(), "No. Surat Jalan", max_len=64)
+
+
 def install(server):
     app = server.app
 
@@ -98,9 +108,10 @@ def install(server):
 
     def validate_refs(body):
         payload = body or {}
+        no = _txt(payload.get("no"), "No. DO", required=True, max_len=64)
         return {
-            "no": _txt(payload.get("no"), "No. DO", required=True, max_len=64),
-            "supplier_dn": _txt(payload.get("supplier_dn"), "No. Surat Jalan", max_len=64),
+            "no": no,
+            "supplier_dn": resolve_supplier_dn(no, payload.get("supplier_dn")),
             "date": _date(payload.get("date")),
             "supplier_id": _txt(payload.get("supplier_id"), "Supplier", required=True),
             "division_id": _txt(payload.get("division_id"), "Divisi", required=True),

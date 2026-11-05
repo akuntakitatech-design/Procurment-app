@@ -123,7 +123,7 @@ export default function DoOpening() {
               <Field label="No. RO"><Input value={h.ro_no} onChange={(e) => set("ro_no")(e.target.value)} placeholder="Opsional" data-testid="opening-do-ro" /></Field>
               <Field label="No. MRO"><Input value={h.mro_no} onChange={(e) => set("mro_no")(e.target.value)} placeholder="Opsional" data-testid="opening-do-mro" /></Field>
               <Field label="SPK"><Input value={h.spk} onChange={(e) => set("spk")(e.target.value)} placeholder="Opsional" data-testid="opening-do-spk" /></Field>
-              <Field label="No. Surat Jalan"><Input value={h.supplier_dn} onChange={(e) => set("supplier_dn")(e.target.value)} placeholder="Opsional" title="Tampil sebagai No. DO Supplier pada cetak Transmittal Invoice" data-testid="opening-do-supplier-dn" /></Field>
+              <Field label="No. Surat Jalan"><Input value={h.supplier_dn} onChange={(e) => set("supplier_dn")(e.target.value)} placeholder="Ikut No. DO" title="Kosongkan untuk memakai No. DO; tampil sebagai No. DO Supplier pada cetak Transmittal Invoice" data-testid="opening-do-supplier-dn" /></Field>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Field label="Proyek"><Combobox options={masters.opts("projects", (p) => p.name)} value={h.project_id} onChange={set("project_id")} placeholder="Opsional" testid="opening-do-project" /></Field>
