@@ -172,6 +172,7 @@ def install(server):
         # Transmittal lama: PO/DO/Nomor surat jalan supplier tidak tersimpan — lengkapi saat dibaca (tanpa menulis DB).
         need = [i for i in items if "do_supplier_nos" not in i
                 or not str(i.get("do_supplier_nos") or "").strip()
+                or not str(i.get("po_nos") or "").strip()
                 or (not str(i.get("po_nos") or "").strip() and not str(i.get("do_nos") or "").strip())]
         if need:
             iids = [i["invoice_id"] for i in need if i.get("invoice_id")]
