@@ -313,7 +313,8 @@ def install(server):
             "customer": (body.customer or "").strip() or None,
             "spk_date": body.spk_date or None, "start_date": body.start_date or None, "end_date": body.end_date or None,
             "division_id": body.division_id or None, "pic_id": body.pic_id or None, "project_id": body.project_id or None,
-            "division_name": (body.division_name or "").strip() or None, "pic_name": (body.pic_name or "").strip() or None,
+            "division_name": (body.division_name or "").strip()
+                              or ("All Divisi" if not body.division_id else None), "pic_name": (body.pic_name or "").strip() or None,
             "spk_value": spk_value, "procurement_budget": budget, "status": status,
             "notes": (body.notes or "").strip() or None,
             "budget_policy_mode": mode, "custom_global_budget_policy": cg, "custom_category_budget_policy": cc,
@@ -358,7 +359,8 @@ def install(server):
         if status:
             flt["status"] = status
         if division_id:
-            flt["division_id"] = division_id
+            # SPK tanpa divisi = berlaku untuk semua divisi, jadi tetap tampil saat filter divisi mana pun.
+            flt["division_id"] = {"$in": [division_id, None]}
         if period_start:
             flt.setdefault("start_date", {})["$gte"] = period_start
         if period_end:
