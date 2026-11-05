@@ -17,7 +17,7 @@ import { toast } from "sonner";
 
 const EMPTY = {
   no: "", date: todayISO(), supplier_id: "", division_id: "", project_id: "",
-  po_no: "", ro_no: "", mro_no: "", spk: "", dpp: "", ppn: "", notes: "",
+  supplier_dn: "", po_no: "", ro_no: "", mro_no: "", spk: "", dpp: "", ppn: "", notes: "",
 };
 
 // DO sebelum periode berjalan yang dimasukkan sebagai saldo awal:
@@ -68,7 +68,7 @@ export default function DoOpening() {
     const body = {
       no: h.no.trim(), date: h.date, supplier_id: h.supplier_id, division_id: h.division_id,
       project_id: h.project_id || null, po_no: h.po_no, ro_no: h.ro_no, mro_no: h.mro_no, spk: h.spk,
-      dpp: toNum(h.dpp), ppn: toNum(h.ppn), notes: h.notes,
+      supplier_dn: h.supplier_dn, dpp: toNum(h.dpp), ppn: toNum(h.ppn), notes: h.notes,
     };
     setSaving(true);
     try {
@@ -118,11 +118,12 @@ export default function DoOpening() {
               <Field label="Supplier"><Combobox options={masters.opts("suppliers", (s) => s.legal_name || s.name)} value={h.supplier_id} onChange={set("supplier_id")} placeholder="Pilih supplier" testid="opening-do-supplier" /></Field>
               <Field label="Divisi"><Combobox options={masters.opts("divisions", (d) => d.name)} value={h.division_id} onChange={set("division_id")} placeholder="Pilih divisi" testid="opening-do-division" /></Field>
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
               <Field label="No. PO"><Input value={h.po_no} onChange={(e) => set("po_no")(e.target.value)} placeholder="Opsional" data-testid="opening-do-po" /></Field>
               <Field label="No. RO"><Input value={h.ro_no} onChange={(e) => set("ro_no")(e.target.value)} placeholder="Opsional" data-testid="opening-do-ro" /></Field>
               <Field label="No. MRO"><Input value={h.mro_no} onChange={(e) => set("mro_no")(e.target.value)} placeholder="Opsional" data-testid="opening-do-mro" /></Field>
               <Field label="SPK"><Input value={h.spk} onChange={(e) => set("spk")(e.target.value)} placeholder="Opsional" data-testid="opening-do-spk" /></Field>
+              <Field label="No. Surat Jalan"><Input value={h.supplier_dn} onChange={(e) => set("supplier_dn")(e.target.value)} placeholder="Opsional" title="Tampil sebagai No. DO Supplier pada cetak Transmittal Invoice" data-testid="opening-do-supplier-dn" /></Field>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Field label="Proyek"><Combobox options={masters.opts("projects", (p) => p.name)} value={h.project_id} onChange={set("project_id")} placeholder="Opsional" testid="opening-do-project" /></Field>
