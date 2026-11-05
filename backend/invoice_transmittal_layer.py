@@ -126,7 +126,7 @@ def install(server):
                 "invoice_doc_no": inv.get("no"),
                 "invoice_date": inv.get("invoice_date"),
                 "supplier_id": inv.get("supplier_id"),
-                "supplier_name": sup.get("name") or inv.get("supplier_name") or "",
+                "supplier_name": sup.get("legal_name") or sup.get("name") or inv.get("supplier_name") or "",
                 "tax_invoice_no": str(inv.get("tax_invoice_no") or ""),
                 "tax_invoice_date": str(inv.get("tax_invoice_date") or ""),
                 "po_nos": "",
@@ -185,6 +185,17 @@ def install(server):
                 if "do_supplier_nos" not in i:
                     i["do_supplier_nos"] = tt.get("do_supplier_nos", "")
         out = dict(t)
+        # Item menyimpan nama saat transmittal dibuat. Lengkapi/resolusi ulang ke nama legal perusahaan
+        # (field `name` supplier berisi nama PIC) tanpa menulis DB, supaya transmittal lama ikut benar.
+        sids = sorted({i.get("supplier_id") for i in items if i.get("supplier_id")})
+        if sids:
+            sups = {s["id"]: s for s in await db().suppliers.find(
+                {"id": {"$in": sids}}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(len(sids) + 5)}
+            for i in items:
+                rec = sups.get(i.get("supplier_id")) or {}
+                legal = rec.get("legal_name") or rec.get("name")
+                if legal:
+                    i["supplier_legal_name"] = legal
         out["items"] = items
         out["history"] = await db().audit_logs.find({"entity": "invoice_transmittal", "entity_id": t["id"]}, {"_id": 0}).sort("at", -1).to_list(500)
         proof = None

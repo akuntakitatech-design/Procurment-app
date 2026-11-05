@@ -68,7 +68,7 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
           <div className="text-xs text-muted-foreground">Centang PO yang akan diajukan ke pimpinan, lalu buat pengajuan untuk di-export JPEG.</div>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative w-full sm:w-80"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari No PO, supplier, project, PIC..." className="pl-9" data-testid="approval2-search" /></div>
+          <div className="relative w-full sm:w-80"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari No PO, vendor, project, PIC..." className="pl-9" data-testid="approval2-search" /></div>
           {canSubmit && <Button disabled={sel.length === 0} onClick={() => { setDate(isoToday()); setOpen(true); }} data-testid="approval2-create-open"><FilePlus2 className="h-4 w-4 mr-2" />Buat Pengajuan Approval 2{sel.length ? ` (${sel.length})` : ""}</Button>}
         </div>
       </div>
@@ -76,7 +76,7 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
         <table className="m-stack w-full min-w-[1000px] text-sm zebra">
           <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
             <th className="w-10 p-3"><Checkbox checked={allChecked} disabled={ready.length === 0} onCheckedChange={() => setSel(allChecked ? sel.filter((id) => !ready.some((r) => r.approval_task_id === id)) : Array.from(new Set([...sel, ...ready.map((r) => r.approval_task_id)])))} aria-label="Pilih semua" data-testid="approval2-select-all" /></th>
-            <th className="p-3">No PO</th><th className="p-3">Tanggal PO</th><th className="p-3">Supplier</th><th className="p-3">Project</th><th className="p-3 text-right">Nilai</th><th className="p-3">PIC</th><th className="p-3">Status Pengajuan</th>
+            <th className="p-3">No PO</th><th className="p-3">Tanggal PO</th><th className="p-3">Nama Vendor</th><th className="p-3">Project</th><th className="p-3 text-right">Nilai</th><th className="p-3">PIC</th><th className="p-3">Status Pengajuan</th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={8} className="p-6"><div className="h-4 w-1/3 animate-pulse rounded bg-muted" /></td></tr>}
@@ -87,7 +87,7 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
               return <tr key={r.approval_task_id} className="border-t" data-testid={`approval2-row-${r.po_no}`}>
                 <td data-label="Pilih" className="m-full p-3"><Checkbox checked={sel.includes(r.approval_task_id)} disabled={!isReady} onCheckedChange={() => setSel((s) => toggleId(s, r.approval_task_id))} aria-label={`Pilih ${r.po_no}`} data-testid={`approval2-check-${r.po_no}`} /></td>
                 <td data-label="No PO" className="m-full p-3"><button onClick={() => nav(`/po/${r.po_id}`)} className="font-mono text-xs font-semibold text-primary hover:underline">{r.po_no}</button></td>
-                <td data-label="Tanggal PO" className="p-3">{fmtA2Date(r.po_date)}</td><td data-label="Supplier" className="p-3">{r.supplier_name}</td><td data-label="Project" className="p-3">{r.project_text}</td>
+                <td data-label="Tanggal PO" className="p-3">{fmtA2Date(r.po_date)}</td><td data-label="Nama Vendor" className="p-3">{r.supplier_name}</td><td data-label="Project" className="p-3">{r.project_text}</td>
                 <td data-label="Nilai" className="p-3 text-right tabular-nums">{fmtRp(r.grand_total)}</td><td data-label="PIC" className="p-3">{r.pic_name}</td>
                 <td data-label="Status Pengajuan" className="p-3"><div className="flex items-center gap-2"><StatusBadge status={r.submission_status} />{!isReady && r.batch_id && <button className="font-mono text-xs text-primary hover:underline" onClick={() => nav(`/approval/approval2/${r.batch_id}`)}>{r.batch_no}</button>}</div></td>
               </tr>;
@@ -122,8 +122,8 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
           <Field label="Tanggal Pengajuan *"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} data-testid="approval2-date" /></Field>
         </div>
         <div className="max-h-72 overflow-auto rounded-lg border">
-          <table className="m-stack w-full text-sm"><thead className="bg-muted sticky top-0"><tr className="text-left text-xs uppercase text-muted-foreground"><th className="p-2">No PO</th><th className="p-2">Supplier</th><th className="p-2">Keterangan</th><th className="p-2 text-right">DPP</th><th className="p-2 text-right">PPN</th><th className="p-2 text-right">Total</th></tr></thead>
-            <tbody>{chosen.map((r) => <tr key={r.approval_task_id} className="border-t align-top"><td data-label="No PO" className="m-full p-2 font-mono text-xs">{r.po_no}</td><td data-label="Supplier" className="p-2 whitespace-nowrap">{r.supplier_name}</td><td data-label="Keterangan" className="p-2 text-xs">{r.transaction_description}</td><td data-label="DPP" className="p-2 text-right tabular-nums whitespace-nowrap">{fmtRp(r.dpp)}</td><td data-label="PPN" className="p-2 text-right tabular-nums whitespace-nowrap">{fmtPpn(r.ppn)}</td><td data-label="Total" className="p-2 text-right tabular-nums whitespace-nowrap font-semibold">{fmtRp(r.grand_total)}</td></tr>)}</tbody>
+          <table className="m-stack w-full text-sm"><thead className="bg-muted sticky top-0"><tr className="text-left text-xs uppercase text-muted-foreground"><th className="p-2">No PO</th><th className="p-2">Nama Vendor</th><th className="p-2">Keterangan</th><th className="p-2 text-right">DPP</th><th className="p-2 text-right">PPN</th><th className="p-2 text-right">Total</th></tr></thead>
+            <tbody>{chosen.map((r) => <tr key={r.approval_task_id} className="border-t align-top"><td data-label="No PO" className="m-full p-2 font-mono text-xs">{r.po_no}</td><td data-label="Nama Vendor" className="p-2 whitespace-nowrap">{r.supplier_name}</td><td data-label="Keterangan" className="p-2 text-xs">{r.transaction_description}</td><td data-label="DPP" className="p-2 text-right tabular-nums whitespace-nowrap">{fmtRp(r.dpp)}</td><td data-label="PPN" className="p-2 text-right tabular-nums whitespace-nowrap">{fmtPpn(r.ppn)}</td><td data-label="Total" className="p-2 text-right tabular-nums whitespace-nowrap font-semibold">{fmtRp(r.grand_total)}</td></tr>)}</tbody>
           </table>
         </div>
         <div className="text-right text-sm" data-testid="approval2-create-summary">{t.count} PO · Total Nilai <span className="font-bold">{fmtRp(t.total)}</span></div>

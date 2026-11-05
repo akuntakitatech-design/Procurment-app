@@ -61,6 +61,8 @@ check("jumlah simbol sesuai data: 2 ✓, 1 ✗, 3 −", marks.filter((m) => m ==
 // --- Data & format
 check("baris vendor + no invoice + faktur pajak + PO",
   h.includes("PT. PROFITA ABADI") && h.includes("PA/DO/897654") && h.includes("44423675618930") && h.includes("PO/REAL/26/10/000551"));
+const legal = buildTransmittalHtml({ doc: { ...doc, items: [{ ...doc.items[0], supplier_name: "Nama PIC", supplier_legal_name: "PT. LEGAL ABADI" }] }, company: {}, autoPrint: false });
+check("cetak memakai nama legal perusahaan bila tersedia (bukan nama PIC)", legal.includes("PT. LEGAL ABADI") && !legal.includes("Nama PIC"));
 check("No DO Sistem = nomor DO sistem (DO/2026/10/00003)", h.includes("DO/2026/10/00003"));
 check("No. DO Supplier = nomor surat jalan supplier (121336)", h.includes("121336"));
 check("nilai diformat ribuan koma (1,000,000 & 500,000)", h.includes("1,000,000") && h.includes("500,000"));

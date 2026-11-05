@@ -154,11 +154,11 @@ def install(server):
             t = str(p.get("name") or p.get("code") or "").strip()
             if t and t not in proj_texts:
                 proj_texts.append(t)
-        sup = await db().suppliers.find_one({"id": po.get("supplier_id")}, {"_id": 0, "name": 1}) or {}
+        sup = await db().suppliers.find_one({"id": po.get("supplier_id")}, {"_id": 0, "name": 1, "legal_name": 1}) or {}
         stored = po.get("grand_total")
         return {
             "po_id": po["id"], "po_no": po.get("no"), "po_date": po.get("date"),
-            "supplier_name": sup.get("name") or "-",
+            "supplier_name": sup.get("legal_name") or sup.get("name") or "-",
             "transaction_description": ", ".join(names) or "-",
             "project_text": ", ".join(proj_texts) or "-",
             "dpp": dpp, "ppn": ppn, "grand_total": grand,
