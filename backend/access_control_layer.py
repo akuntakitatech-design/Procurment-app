@@ -76,13 +76,19 @@ TXN_ALIAS = {"transfers": "transfer", "loans": "loan", "adjustments": "adjustmen
 # Approval 2 PO granular. Default turunan: pemegang legacy "approve" (perilaku lama) memperoleh keempatnya;
 # setelah role dikonfigurasi ulang dari UI Hak Akses, nilai tersimpan yang berlaku.
 A2_KEYS = {"po_approval2.view", "po_approval2.submit", "po_approval2.approve", "po_approval2.print"}
+# Role yang mengajukan batch Approval 2 tetapi tidak menyetujui (purchasing): lihat + ajukan + cetak.
+A2_SUBMIT_KEYS = {"po_approval2.view", "po_approval2.submit", "po_approval2.print"}
 
 
 def role_cfg_permissions(cfg) -> set:
     """Izin role tersimpan + migrasi aman Approval 2 untuk konfigurasi lama (sebelum izin po_approval2 ada)."""
     perms = set(cfg.get("permissions") or [])
-    if not cfg.get("a2_configured") and not (perms & A2_KEYS) and "po.approve" in perms:
-        perms |= A2_KEYS
+    if not cfg.get("a2_configured") and not (perms & A2_KEYS):
+        if "po.approve" in perms:
+            perms |= A2_KEYS
+        elif cfg.get("role") == "purchasing":
+            # Role purchasing ditunjuk mengajukan batch; approver tetap director/manager.
+            perms |= A2_SUBMIT_KEYS
     return perms
 MASTER_NAME = {"item_warehouse": "stock_minmax"}
 DIV_MASTERS = {"items", "warehouses", "units", "contacts", "projects"}
@@ -142,6 +148,11 @@ def legacy_to_granular(perms, role=None) -> set:
     out |= {k for k, a in (("po.approve", "approve"), ("po.reject", "reject"), ("po.send_email", "print"), ("mi.direct", "direct_mi")) if a in p}
     if "approve" in p:
         out |= A2_KEYS
+    elif role == "purchasing":
+        # Purchasing mengajukan batch Approval 2 (approver tetap director/manager). Sebelumnya default role
+        # ini tidak memuat izin po_approval2 sama sekali, sehingga "Ajukan" harus dicentang manual per user
+        # dan mudah terlewat: user bisa melihat + mencetak, tetapi tombol "Buat Pengajuan" tidak muncul.
+        out |= A2_SUBMIT_KEYS
     if "view" in p:
         out.add("users.view")
     if role == "director":
