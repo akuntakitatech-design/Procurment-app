@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import { useServerList } from "@/lib/serverList";
@@ -11,9 +11,63 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { num, fmtDateTime } from "@/lib/format";
+import { SortTh, sortToggle } from "@/components/SortTh";
+import { nextSort } from "@/lib/txnList";
 import { Search, Package, PackageX, TriangleAlert, TrendingUp, RotateCcw, CircleOff } from "lucide-react";
 
 const ALL = "__all__";
+const SORT_DEFAULT = "__default__";
+const whSortKey = (id) => `wh:${id}`; // key sort kolom stok per gudang (didukung backend stock_summary)
+
+/**
+ * Tinggi area tabel = sisa ruang di <main> setelah header/filter/pager, supaya halaman tidak perlu
+ * di-scroll dan header tabel (sticky) selalu terlihat. Diukur, bukan angka ajaib, agar tetap benar
+ * saat banner langganan muncul atau jendela di-resize. < 640px (mode kartu) tidak dibatasi.
+ */
+function useTableFillHeight(rootRef, depKey) {
+  const [maxHeight, setMaxHeight] = useState(null);
+  const measure = useCallback(() => {
+    const root = rootRef.current;
+    const main = root?.closest("main");
+    const wrap = root?.querySelector('[data-table-wrap="1"]');
+    if (!main || !wrap) return;
+    if (window.innerWidth < 640) { setMaxHeight(null); return; }
+    const offset = wrap.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+    const below = 64; // ruang untuk pager di bawah tabel
+    setMaxHeight(Math.max(240, Math.floor(main.clientHeight - offset - below)));
+  }, [rootRef]);
+  useEffect(() => {
+    measure();
+    const main = rootRef.current?.closest("main");
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (ro && main) ro.observe(main);
+    window.addEventListener("resize", measure);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener("resize", measure); };
+  }, [measure, depKey, rootRef]);
+  return maxHeight;
+}
+
+// Tampilan HP: header tabel disembunyikan (kelas m-stack), jadi urutan dipilih lewat dropdown.
+function SortControl({ sort, onChange, options, testid }) {
+  const key = sort?.key || SORT_DEFAULT;
+  const dir = sort?.dir || "asc";
+  return (
+    <div className="flex items-center gap-2 sm:hidden" data-testid={testid}>
+      <span className="shrink-0 text-xs text-muted-foreground">Urutkan</span>
+      <Select value={key} onValueChange={(v) => onChange(v === SORT_DEFAULT ? null : { key: v, dir })}>
+        <SelectTrigger className="h-9 min-w-0 flex-1" data-testid={`${testid}-field`}><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SORT_DEFAULT}>Default (terbaru)</SelectItem>
+          {options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <Button variant="outline" className="h-9 shrink-0 px-3 text-xs font-semibold" disabled={!sort?.key}
+        onClick={() => onChange(sort?.key ? { key: sort.key, dir: dir === "asc" ? "desc" : "asc" } : null)}
+        aria-label={dir === "asc" ? "Urutan naik (A→Z), tekan untuk turun" : "Urutan turun (Z→A), tekan untuk naik"}
+        data-testid={`${testid}-dir`}>{dir === "asc" ? "A→Z" : "Z→A"}</Button>
+    </div>
+  );
+}
 
 function statusLabel(status) {
   if (status === "Out of Stock") return "Habis";
@@ -48,8 +102,10 @@ function SummaryCard({ title, value, subtitle, icon: Icon, active, onClick, test
 // Posisi Stok per BARANG dari ringkasan canonical backend (stock_summary = Master Barang = Dashboard).
 // Frontend tidak menghitung status/summary; barang aktif tanpa catatan stok tetap tampil (Stok Habis, "Belum ada stok").
 export default function Inventory() {
+  const rootRef = useRef(null);
   const [ledger, setLedger] = useState([]);
   const [items, setItems] = useState([]);
+  const [ledgerSort, setLedgerSort] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState(ALL);
   const [warehouseFilter, setWarehouseFilter] = useState(ALL);
   const [sp, setSp] = useSearchParams();
@@ -84,9 +140,38 @@ export default function Inventory() {
     return `${l.item_code || ""} ${l.item_name || ""} ${l.warehouse_name || ""} ${l.doc_no || ""}`.toLowerCase().includes(q.toLowerCase());
   }), [ledger, warehouseFilter, categoryFilter, q, itemMap]);
 
+  // Kartu stok dimuat sekaligus di frontend -> urutan dihitung lokal (angka naik/turun, teks A→Z/Z→A,
+  // nilai kosong selalu di akhir).
+  const sortedLedger = useMemo(() => {
+    if (!ledgerSort?.key) return filteredLedger;
+    const { key, dir } = ledgerSort;
+    const sign = dir === "desc" ? -1 : 1;
+    const empty = (v) => v === null || v === undefined || v === "";
+    return [...filteredLedger].sort((a, b) => {
+      const av = a[key], bv = b[key];
+      if (empty(av) && empty(bv)) return 0;
+      if (empty(av)) return 1;
+      if (empty(bv)) return -1;
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * sign;
+      return String(av).localeCompare(String(bv), "id", { numeric: true, sensitivity: "base" }) * sign;
+    });
+  }, [filteredLedger, ledgerSort]);
+
+  const onPositionSort = sortToggle(list.setSort);
+  const onLedgerSort = (k) => setLedgerSort((cur) => nextSort(cur, k));
+  const positionSortOptions = useMemo(() => [
+    { value: "code", label: "Kode" }, { value: "name", label: "Barang" }, { value: "category_label", label: "Kategori" },
+    { value: "unit_label", label: "Satuan" },
+    ...(data.warehouses || []).map((w) => ({ value: whSortKey(w.id), label: `Stok ${w.name}` })),
+    { value: "total_stock", label: "Total Stok" }, { value: "stock_status", label: "Status" },
+  ], [data.warehouses]);
+  const tableMaxHeight = useTableFillHeight(rootRef, `${rows.length}:${visibleWarehouses.length}:${statusFilter}:${list.sort?.key || ""}`);
+
   const clearDivision = () => { const n = new URLSearchParams(sp); n.delete("division_id"); setSp(n, { replace: true }); };
   const resetFilters = () => {
     list.setQ("");
+    list.setSort(null);
+    setLedgerSort(null);
     if (divisionId) clearDivision();
     setCategoryFilter(ALL);
     setWarehouseFilter(ALL);
@@ -95,7 +180,7 @@ export default function Inventory() {
   const toggle = (st) => setStatusFilter(statusFilter === st ? ALL : st);
 
   return (
-    <div>
+    <div ref={rootRef}>
       <PageHeader title="Inventory / Stock" subtitle="Posisi stok & kartu stok per gudang" />
       <Tabs defaultValue="position">
         <TabsList><TabsTrigger value="position" data-testid="inv-tab-position">Posisi Stok</TabsTrigger><TabsTrigger value="ledger" data-testid="inv-tab-ledger">Kartu Stok (Ledger)</TabsTrigger></TabsList>
@@ -135,17 +220,18 @@ export default function Inventory() {
         </div>
 
         <TabsContent value="position" className="mt-4">
-          <div className="border rounded-xl overflow-x-auto bg-card shadow-sm">
+          <SortControl sort={list.sort} onChange={list.setSort} options={positionSortOptions} testid="inventory-sort-mobile" />
+          <div className="mt-3 sm:mt-0 border rounded-xl overflow-auto bg-card shadow-sm" data-table-wrap="1" style={{ maxHeight: tableMaxHeight || undefined }} data-testid="inventory-position-table-wrap">
             <table className="m-stack w-full text-sm zebra min-w-[820px]">
               <thead className="bg-muted">
                 <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="p-3 whitespace-nowrap">Kode</th>
-                  <th className="p-3 min-w-[220px]">Barang</th>
-                  <th className="p-3 min-w-[150px]">Kategori</th>
-                  <th className="p-3 w-20">Satuan</th>
-                  {visibleWarehouses.map((w) => <th key={w.id} className="p-3 text-right min-w-[120px] whitespace-nowrap">{w.name}</th>)}
-                  {visibleWarehouses.length > 1 && <th className="p-3 text-right min-w-[110px]">Total Stok</th>}
-                  <th className="p-3 min-w-[120px]">Status</th>
+                  <SortTh sticky label="Kode" k="code" sort={list.sort} onSort={onPositionSort} testidPrefix="inventory-sort" />
+                  <SortTh sticky label="Barang" k="name" sort={list.sort} onSort={onPositionSort} className="min-w-[220px]" testidPrefix="inventory-sort" />
+                  <SortTh sticky label="Kategori" k="category_label" sort={list.sort} onSort={onPositionSort} className="min-w-[150px]" testidPrefix="inventory-sort" />
+                  <SortTh sticky label="Satuan" k="unit_label" sort={list.sort} onSort={onPositionSort} className="w-20" testidPrefix="inventory-sort" />
+                  {visibleWarehouses.map((w) => <SortTh key={w.id} sticky label={w.name} k={whSortKey(w.id)} sort={list.sort} onSort={onPositionSort} align="right" className="min-w-[120px]" testidPrefix="inventory-sort" />)}
+                  {visibleWarehouses.length > 1 && <SortTh sticky label="Total Stok" k="total_stock" sort={list.sort} onSort={onPositionSort} align="right" className="min-w-[110px]" testidPrefix="inventory-sort" />}
+                  <SortTh sticky label="Status" k="stock_status" sort={list.sort} onSort={onPositionSort} className="min-w-[120px]" testidPrefix="inventory-sort" />
                 </tr>
               </thead>
               <tbody>
@@ -179,9 +265,22 @@ export default function Inventory() {
         </TabsContent>
 
         <TabsContent value="ledger" className="mt-4">
-          <div className="border rounded-xl overflow-x-auto bg-card shadow-sm"><table className="m-stack w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground"><th className="p-3">Waktu</th><th className="p-3">Dokumen</th><th className="p-3">Barang</th><th className="p-3">Gudang</th><th className="p-3 text-right">Masuk</th><th className="p-3 text-right">Keluar</th><th className="p-3 text-right">Saldo</th></tr></thead>
-            <tbody>{filteredLedger.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Belum ada pergerakan stok sesuai filter</td></tr>}
-              {filteredLedger.map((l) => (<tr key={l.id} className="border-t"><td data-label="Waktu" className="m-full p-3 text-xs">{fmtDateTime(l.at)}</td><td data-label="Dokumen" className="p-3"><span className="font-mono text-xs">{l.doc_type}</span> · {l.doc_no}</td><td data-label="Barang" className="p-3">{l.item_code} — {l.item_name}</td><td data-label="Gudang" className="p-3">{l.warehouse_name}</td><td data-label="Masuk" className="p-3 text-right tabular-nums text-emerald-600">{l.qty_in ? "+" + num(l.qty_in) : "-"}</td><td data-label="Keluar" className="p-3 text-right tabular-nums text-destructive">{l.qty_out ? "-" + num(l.qty_out) : "-"}</td><td data-label="Saldo" className="p-3 text-right tabular-nums font-semibold">{num(l.running_balance)}</td></tr>))}</tbody></table></div>
+          <SortControl sort={ledgerSort} onChange={setLedgerSort} testid="inventory-ledger-sort-mobile"
+            options={[{ value: "at", label: "Waktu" }, { value: "doc_no", label: "Dokumen" }, { value: "item_name", label: "Barang" },
+              { value: "warehouse_name", label: "Gudang" }, { value: "qty_in", label: "Masuk" }, { value: "qty_out", label: "Keluar" },
+              { value: "running_balance", label: "Saldo" }]} />
+          <div className="mt-3 sm:mt-0 border rounded-xl overflow-auto bg-card shadow-sm" data-table-wrap="1" style={{ maxHeight: tableMaxHeight || undefined }} data-testid="inventory-ledger-table-wrap"><table className="m-stack w-full text-sm zebra">
+            <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+              <SortTh sticky label="Waktu" k="at" sort={ledgerSort} onSort={onLedgerSort} testidPrefix="inventory-ledger-sort" />
+              <SortTh sticky label="Dokumen" k="doc_no" sort={ledgerSort} onSort={onLedgerSort} testidPrefix="inventory-ledger-sort" />
+              <SortTh sticky label="Barang" k="item_name" sort={ledgerSort} onSort={onLedgerSort} testidPrefix="inventory-ledger-sort" />
+              <SortTh sticky label="Gudang" k="warehouse_name" sort={ledgerSort} onSort={onLedgerSort} testidPrefix="inventory-ledger-sort" />
+              <SortTh sticky label="Masuk" k="qty_in" sort={ledgerSort} onSort={onLedgerSort} align="right" testidPrefix="inventory-ledger-sort" />
+              <SortTh sticky label="Keluar" k="qty_out" sort={ledgerSort} onSort={onLedgerSort} align="right" testidPrefix="inventory-ledger-sort" />
+              <SortTh sticky label="Saldo" k="running_balance" sort={ledgerSort} onSort={onLedgerSort} align="right" testidPrefix="inventory-ledger-sort" />
+            </tr></thead>
+            <tbody>{sortedLedger.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Belum ada pergerakan stok sesuai filter</td></tr>}
+              {sortedLedger.map((l) => (<tr key={l.id} className="border-t"><td data-label="Waktu" className="m-full p-3 text-xs">{fmtDateTime(l.at)}</td><td data-label="Dokumen" className="p-3"><span className="font-mono text-xs">{l.doc_type}</span> · {l.doc_no}</td><td data-label="Barang" className="p-3">{l.item_code} — {l.item_name}</td><td data-label="Gudang" className="p-3">{l.warehouse_name}</td><td data-label="Masuk" className="p-3 text-right tabular-nums text-emerald-600">{l.qty_in ? "+" + num(l.qty_in) : "-"}</td><td data-label="Keluar" className="p-3 text-right tabular-nums text-destructive">{l.qty_out ? "-" + num(l.qty_out) : "-"}</td><td data-label="Saldo" className="p-3 text-right tabular-nums font-semibold">{num(l.running_balance)}</td></tr>))}</tbody></table></div>
         </TabsContent>
       </Tabs>
     </div>
