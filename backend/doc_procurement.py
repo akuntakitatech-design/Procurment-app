@@ -336,6 +336,8 @@ async def pull_mro_for_ro(user=Depends(current_user)):
             if outstanding > 0:
                 enrich_line(l, m)
                 out.append({"mro_id": d["id"], "mro_no": d["no"], "line_id": l["id"],
+                    "mro_date": d.get("date"), "division_id": d.get("division_id"),
+                    "division_name": m["divisions"].get(d.get("division_id"), {}).get("name"),
                     "item_id": l["item_id"], "item_code": l["item_code"], "item_name": l["item_name"],
                     "unit": l["unit"], "requested": l["qty"], "processed": processed, "outstanding": outstanding,
                     "warehouse_id": l.get("warehouse_id"), "project_id": l.get("project_id"),

@@ -67,6 +67,65 @@ export function addToSources(sources, incBase) {
 const sumK = (arr, k) => (arr || []).reduce((a, x) => a + n(x[k]), 0);
 const byMroDate = (a, b) => String(a.mro_date || "").localeCompare(String(b.mro_date || "")) || String(a.mro_no || "").localeCompare(String(b.mro_no || ""));
 
+/** Satu sumber per baris MRO; qty dalam satuan dasar barang. */
+export const sourceFromPull = (r) => ({
+  mro_id: r.mro_id, mro_no: r.mro_no, mro_date: r.mro_date, line_id: r.line_id,
+  spk: r.spk || [], non_spk_qty: r.non_spk_qty, spk_label: r.spk_label || "Non-SPK",
+  project_id: r.project_id, project_name: r.project_name, unit_id: r.unit_id, unit_name: r.unit_name, warehouse_id: r.warehouse_id, source_header: r.source_header || null,
+  mro_qty: n(r.requested_base ?? r.requested), sudah_ro: n(r.processed_base ?? r.processed), sisa: n(r.outstanding_base ?? r.outstanding), qty: 0,
+  db_sisa: n(r._db_outstanding_base ?? r.outstanding_base ?? r.outstanding), reserved: n(r._reserved_base),
+});
+
+/** Kelompokkan baris MRO per Divisi + Barang (MRO/SPK/Proyek/Unit boleh berbeda). Supplier bukan kunci grouping. */
+export function consolidatePulled(rows) {
+  const map = new Map();
+  for (const r of rows || []) {
+    const key = `${r.division_id || ""}|${r.item_id}`;
+    if (!map.has(key)) map.set(key, { key, item_id: r.item_id, item_code: r.item_code, item_name: r.item_name, division_id: r.division_id, division_name: r.division_name, base_unit: r.base_unit || r.unit, base_uom_id: r.base_uom_id, sources: [] });
+    map.get(key).sources.push(sourceFromPull(r));
+  }
+  return [...map.values()].map((g) => ({ ...g, sources: g.sources.sort(byMroDate) }));
+}
+
+/** Bagi Qty RO ke sumber secara FIFO (MRO terlama dulu), dibatasi sisa tiap sumber. */
+export function distribute(sources, qty) {
+  let rem = Math.max(0, n(qty));
+  return [...sources].sort(byMroDate).map((s) => { const take = Math.min(n(s.sisa), rem); rem -= take; return { ...s, qty: +take.toFixed(6) }; });
+}
+
+const mroKey = (r) => String(r.mro_id || r.mro_no || "");
+
+/**
+ * Picker "Tarik MRO" per dokumen: satu baris per MRO berisi SELURUH sisa item MRO tersebut.
+ * Dipakai untuk mencentang MRO (bukan per barang); akumulasi barang yang sama terjadi saat konfirmasi
+ * lewat consolidatePulled().
+ */
+export function groupMroRows(rows) {
+  const map = new Map();
+  for (const r of rows || []) {
+    const key = mroKey(r);
+    if (!map.has(key)) {
+      map.set(key, { key, mro_id: r.mro_id, mro_no: r.mro_no || "-", mro_date: r.mro_date || "",
+                     division_id: r.division_id || "", division_name: r.division_name || "",
+                     item_count: 0, reserved_count: 0, item_text: "", lines: [] });
+    }
+    const g = map.get(key);
+    g.lines.push(r);
+    g.item_count += 1;
+    if (n(r._reserved_base) > EPS) g.reserved_count += 1;
+  }
+  return [...map.values()].map((g) => ({
+    ...g,
+    item_text: g.lines.map((r) => `${r.item_code || ""} ${r.item_name || ""}`.trim()).filter(Boolean).join(" | "),
+  })).sort(byMroDate);
+}
+
+/** Baris pull milik dokumen MRO terpilih (semua sisa item MRO tersebut). */
+export function rowsOfMro(rows, keys) {
+  const set = new Set([...(keys || [])].map(String));
+  return (rows || []).filter((r) => set.has(mroKey(r)));
+}
+
 /** Kurangi sisa baris MRO dengan qty yang sedang dipakai form RO aktif; sisa efektif <= 0 -> disembunyikan. */
 export function applyRoReservation(rows, reserved) {
   const out = [];
