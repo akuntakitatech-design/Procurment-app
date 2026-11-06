@@ -3,12 +3,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const tmp = join(tmpdir(), `sourceReservation.${process.pid}.mjs`);
 writeFileSync(tmp, readFileSync(join(here, "sourceReservation.js"), "utf8"));
-const R = await import(tmp);
+const R = await import(pathToFileURL(tmp).href);
 
 let fail = 0;
 const check = (name, cond, info = "") => { console.log(`${cond ? "PASS" : "FAIL"} ${name}${!cond && info ? " — " + JSON.stringify(info) : ""}`); if (!cond) fail++; };
@@ -31,6 +32,39 @@ const eq = (a, b) => Math.abs(Number(a) - Number(b)) < 1e-6;
   check("RO setelah merge sisa sumber tetap = sisa DB (10)", eq(lines[0].sources[0].sisa, 10));
   check("RO setelah merge -> sumber hilang", vis(lines).length === 0);
   check("RO hapus baris -> sumber kembali 10", eq(vis([])[0].outstanding_base, 10));
+}
+
+// ---------------------------------------------------------------- Picker "Tarik MRO" per dokumen MRO (Opsi 1)
+{
+  const pull = [
+    { mro_id: "M2", mro_no: "MRO-2", mro_date: "2026-10-02", division_id: "V", division_name: "Divisi V", item_id: "I1", item_code: "A1", item_name: "Baut", outstanding: 5 },
+    { mro_id: "M1", mro_no: "MRO-1", mro_date: "2026-10-01", division_id: "V", division_name: "Divisi V", item_id: "I1", item_code: "A1", item_name: "Baut", outstanding: 3 },
+    { mro_id: "M1", mro_no: "MRO-1", mro_date: "2026-10-01", division_id: "V", division_name: "Divisi V", item_id: "I2", item_code: "B2", item_name: "Mur", outstanding: 2 },
+    { mro_id: "M3", mro_no: "MRO-3", mro_date: "2026-10-03", division_id: "W", division_name: "Divisi W", item_id: "I1", item_code: "A1", item_name: "Baut", outstanding: 4 },
+  ];
+  const g = R.groupMroRows(pull);
+  check("picker MRO: 1 baris per dokumen MRO (urut tanggal)", g.length === 3 && g.map((x) => x.mro_no).join() === "MRO-1,MRO-2,MRO-3", g.map((x) => x.mro_no));
+  check("picker MRO: jumlah item dihitung per MRO", g[0].item_count === 2 && g[1].item_count === 1, g.map((x) => x.item_count));
+  check("picker MRO: divisi ikut dokumen MRO", g[0].division_name === "Divisi V" && g[2].division_id === "W");
+
+  const chosen = new Set(g.filter((x) => ["MRO-1", "MRO-2"].includes(x.mro_no)).map((x) => x.key));
+  const rows = R.rowsOfMro(pull, chosen);
+  check("picker MRO: centang 2 MRO -> semua item keduanya ditarik (3 baris)", rows.length === 3 && !rows.some((r) => r.mro_id === "M3"), rows.length);
+  const cons = R.consolidatePulled(rows);
+  const a1 = cons.find((x) => x.item_code === "A1");
+  check("picker MRO: barang sama dari 2 MRO jadi 1 baris", cons.length === 2 && !!a1, cons.map((x) => x.item_code));
+  check("picker MRO: baris A1 punya 2 sumber MRO", a1.sources.length === 2, a1.sources.map((s) => s.mro_no));
+  const full = R.distribute(a1.sources, a1.sources.reduce((t, s) => t + Number(s.sisa), 0));
+  check("picker MRO: qty terakumulasi 3 + 5 = 8", eq(full.reduce((t, s) => t + s.qty, 0), 8), full.map((s) => s.qty));
+  check("picker MRO: seluruh sisa diambil (tidak ada sisa tersisa)", full.every((s) => eq(s.qty, s.sisa)));
+
+  // Item yang sudah dipakai di form: MRO tetap tampil, item yang sisa efektifnya 0 disembunyikan.
+  const reserved = R.reserveMap([["L-M1-A1", 3]]);
+  const avail = R.applyRoReservation(pull.map((r) => ({ ...r, line_id: r.mro_no === "MRO-1" && r.item_id === "I1" ? "L-M1-A1" : `${r.mro_no}-${r.item_id}` })), reserved);
+  const g2 = R.groupMroRows(avail);
+  const m1 = g2.find((x) => x.mro_no === "MRO-1");
+  check("picker MRO: MRO yang sebagian dipakai tetap tampil", !!m1 && m1.item_count === 1, m1);
+  check("picker MRO: item yang sisa efektifnya habis hilang dari pilihan", !!m1 && !m1.lines.some((r) => r.item_id === "I1"));
 }
 
 // ---------------------------------------------------------------- PO <- RO

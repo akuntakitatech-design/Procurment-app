@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api, { apiError } from "@/lib/api";
-import { num } from "@/lib/format";
+import { fmtDate, num } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -9,39 +9,12 @@ import { Combobox } from "@/components/Combobox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ListTree, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
-import { applyRoReservation, mergeRoPicked, pullParams, roFormReservation } from "@/lib/sourceReservation";
+import { applyRoReservation, consolidatePulled, distribute, groupMroRows, mergeRoPicked, pullParams, roFormReservation, rowsOfMro } from "@/lib/sourceReservation";
 export { applyRoReservation };
 
 const EPS = 1e-6;
 const n = (v) => Number(v) || 0;
 const sum = (arr, k) => arr.reduce((a, x) => a + n(x[k]), 0);
-const byMroDate = (a, b) => String(a.mro_date || "").localeCompare(String(b.mro_date || "")) || String(a.mro_no || "").localeCompare(String(b.mro_no || ""));
-
-/** Satu sumber per baris MRO; qty dalam satuan dasar barang. */
-const sourceFromPull = (r) => ({
-  mro_id: r.mro_id, mro_no: r.mro_no, mro_date: r.mro_date, line_id: r.line_id,
-  spk: r.spk || [], non_spk_qty: r.non_spk_qty, spk_label: r.spk_label || "Non-SPK",
-  project_id: r.project_id, project_name: r.project_name, unit_id: r.unit_id, unit_name: r.unit_name, warehouse_id: r.warehouse_id, source_header: r.source_header || null,
-  mro_qty: n(r.requested_base ?? r.requested), sudah_ro: n(r.processed_base ?? r.processed), sisa: n(r.outstanding_base ?? r.outstanding), qty: 0,
-  db_sisa: n(r._db_outstanding_base ?? r.outstanding_base ?? r.outstanding), reserved: n(r._reserved_base),
-});
-
-/** Kelompokkan baris MRO per Divisi + Barang (MRO/SPK/Proyek/Unit boleh berbeda). Supplier bukan kunci grouping. */
-export function consolidatePulled(rows) {
-  const map = new Map();
-  for (const r of rows || []) {
-    const key = `${r.division_id || ""}|${r.item_id}`;
-    if (!map.has(key)) map.set(key, { key, item_id: r.item_id, item_code: r.item_code, item_name: r.item_name, division_id: r.division_id, division_name: r.division_name, base_unit: r.base_unit || r.unit, base_uom_id: r.base_uom_id, sources: [] });
-    map.get(key).sources.push(sourceFromPull(r));
-  }
-  return [...map.values()].map((g) => ({ ...g, sources: g.sources.sort(byMroDate) }));
-}
-
-/** Bagi Qty RO ke sumber secara FIFO (MRO terlama dulu), dibatasi sisa tiap sumber. */
-export function distribute(sources, qty) {
-  let rem = Math.max(0, n(qty));
-  return [...sources].sort(byMroDate).map((s) => { const take = Math.min(n(s.sisa), rem); rem -= take; return { ...s, qty: +take.toFixed(6) }; });
-}
 
 /** Nomor MRO unik untuk satu baris terkonsolidasi (urut tanggal MRO, dipisah koma). */
 export const mroNumbers = (sources) => [...new Set((sources || []).map((s) => s.mro_no).filter(Boolean))].join(", ") || "-";
@@ -98,59 +71,61 @@ export function RoSourcePickerDialog({ open, onClose, divisionId, onConfirm, for
   }, [open, divisionId, currentDocId]);
   // Sisa efektif = sisa untuk dokumen ini - qty yang sudah dipakai di form RO aktif (dihitung ulang setiap form berubah).
   const reserved = useMemo(() => roFormReservation(formLines), [formLines]);
-  const rows = useMemo(() => (raw === null ? null : consolidatePulled(applyRoReservation(raw, reserved))), [raw, reserved]);
+  const avail = useMemo(() => (raw === null ? null : applyRoReservation(raw, reserved)), [raw, reserved]);
+  // Satu baris = satu dokumen MRO (semua sisa item di dalamnya).
+  const mros = useMemo(() => (avail === null ? null : groupMroRows(avail)), [avail]);
   const divOptions = useMemo(() => {
-    const m = new Map(); (rows || []).forEach((g) => g.division_id && m.set(g.division_id, g.division_name || "-"));
+    const m = new Map(); (mros || []).forEach((g) => g.division_id && m.set(g.division_id, g.division_name || "-"));
     return [...m.entries()].map(([value, label]) => ({ value, label }));
-  }, [rows]);
-  const shown = (rows || []).filter((g) => (!div || g.division_id === div) && (!q || `${g.item_code} ${g.item_name} ${g.sources.map((s) => s.mro_no).join(" ")}`.toLowerCase().includes(q.toLowerCase())));
-  // Belum ada Divisi: memilih baris pertama sekaligus mengunci Divisi (satu RO = satu Divisi).
-  const toggle = (g) => { if (!divisionId && !div) setDiv(g.division_id || ""); setSel((c) => { const x = new Set(c); x.has(g.key) ? x.delete(g.key) : x.add(g.key); return x; }); };
-  // Ceklis massal: berlaku untuk baris yang sedang tampil (setelah cari/filter Divisi).
-  // Bila Divisi belum ditentukan, hanya baris dari Divisi baris pertama yang dipilih (satu RO = satu Divisi).
-  const shownKeys = shown.map((g) => g.key);
+  }, [mros]);
+  const shown = (mros || []).filter((g) => (!div || (g.division_id || "") === div) && (!q || `${g.mro_no} ${g.item_text}`.toLowerCase().includes(q.toLowerCase())));
+  // Satu RO hanya untuk satu Divisi: baris dari divisi lain tidak dapat dipilih.
+  const offDiv = (g) => !!div && (g.division_id || "") !== div;
+  const toggle = (g) => { if (offDiv(g)) return; if (!divisionId && !div) setDiv(g.division_id || ""); setSel((c) => { const x = new Set(c); x.has(g.key) ? x.delete(g.key) : x.add(g.key); return x; }); };
+  const shownKeys = shown.filter((g) => !offDiv(g)).map((g) => g.key);
   const allChecked = shownKeys.length > 0 && shownKeys.every((k) => sel.has(k));
   const someChecked = shownKeys.some((k) => sel.has(k));
   const toggleAll = () => {
     if (allChecked) { setSel((c) => { const x = new Set(c); shownKeys.forEach((k) => x.delete(k)); return x; }); return; }
     let keys = shownKeys;
-    if (!divisionId && !div && shown.length) { const d = shown[0].division_id || ""; setDiv(d); keys = shown.filter((g) => (g.division_id || "") === d).map((g) => g.key); }
+    if (!divisionId && !div && shown.length) { const d = shown[0].division_id || ""; setDiv(d); keys = shown.filter((g) => (g.division_id || "") === d && !offDiv(g)).map((g) => g.key); }
     setSel((c) => { const x = new Set(c); keys.forEach((k) => x.add(k)); return x; });
   };
+  // Konfirmasi: tarik SEMUA sisa item dari MRO terpilih, lalu gabungkan barang yang sama menjadi satu baris.
   const confirm = () => {
-    const picked = shown.filter((g) => sel.has(g.key)).map((g) => ({ ...g, sources: distribute(g.sources, sum(g.sources, "sisa")) }));
+    const picked = consolidatePulled(rowsOfMro(avail, sel)).map((g) => ({ ...g, sources: distribute(g.sources, sum(g.sources, "sisa")) }));
     onConfirm(picked); onClose();
   };
+  const selItems = (avail || []).reduce((a, r) => a + (sel.has(String(r.mro_id || r.mro_no || "")) ? 1 : 0), 0);
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" data-testid="ro-source-picker">
-        <DialogHeader><DialogTitle className="font-head">Tarik MRO — Kebutuhan Terkonsolidasi</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">Barang yang sama dalam satu Divisi digabung menjadi satu baris walaupun MRO, SPK, Proyek, atau Unit/Aset berbeda. Satu RO hanya untuk satu Divisi.</p>
+        <DialogHeader><DialogTitle className="font-head">Tarik MRO — Pilih Dokumen MRO</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">Centang nomor MRO yang dibutuhkan. Seluruh sisa item pada MRO terpilih akan ditarik; barang yang sama dari beberapa MRO digabung menjadi satu baris. Qty tetap bisa diubah setelah masuk daftar. Satu RO hanya untuk satu Divisi.</p>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[240px] flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari barang / nomor MRO..." className="pl-9" data-testid="ro-source-search" /></div>
+          <div className="relative min-w-[240px] flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari nomor MRO / barang..." className="pl-9" data-testid="ro-source-search" /></div>
           <div className="w-64" data-testid="ro-source-division">{divisionId ? <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">Divisi: <span className="font-semibold">{divOptions.find((d) => d.value === divisionId)?.label || "Divisi RO"}</span></div> : <Combobox options={divOptions} value={div} onChange={(v) => { setDiv(v); setSel(new Set()); }} placeholder="Pilih Divisi" />}</div>
         </div>
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-            <th className="w-10 p-2">{rows !== null && <Checkbox checked={allChecked ? true : someChecked ? "indeterminate" : false} onCheckedChange={toggleAll} aria-label="Pilih semua barang" className={someChecked && !allChecked ? "bg-primary/40" : ""} data-testid="ro-source-select-all" />}</th><th className="p-2">Barang</th><th className="p-2">Divisi</th><th className="p-2 text-right">Qty Kebutuhan</th><th className="p-2 text-right">Sudah RO</th><th className="p-2 text-right">Sisa</th><th className="p-2">Satuan</th><th className="p-2 text-right">Jumlah MRO</th><th className="p-2">No MRO</th><th className="p-2">Alokasi SPK</th>
+            <th className="w-10 p-2">{mros !== null && <Checkbox checked={allChecked ? true : someChecked ? "indeterminate" : false} onCheckedChange={toggleAll} aria-label="Pilih semua MRO" className={someChecked && !allChecked ? "bg-primary/40" : ""} data-testid="ro-source-select-all" />}</th><th className="p-2">No MRO</th><th className="p-2">Tanggal</th><th className="p-2">Divisi</th><th className="p-2 text-right">Jumlah Item</th><th className="p-2">Barang (seluruh sisa ditarik)</th><th className="p-2 text-right">Sudah di Form</th>
           </tr></thead><tbody>
-            {rows === null && <tr><td colSpan={10} className="p-6 text-center text-muted-foreground">Memuat kebutuhan MRO...</td></tr>}
-            {rows && shown.length === 0 && <tr><td colSpan={10} className="p-6 text-center text-muted-foreground" data-testid="ro-source-empty">Tidak ada sisa kebutuhan MRO{div ? " untuk divisi ini" : ""}.</td></tr>}
-            {shown.map((g) => { const t = lineTotals(g); const s = spkSummary(g.sources, false); return (
-              <tr key={g.key} className="border-t" data-testid={`ro-source-row-${g.item_code}`}>
-                <td className="p-2"><Checkbox checked={sel.has(g.key)} onCheckedChange={() => toggle(g)} aria-label={`Pilih ${g.item_name}`} data-testid={`ro-source-select-${g.item_code}`} /></td>
-                <td className="p-2"><div className="font-medium">{g.item_name}</div><div className="font-mono text-xs text-muted-foreground">{g.item_code}</div></td>
+            {mros === null && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Memuat kebutuhan MRO...</td></tr>}
+            {mros && shown.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground" data-testid="ro-source-empty">Tidak ada sisa kebutuhan MRO{div ? " untuk divisi ini" : ""}.</td></tr>}
+            {shown.map((g) => (
+              <tr key={g.key} className={`border-t ${offDiv(g) ? "opacity-50" : ""}`} data-testid={`ro-source-row-${g.mro_no}`}>
+                <td className="p-2"><Checkbox checked={sel.has(g.key)} disabled={offDiv(g)} onCheckedChange={() => toggle(g)} aria-label={`Pilih MRO ${g.mro_no}`} title={offDiv(g) ? "Divisi berbeda dengan divisi RO" : undefined} data-testid={`ro-source-select-${g.mro_no}`} /></td>
+                <td className="p-2 font-mono text-xs font-semibold whitespace-normal" data-testid={`ro-source-mro-no-${g.mro_no}`}>{g.mro_no}</td>
+                <td className="p-2 whitespace-nowrap">{g.mro_date ? fmtDate(g.mro_date) : "-"}</td>
                 <td className="p-2">{g.division_name || "-"}</td>
-                <td className="p-2 text-right tabular-nums">{num(t.need)}</td><td className="p-2 text-right tabular-nums">{num(t.done)}</td><td className="p-2 text-right font-semibold tabular-nums" data-testid={`ro-source-sisa-${g.item_code}`}>{num(t.sisa)}{sum(g.sources, "reserved") > EPS && <div className="text-[11px] font-normal text-muted-foreground" data-testid={`ro-source-reserved-${g.item_code}`}>di form: {num(sum(g.sources, "reserved"))}</div>}</td>
-                <td className="p-2">{g.base_unit}</td>
-                <td className="p-2 text-right" title={g.sources.map((x) => x.mro_no).join(", ")}>{t.mro} MRO</td>
-                <td className="p-2 font-mono text-xs align-top whitespace-normal" data-testid={`ro-source-mro-nos-${g.item_code}`}>{mroNumbers(g.sources)}</td>
-                <td className="p-2 text-xs" title={s.title}>{s.text}</td>
-              </tr>); })}
+                <td className="p-2 text-right tabular-nums" data-testid={`ro-source-items-${g.mro_no}`}>{g.item_count}</td>
+                <td className="p-2 text-xs text-muted-foreground" title={g.item_text}>{g.item_text.length > 90 ? `${g.item_text.slice(0, 90)}…` : g.item_text}</td>
+                <td className="p-2 text-right text-xs" data-testid={`ro-source-reserved-${g.mro_no}`}>{g.reserved_count ? `${g.reserved_count} item` : "-"}</td>
+              </tr>))}
           </tbody></table>
         </div>
-        {!divisionId && !div && rows && rows.length > 0 && <p className="text-xs text-muted-foreground" data-testid="ro-source-division-hint">Pilih Divisi atau langsung centang barang. Divisi RO mengikuti baris pertama yang dipilih.</p>}
-        <DialogFooter><Button variant="outline" onClick={onClose}>Batal</Button><Button onClick={confirm} disabled={sel.size === 0} data-testid="ro-source-confirm">Tambahkan {sel.size ? `(${sel.size})` : ""}</Button></DialogFooter>
+        {!divisionId && !div && mros && mros.length > 0 && <p className="text-xs text-muted-foreground" data-testid="ro-source-division-hint">Pilih Divisi atau langsung centang MRO. Divisi RO mengikuti MRO pertama yang dipilih.</p>}
+        <DialogFooter><Button variant="outline" onClick={onClose}>Batal</Button><Button onClick={confirm} disabled={sel.size === 0} data-testid="ro-source-confirm">Tambahkan {sel.size ? `(${sel.size} MRO · ${selItems} item)` : ""}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );
