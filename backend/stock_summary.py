@@ -35,6 +35,8 @@ from fastapi import HTTPException
 SIZES = (25, 50, 100)
 STATUSES = ("Normal", "Low Stock", "Out of Stock", "Overstock", "No Stock", "Without Stock")
 SORTS = {"code", "name", "category_label", "unit_label", "division_label", "total_stock", "stock_status", "created_at"}
+# Urutan kolom stok per gudang: `sort=wh:<warehouse_id>` (divalidasi terhadap gudang dalam cakupan).
+WH_SORT_PREFIX = "wh:"
 STATUS_RANK = {"Out of Stock": 0, "Low Stock": 1, "Normal": 2, "Overstock": 3, "Without Stock": 4}
 SUMMARY_KEY = {"Out of Stock": "out_of_stock", "Low Stock": "low_stock", "Overstock": "overstock", "Normal": "normal",
                "Without Stock": "without_stock"}
@@ -192,6 +194,38 @@ def wh_in_scope(w, alw, wh_ids) -> bool:
     return not wh_ids or w["id"] in wh_ids
 
 
+def wh_sort_id(sort_key, col_ids) -> Optional[str]:
+    """warehouse_id bila `sort` berbentuk `wh:<id>` DAN gudang itu ada di kolom scope; selain itu None."""
+    key = str(sort_key or "").strip()
+    if not key.startswith(WH_SORT_PREFIX):
+        return None
+    wid = key[len(WH_SORT_PREFIX):].strip()
+    return wid if wid and wid in {str(x) for x in (col_ids or [])} else None
+
+
+async def warehouse_sort_values(server, warehouse_id: str, user) -> dict:
+    """{item_id: current_stock} untuk satu gudang — dipakai urutan kolom per gudang (1 query).
+    Hanya membaca kolom stok; tidak menghitung nilai/valuasi baru."""
+    if not warehouse_id:
+        return {}
+    if server.DB_BACKEND == "mariadb":
+        import tenant_foundation_layer as TF
+        import tenant_isolation_layer as TI
+        raw = server.client[os.environ.get("DB_NAME", "default")]
+        await raw._ensure_table("item_warehouse")
+        tenant = TI.current_tenant_id() or TF.tenant_id_of(user)
+        rows = await raw._fetchall(
+            "SELECT item_id, COALESCE(CAST(current_stock AS DOUBLE), 0) FROM `item_warehouse` "
+            "WHERE tenant_id = %s AND warehouse_id = %s", [tenant, warehouse_id])
+        return {r[0]: float(r[1] or 0) for r in rows if r[0]}
+    out = {}
+    for iw in await server.db.item_warehouse.find({"warehouse_id": warehouse_id},
+                                                 {"_id": 0, "item_id": 1, "current_stock": 1}).to_list(None):
+        if iw.get("item_id"):
+            out[iw["item_id"]] = _f(iw.get("current_stock"))
+    return out
+
+
 async def stock_aggregate(server, wh_ids: list, user) -> dict:
     """{item_id: (total, min_total, max_total, records, value, unvalued_pools)} untuk gudang scope; dihitung di database.
     `value` = SUM(total_value) apa adanya dari engine MWA (read-only); `unvalued_pools` = pool `missing_average`."""
@@ -328,18 +362,25 @@ async def compute(server, user, *, warehouse_id: str = "", division_id: str = ""
     return out
 
 
-async def _filtered_sorted(rows: list, qp: dict) -> list:
-    """Filter status stok + urutan daftar (dipakai daftar ber-halaman & export)."""
+async def _filtered_sorted(rows: list, qp: dict, wh_values: Optional[dict] = None) -> list:
+    """Filter status stok + urutan daftar (dipakai daftar ber-halaman & export).
+    `wh_values` = {item_id: qty} untuk `sort=wh:<id>`; None berarti gudang di luar cakupan -> urutan default."""
     st = qp.get("stock_status") or ""
     if st == "No Stock":
         rows = [r for r in rows if not r["stock_records"]]
     elif st in STATUSES:
         rows = [r for r in rows if r["stock_status"] == st]
 
-    sort = qp.get("sort") if qp.get("sort") in SORTS else None
+    sort = str(qp.get("sort") or "").strip()
     desc = qp.get("dir") == "desc"
-    if sort:
+    getv = None
+    if sort.startswith(WH_SORT_PREFIX):
+        if wh_values is not None:  # kolom stok per gudang; barang tanpa catatan stok di gudang itu dianggap kosong
+            getv = lambda r: wh_values.get(r["id"])
+    elif sort in SORTS:
         getv = (lambda r: STATUS_RANK[r["stock_status"]]) if sort == "stock_status" else (lambda r: r.get(sort))
+
+    if getv:  # nilai kosong selalu di akhir, arah asc/desc hanya untuk nilai yang terisi
         filled = [r for r in rows if getv(r) not in (None, "")]
         empty = [r for r in rows if getv(r) in (None, "")]
         filled.sort(key=lambda r: (_skey(getv(r)), str(r.get("code") or "")), reverse=desc)
@@ -354,7 +395,9 @@ async def list_all(server, user, qp: dict, *, force_active: Optional[str] = None
     res = await compute(server, user, warehouse_id=qp.get("warehouse_id") or "", division_id=qp.get("division_id") or "",
                         category_id=qp.get("category_id") or "",
                         active=force_active if force_active is not None else (qp.get("active") or ""), q=qp.get("q") or "")
-    return {**res, "rows": await _filtered_sorted(res["rows"], qp)}
+    wh_id = wh_sort_id(qp.get("sort"), [w["id"] for w in res["col_whs"]])
+    wh_values = await warehouse_sort_values(server, wh_id, user) if wh_id else None
+    return {**res, "rows": await _filtered_sorted(res["rows"], qp, wh_values)}
 
 
 async def cells_for(server, item_ids, wh_ids, chunk: int = 800) -> dict:

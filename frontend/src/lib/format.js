@@ -3,7 +3,11 @@ export const rupiah = (n) => {
   return "Rp " + Number(n).toLocaleString("id-ID", { maximumFractionDigits: 0 });
 };
 
-export const num = (n) => (n == null ? "0" : Number(n).toLocaleString("id-ID", { maximumFractionDigits: 2 }));
+export const num = (n) => {
+  if (n == null) return "0";
+  const s = Number(n).toLocaleString("id-ID", { maximumFractionDigits: 2 });
+  return s === "-0" ? "0" : s; // nilai sisa float (mis. -6e-15) dibulatkan ke 0, jangan tampil "-0"
+};
 
 // Numeric coercion helper for ARITHMETIC. `num()` is a DISPLAY formatter and
 // returns a localized string — never use it inside math (e.g. reduce/+/-),
