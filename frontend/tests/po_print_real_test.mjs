@@ -22,7 +22,7 @@ const v2 = { no: "PO/115/VII/OMSS/2026", date: "2026-07-23", status: "Approved",
     { id: "b", item_name: 'Smith Clamp 20"', qty: 50, price: 1140000, discount: 0, dpp: 57000000, display_unit: "Ea", tax_mode: "EXCLUDE", tax_code: "P04", tax_trx_code: "04", mro_refs: ["2248"], ro_refs: [{ ro_no: "RO/1" }] },
     { id: "c", item_name: 'Smith Clamp 24"', qty: 150, price: 1210000, discount: 0, dpp: 181500000, display_unit: "Ea", tax_mode: "EXCLUDE", tax_code: "P04", tax_trx_code: "04", mro_refs: ["2248"], ro_refs: [{ ro_no: "RO/1" }] }] };
 const H = (doc, o = {}) => realPoHtml({ doc, company: { name: "PT. Rajawali Emas Ancora Lestari", address: "Yard Balai Raja" }, layout: { ...layout, ...(o.layout || {}) },
-  logoImg: "data:image/png;base64,LOGO", supplier: { name: "PT Supplier Uji", contacts: [{ name: "Marketing Uji", phone: "0822", is_primary: true }], banks: [{ bank_name: "Bank Mandiri", account_no: "172-000", account_name: "PT Supplier Uji", is_primary: true }] },
+  logoImg: "data:image/png;base64,LOGO", supplier: { legal_name: "PT Supplier Legal Uji", name: "PIC Utama Uji", phone: "0811-000-000", contacts: [{ name: "Marketing Uji", phone: "0822", is_primary: true }], banks: [{ bank_name: "Bank Mandiri", account_no: "172-000", account_name: "PT Supplier Uji", is_primary: true }] },
   project: { name: "WUR-MD" }, signatureImg: SIG, showPrice: o.showPrice ?? true, internal: !!o.internal, autoPrint: o.autoPrint ?? false });
 const sum = (h) => [...h.matchAll(/data-sum="([^"]+)">[\s\S]*?<td class="sum-label" colspan="2">([\s\S]*?)<\/td><td class="sum-value">([^<]*)<\/td>/g)].map((m) => [m[1], m[2].replace(/<[^>]+>/g, "").trim(), m[3]]);
 
@@ -34,7 +34,22 @@ check("teks & garis hitam formal (bukan warna tema)", /body\{color:#000;/.test(h
 check("header: logo, nama perusahaan, judul PURCHASE ORDER", h.includes('class="real-logo" src="data:image/png;base64,LOGO"') && h.includes('<div class="brand-name">PT. Rajawali Emas Ancora Lestari</div>') && h.includes('<div class="po-title">PURCHASE ORDER</div>'));
 check("Delivery To + Project + Bill To", h.includes("Please Delivery to :") && h.includes("Project WUR-MD") && h.includes("Please Bill to :"));
 check("kotak meta berbingkai + catatan nomor PO seperti manual", h.includes(".meta-box{border:.3mm solid #000") && h.includes("This PO Number must appear on all invoices.") && h.includes("Packing list delivery orders."));
-check("meta: PO No, tanggal panjang ID, supplier ref, buyer, marketing, terms", ["PO/115/VII/OMSS/2026", "23 Juli 2026", "785/Q/VII/2026", "Buyer Uji", "Marketing Uji", "N-30", "H+30 Setelah PO"].every((x) => h.includes(x)));
+check("meta: PO No, tanggal panjang ID, supplier ref, buyer, marketing, terms", ["PO/115/VII/OMSS/2026", "23 Juli 2026", "785/Q/VII/2026", "Buyer Uji", "PIC Utama Uji", "N-30", "H+30 Setelah PO"].every((x) => h.includes(x)));
+// Pemetaan identitas supplier di kotak meta: Supplier = Nama Legal/Perusahaan, Marketing Contact = PIC Utama,
+// Phone (baris marketing) = No. Telepon supplier. Data kontak lama (supplier.contacts) tetap jadi cadangan.
+const metaVal = (html, label, nth = 0) => {
+  const re = new RegExp(`<span class="lab">${label}</span><span>:</span><span class="val">([\\s\\S]*?)</span>`, "g");
+  return [...html.matchAll(re)].map((m) => m[1])[nth];
+};
+check("meta Supplier = Nama Legal/Perusahaan", metaVal(h, "Supplier") === "PT Supplier Legal Uji", metaVal(h, "Supplier"));
+check("meta Marketing Contact = PIC Utama", metaVal(h, "Marketing Contact") === "PIC Utama Uji", metaVal(h, "Marketing Contact"));
+check("meta Phone marketing = No. Telepon supplier", metaVal(h, "Phone", 1) === "0811-000-000", metaVal(h, "Phone", 1));
+const noLegal = realPoHtml({ doc: v2, company: { name: "PT. Rajawali Emas Ancora Lestari", address: "Yard Balai Raja" }, layout: { ...layout },
+  supplier: { name: "PIC Cadangan", contacts: [{ name: "Marketing Uji", phone: "0822", is_primary: true }], banks: [] },
+  project: { name: "WUR-MD" }, signatureImg: SIG, showPrice: true, internal: false, autoPrint: false });
+check("cadangan: tanpa legal_name/phone -> supplier_name dokumen & kontak marketing",
+  metaVal(noLegal, "Supplier") === "PT Supplier Uji" && metaVal(noLegal, "Phone", 1) === "0822",
+  `${metaVal(noLegal, "Supplier")} / ${metaVal(noLegal, "Phone", 1)}`);
 check("kolom tabel = manual: No | Description | No. SPK | Qty(2) | Price | Discount | Amount", h.includes('<thead><tr><th>No</th><th>Description</th><th>No. SPK</th><th colspan="2">Qty</th><th>Price</th><th>Discount</th><th>Amount</th></tr></thead>'));
 check("header tabel berulang per halaman, garis penutup berulang, ringkasan TIDAK berulang (tabel terpisah)", h.includes(".items thead{display:table-header-group}.items tfoot.page-close{display:table-footer-group}") && h.includes('<tfoot class="page-close">') && h.includes('<table class="items sums keep" data-section="summary">') && !/<tfoot>[\s\S]*data-sum=/.test(h));
 check("penanda halaman lanjutan (hal. 2 dst.) memuat No. PO; halaman 1 bersih", h.includes('@top-right{content:"PO/115/VII/OMSS/2026  ·  Halaman " counter(page)') && h.includes("@page:first{@top-right{content:none}}"));

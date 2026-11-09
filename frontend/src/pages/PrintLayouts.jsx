@@ -101,7 +101,7 @@ const SAMPLE_PO = {
     id, item_name, qty, price, discount: 0, dpp: qty * price, display_unit: "Ea", tax_mode: "EXCLUDE", tax_code: "PPN04", tax_name: "PPN DPP Nilai Lain", tax_trx_code: "04", mro_refs: ["MRO 2248"], ro_refs: [{ ro_no: "RO/2026/07/00031" }] })),
 };
 const SAMPLE_ALLOC = [{ item_line_id: "c", allocations: [{ spk_number: "SPK/001", allocated_qty: 150 }], non_spk_qty: 0 }];
-const SAMPLE_SUPPLIER = { name: "PT. Supplier Contoh", contacts: [{ name: "Marketing Supplier", phone: "+62 822-0000-0000", is_primary: true }], banks: [{ bank_name: "Bank Contoh", account_no: "000-000-000-000-0", account_name: "PT. Supplier Contoh", is_primary: true }] };
+const SAMPLE_SUPPLIER = { legal_name: "PT. Supplier Contoh", name: "Marketing Supplier", phone: "+62 822-0000-0000", contacts: [{ name: "Marketing Supplier", phone: "+62 822-0000-0000", is_primary: true }], banks: [{ bank_name: "Bank Contoh", account_no: "000-000-000-000-0", account_name: "PT. Supplier Contoh", is_primary: true }] };
 const A4_PX = [794, 1123];
 
 function MarginFields({ layout, setLayout }) {

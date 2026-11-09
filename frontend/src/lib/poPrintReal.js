@@ -233,7 +233,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
   const approvedTask = [...(doc.approvals || [])].reverse().find((a) => String(a.status || "").toLowerCase() === "approved" && a.acted_by);
   const approvedName = layout.po_approved_name || approvedTask?.acted_by || "";
   const approvedCompany = layout.po_approved_company || company.name || "";
-  const signedName = marketing.name || "";
+  const signedName = supplier?.name || marketing.name || "";
   const supplierCompany = supplier?.legal_name || supplier?.name || doc.supplier_name || "";
   const approvedSignature = approved && signatureImg ? `<img class="approved-signature" src="${signatureImg}" alt=""/>` : "";
   // ---- paraf Approval 1: hanya GAMBAR paraf, dicetak di sisi kanan nama approver (baris nama),
@@ -314,9 +314,9 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
         ${layout.po_bill_phone ? `<div class="kv"><span>Hp.</span><span>${esc(layout.po_bill_phone)}</span></div>` : ""}
       </div>
       <div class="meta-box">
-        ${meta("PO No.", doc.no || "")}${meta("PO Date", longDateId(doc.date))}${meta("Supplier", doc.supplier_name || supplier?.name || "")}${meta("Supplier ref", doc.supplier_ref || doc.supplier_notes || "")}
+        ${meta("PO No.", doc.no || "")}${meta("PO Date", longDateId(doc.date))}${meta("Supplier", supplier?.legal_name || doc.supplier_legal_name || doc.supplier_name || supplier?.name || "")}${meta("Supplier ref", doc.supplier_ref || doc.supplier_notes || "")}
         <div class="meta-note">This PO Number must appear on all invoices.</div><div class="meta-note">Packing list delivery orders.</div>
-        ${meta("Buyer's Contact", doc.buyer_contact_name || "")}${meta("Phone", doc.buyer_contact_phone || "")}${meta("Marketing Contact", marketing.name || "")}${meta("Phone", marketing.phone || "")}${meta("Payment terms", doc.payment_term || "")}${meta("Delivery terms", doc.delivery_term || "")}
+        ${meta("Buyer's Contact", doc.buyer_contact_name || "")}${meta("Phone", doc.buyer_contact_phone || "")}${meta("Marketing Contact", supplier?.name || marketing.name || "")}${meta("Phone", supplier?.phone || marketing.phone || "")}${meta("Payment terms", doc.payment_term || "")}${meta("Delivery terms", doc.delivery_term || "")}
       </div>
     </div>
     <table class="items main">${colgroup}${head}<tbody>${body}</tbody>${pageClose}</table>${sumTable}
