@@ -96,7 +96,20 @@ check("PO lama (v1): ringkasan & angka seperti sebelumnya (PPN 11%)", JSON.strin
 
 // ---------------------------------------------------------------- izin harga & internal
 const hp = H(v2, { showPrice: false });
-check("tanpa izin harga: tidak ada angka harga/pajak/DP sama sekali", !["980.000", "29.400.000", "297.369.000", "118.947.600", "Sisa Pembayaran", "Grand Total", "<th>Price</th>"].some((x) => hp.includes(x)) && hp.includes("<th>Keterangan</th>") && hp.includes("Uang Muka (DP) disyaratkan"));
+check("tanpa izin harga: tidak ada angka harga/pajak/DP sama sekali", !["980.000", "29.400.000", "297.369.000", "118.947.600", "Sisa Pembayaran", "Grand Total", "<th>Price</th>"].some((x) => hp.includes(x)) && !hp.includes("<th>Keterangan</th>") && hp.includes("Uang Muka (DP) disyaratkan"));
+// Keterangan item (input `notes` per baris) digabung ke kolom Description, bukan kolom terpisah & tanpa label "Ket:".
+const NOTES = "Periode 16 Oktober - 15 November 2025";
+const withNotes = { ...v2, lines: [{ ...v2.lines[0], notes: NOTES }] };
+const hn = H(withNotes);
+const hnn = H(withNotes, { showPrice: false });
+check("keterangan tampil di kolom nama barang (satu sel, tanpa label 'Ket:')",
+  hn.includes(`<div class="item-name">`) && hn.includes(`<div class="line-note">${NOTES}</div>`) && !hn.includes("Ket: "),
+  hn.match(/<td class="desc">[\s\S]*?<\/td>/)?.[0]);
+check("keterangan ikut tampil pada cetak tanpa izin harga (kolom Keterangan dihapus)",
+  hnn.includes(`<div class="line-note">${NOTES}</div>`) && !hnn.includes("<th>Keterangan</th>") && !hnn.includes('class="ket"'));
+check("baris tanpa keterangan tidak menambah baris kosong", !H(v2).includes('class="line-note"'));
+check("keterangan multi-baris: baris baru jadi <br/>",
+  H({ ...v2, lines: [{ ...v2.lines[0], notes: "baris satu\nbaris dua" }] }).includes('<div class="line-note">baris satu<br/>baris dua</div>'));
 const ov = { ...v2, lines: [{ ...v2.lines[0], price_status: "Price Override", price_change_reason: "harga naik", contract_price_snapshot: 900000 }] };
 check("catatan perubahan harga hanya di cetak internal", H(ov, { internal: true }).includes("Catatan Perubahan Harga (Internal)") && !H(ov).includes("Catatan Perubahan Harga"));
 
