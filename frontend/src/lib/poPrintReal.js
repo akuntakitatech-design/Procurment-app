@@ -179,26 +179,26 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
   const deliveryAddress = company.address || "";
 
   // ---- tabel barang
-  const cols = showPrice ? 8 : 6;
+  const cols = showPrice ? 8 : 5;
   const itemRow = (l, i) => {
     const f = Number(l.conversion_factor) || 1;
     const q = l.display_qty ?? ((Number(l.qty) || 0) / f);
     const p = l.display_price ?? ((Number(l.price) || 0) * f);
     const amount = Number(l.dpp ?? (Number(q || 0) * Number(p || 0) - Number(l.discount || 0)));
     const disc = Number(l.discount || 0);
-    const sub = showPrice && l.notes ? `<div class="line-note">Ket: ${esc(l.notes)}</div>` : "";
+    const sub = l.notes ? `<div class="line-note">${nl2br(l.notes)}</div>` : "";
     const fin = showPrice ? `<td class="r price">${idrPlain(p)}</td><td class="r discount">${disc ? idrPlain(disc) : "-"}</td><td class="r amount">${money(amount)}</td>` : "";
-    return `<tr class="item"><td class="c no">${i + 1}</td><td class="desc"><div class="item-name">${esc(l.item_name || l.item_code || "")}</div>${sub}</td><td class="c spk">${nl2br(l._spk_label || "")}</td><td class="r qty">${num(q)}</td><td class="c unit">${esc(l.display_unit || l.unit || "")}</td>${showPrice ? fin : `<td class="ket">${esc(l.notes || "")}</td>`}</tr>`;
+    return `<tr class="item"><td class="c no">${i + 1}</td><td class="desc"><div class="item-name">${esc(l.item_name || l.item_code || "")}</div>${sub}</td><td class="c spk">${nl2br(l._spk_label || "")}</td><td class="r qty">${num(q)}</td><td class="c unit">${esc(l.display_unit || l.unit || "")}</td>${showPrice ? fin : ""}</tr>`;
   };
   const emptyCells = (n) => Array.from({ length: n }, () => "<td></td>").join("");
   const body = lines.length ? poRefGroups(lines).map((g) => `${g.label ? `<tr class="grp"><td></td><td class="grp-label">${esc(g.label)}</td>${emptyCells(cols - 2)}</tr>` : ""}${g.rows.map(([l, i]) => itemRow(l, i)).join("")}`).join("") + `<tr class="filler">${emptyCells(cols)}</tr>`
     : `<tr><td colspan="${cols}" class="c">Tidak ada item</td></tr>`;
   const colgroup = showPrice
     ? `<colgroup><col style="width:4.5%"><col style="width:28.5%"><col style="width:14%"><col style="width:6.5%"><col style="width:5.5%"><col style="width:13%"><col style="width:11%"><col style="width:17%"></colgroup>`
-    : `<colgroup><col style="width:5%"><col style="width:39%"><col style="width:15%"><col style="width:8%"><col style="width:8%"><col style="width:25%"></colgroup>`;
+    : `<colgroup><col style="width:5%"><col style="width:60%"><col style="width:15%"><col style="width:10%"><col style="width:10%"></colgroup>`;
   const head = showPrice
     ? `<thead><tr><th>No</th><th>Description</th><th>No. SPK</th><th colspan="2">Qty</th><th>Price</th><th>Discount</th><th>Amount</th></tr></thead>`
-    : `<thead><tr><th>No</th><th>Description</th><th>No. SPK</th><th colspan="2">Qty</th><th>Keterangan</th></tr></thead>`;
+    : `<thead><tr><th>No</th><th>Description</th><th>No. SPK</th><th colspan="2">Qty</th></tr></thead>`;
   const sums = showPrice ? [...summaryRows(doc, lines), ...dpSummaryRows(doc, money)] : [];
   // ---- rincian pajak per kelompok: hanya untuk kombinasi (lebih dari 1 kelompok / fasilitas / campur Tanpa PPN)
   const groups = showPrice && v2 ? poTaxGroupRows(doc) : [];
@@ -274,7 +274,7 @@ export function realPoHtml({ doc, company, layout, logoImg, code, supplier, proj
     .items tr.grp td{border-top:.25mm solid #000;border-bottom:none}.items tr.grp + tr.item td{border-top:none}
     .items .grp-label{font-weight:700;font-style:italic}
     .items tr.item td{border-top:none;border-bottom:none}.items tr.filler td{border-top:none;height:1.6mm}
-    .items .item-name{overflow-wrap:anywhere}.items .line-note{font-size:${small}px;font-style:italic;color:#374151}
+    .items .item-name{overflow-wrap:anywhere}.items .line-note{overflow-wrap:anywhere}
     .items tbody tr{break-inside:avoid}
     .sums tr{break-inside:avoid}.sums td{padding:.3mm 1.3mm}.sums .sum-label,.sums .sum-value{font-size:${Math.max(8, fs - 1)}px}
     .sums .sum-spacer{border:none!important;border-left:.25mm solid transparent!important;background:transparent}

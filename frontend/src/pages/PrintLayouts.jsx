@@ -97,8 +97,8 @@ const SAMPLE_PO = {
   dp_enabled: true, dp_type: "percentage", dp_value: 40, dp_amount: 118947600, dp_remaining: 178421400,
   approvals: [{ seq: 1, status: "Approved", acted_by: "Nama Approver" }],
   document_message: "Term and Condition\n1 Apabila dalam waktu 7 hari setelah PO diterima material / barang tidak dikirim, maka PO otomatis dianggap batal\n2 Pengiriman dilakukan secara partial dari vendor\n\nCatatan\n1 Pesanan Pembelian ini harus memenuhi syarat dan ketentuan yang berlaku setelah pesanan pembelian diterima\n2 Invoice hanya dapat di proses apabila melampirkan dokumen sebagai berikut:\n* Invoice\n* Kwitansi (Harus Bermaterai)\n* Faktur Pajak (Jika PKP)",
-  lines: [["a", 'Smith Clamp 14"', 30, 980000], ["b", 'Smith Clamp 20"', 50, 1140000], ["c", 'Smith Clamp 24"', 150, 1210000]].map(([id, item_name, qty, price]) => ({
-    id, item_name, qty, price, discount: 0, dpp: qty * price, display_unit: "Ea", tax_mode: "EXCLUDE", tax_code: "PPN04", tax_name: "PPN DPP Nilai Lain", tax_trx_code: "04", mro_refs: ["MRO 2248"], ro_refs: [{ ro_no: "RO/2026/07/00031" }] })),
+  lines: [["a", 'Smith Clamp 14"', 30, 980000, "Periode 16 Oktober - 15 November 2025"], ["b", 'Smith Clamp 20"', 50, 1140000], ["c", 'Smith Clamp 24"', 150, 1210000]].map(([id, item_name, qty, price, notes]) => ({
+    id, item_name, qty, price, discount: 0, dpp: qty * price, display_unit: "Ea", notes: notes || "", tax_mode: "EXCLUDE", tax_code: "PPN04", tax_name: "PPN DPP Nilai Lain", tax_trx_code: "04", mro_refs: ["MRO 2248"], ro_refs: [{ ro_no: "RO/2026/07/00031" }] })),
 };
 const SAMPLE_ALLOC = [{ item_line_id: "c", allocations: [{ spk_number: "SPK/001", allocated_qty: 150 }], non_spk_qty: 0 }];
 const SAMPLE_SUPPLIER = { legal_name: "PT. Supplier Contoh", name: "Marketing Supplier", phone: "+62 822-0000-0000", contacts: [{ name: "Marketing Supplier", phone: "+62 822-0000-0000", is_primary: true }], banks: [{ bank_name: "Bank Contoh", account_no: "000-000-000-000-0", account_name: "PT. Supplier Contoh", is_primary: true }] };
