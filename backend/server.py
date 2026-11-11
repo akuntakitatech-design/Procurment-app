@@ -222,20 +222,43 @@ async def assert_posting_window(item_id, warehouse_id, txn_at=None, doc_id=None)
     - Perbandingan memakai tanggal kalender WIB, bukan potongan string UTC (lihat posting_date).
     - Entri reversal tidak dihitung: entri kompensasi bertanggal "sekarang" dan akan
       memblokir posting ulang dokumen yang sedang diedit.
+    - Entri yang SUDAH dibalik (`reversal_of`) juga tidak dihitung: dokumennya bisa sudah dihapus
+      atau diedit, sehingga pergerakannya tidak lagi berlaku. Tanpa ini, pergerakan "hantu"
+      bertanggal terbaru tetap memblokir posting mundur (mis. DO yang sudah dihapus).
     - Entri milik dokumen itu sendiri tidak dihitung, sehingga edit/posting ulang dokumen
       bertanggal lampau tidak memblokir dirinya sendiri.
     """
     query = {"item_id": item_id, "warehouse_id": warehouse_id, "is_reversal": {"$ne": True}}
     if doc_id:
         query["doc_id"] = {"$ne": doc_id}
-    latest = await db.valuation_ledger.find(query, {"_id": 0}).sort("txn_at", -1).to_list(1)
-    if not latest:
+    page = 200
+    skip = 0
+    latest = None
+    while True:
+        rows = await db.valuation_ledger.find(query, {"_id": 0}).sort("txn_at", -1).skip(skip).limit(page).to_list(page)
+        if not rows:
+            break
+        ids = [r.get("id") for r in rows if r.get("id")]
+        reversed_ids = set()
+        if ids:
+            marks = await db.valuation_ledger.find(
+                {"is_reversal": True, "reversal_of": {"$in": ids}},
+                {"_id": 0, "reversal_of": 1}).to_list(len(ids))
+            reversed_ids = {m.get("reversal_of") for m in marks if m.get("reversal_of")}
+        active = [r for r in rows if r.get("id") not in reversed_ids]
+        if active:
+            latest = active[0]
+            break
+        if len(rows) < page:  # sudah habis dan seluruhnya telah dibalik
+            break
+        skip += len(rows)
+    if latest is None:
         return
-    last_at = latest[0].get("txn_at") or latest[0].get("at")
+    last_at = latest.get("txn_at") or latest.get("at")
     if not is_backdated(txn_at, last_at):
         return
     last_d = wib_date(last_at)
-    ref = latest[0].get("doc_no") or last_d
+    ref = latest.get("doc_no") or last_d
     raise StockError(
         f"Transaksi tidak dapat diposting mundur: sudah ada pergerakan stok pada {last_d} "
         f"(transaksi terakhir: {ref}). Gunakan tanggal {last_d} atau setelahnya.")
