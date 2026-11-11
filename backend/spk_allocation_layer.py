@@ -882,6 +882,9 @@ def install(server):
     # Pengajuan Approval 2 (approve massal) memakai guard + commit SPK yang sama dengan approve PO individual.
     server.spk_po_approval_hooks = {"would_be_final": _would_be_final_on_approve, "guard": _guard_hard_block,
                                     "commit": _commit_po}
+    # Dipakai cascade pembatalan PO (po_cancel_cascade_layer) untuk rute reject lewat inbox approval,
+    # yang tidak melewati wrapper cancel/reject PO di bawah. Idempoten (tanpa COMMIT = tidak ada aksi).
+    server.spk_release_po = _release_po
     server.spk_inherit_line = _inherit_line  # dipakai ro_consolidation_layer setelah edit RO
     _wrap("/api/ro", "POST", _mk_create_ro)
     _wrap("/api/po", "POST", _mk_create_po)
