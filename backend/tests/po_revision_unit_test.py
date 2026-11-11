@@ -317,6 +317,29 @@ def main():
                 lambda: asyncio.get_event_loop().run_until_complete(
                     R.revoke_approval(s9, pid9, {"reason": "abcdef"}, USER_ADMIN)))
 
+    # ---------- status turunan list/detail + tab ----------
+    import receipt_control_layer as RC
+    import status_groups_layer as SG
+
+    check("status turunan: PO Revision -> Revision",
+          RC.document_status({"status": "Revision", "approval_status": "Revision"}, "Belum Diterima") == "Revision")
+    check("status turunan: display meneruskan Revision",
+          RC.display_document_status({}, "Revision", None) == "Revision")
+    check("status turunan: Approved tetap Approved",
+          RC.document_status({"status": "Approved", "approval_status": "Approved"}, "Belum Diterima") == "Approved")
+    check("status turunan: Waiting Approval tetap",
+          RC.document_status({"status": "Waiting Approval"}, "Belum Diterima") == "Waiting Approval")
+    check("status turunan: cancelled menang atas Revision",
+          RC.document_status({"status": "Revision", "cancelled": True}, "Belum Diterima") == "Cancelled")
+    counts = SG.count_groups("po", [{"document_status": "Revision"}, {"document_status": "Approved"},
+                                     {"document_status": "Revision"}])
+    check("tab: grup Revision terdeteksi", SG.group_of("po", {"document_status": "Revision"}) == "revision")
+    check("tab: label 'Perlu Revisi' terdaftar & bukan overflow",
+          any(g[0] == "revision" and g[1] == "Perlu Revisi" and g[2] is False for g in SG.GROUPS["po"]))
+    check("tab: hitungan revision/approved/all",
+          (counts.get("revision"), counts.get("approved"), counts.get("all")) == (2, 1, 3), counts)
+    check("tab: PO Revision tidak dihitung Disetujui", counts.get("approved") == 1, counts)
+
     print()
     if FAILS:
         print(f"GAGAL: {len(FAILS)} -> {FAILS}")
