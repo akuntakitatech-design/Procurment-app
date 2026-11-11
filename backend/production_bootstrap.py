@@ -186,6 +186,11 @@ procurement_action_guard_layer.install(server)
 # process cancelled documents, rejected docs must be revised, and resubmission cannot reset an
 # approval that is already waiting or completed.
 approval_state_guard_layer.install(server)
+# Minta Revisi (approver level 1/2) & Tarik Approval (admin/director) untuk PO: status `Revision`,
+# catatan revisi, penutupan task terbuka, dan pembukaan ulang rantai approval. Dipasang setelah guard
+# approval dan sebelum layer tenant/isolasi agar route ikut tenant-scoped.
+import po_revision_layer  # noqa: E402
+po_revision_layer.install(server)
 # DO is a stock-posting transaction, so validate its complete PO source/supplier/division/
 # warehouse/quantity context before any receipt is written, and keep edit/delete equally scoped.
 do_receipt_guard_layer.install(server)

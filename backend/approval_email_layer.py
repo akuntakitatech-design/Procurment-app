@@ -73,7 +73,7 @@ async def _refresh(app, module, did, user):
     if not route:
         return {"id": did}
     result = await route.endpoint(did, user)
-    if isinstance(result, dict) and result.get("approval_status") in ("Waiting Approval", "Rejected"):
+    if isinstance(result, dict) and result.get("approval_status") in ("Waiting Approval", "Rejected", "Revision"):
         result["status"] = result.get("approval_status")
     return result
 
@@ -326,7 +326,7 @@ def install(server):
                 def make_detail(kind, original_endpoint):
                     async def detail(did: str, user=Depends(server.current_user)):
                         result = await original_endpoint(did, user)
-                        if isinstance(result, dict) and result.get("approval_status") in ("Waiting Approval", "Rejected"):
+                        if isinstance(result, dict) and result.get("approval_status") in ("Waiting Approval", "Rejected", "Revision"):
                             result["status"] = result["approval_status"]
                         return result
                     return detail
@@ -336,7 +336,7 @@ def install(server):
                     async def listing(user=Depends(server.current_user)):
                         rows = await original_endpoint(user)
                         for row in rows or []:
-                            if row.get("approval_status") in ("Waiting Approval", "Rejected"):
+                            if row.get("approval_status") in ("Waiting Approval", "Rejected", "Revision"):
                                 row["status"] = row["approval_status"]
                         return rows
                     return listing

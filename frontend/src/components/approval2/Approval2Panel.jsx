@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Field } from "@/components/DatePicker";
 import { A2_READY, batchTotals, fmtA2Date, fmtPpn, fmtRp, isoToday, searchEligible, selectableRows, toggleId } from "@/lib/approval2";
 import { FilePlus2, Search, Layers } from "lucide-react";
+import { PoRevisionDialog } from "@/components/po/PoApprovalDialogs";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 
@@ -27,6 +28,8 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(isoToday());
   const [saving, setSaving] = useState(false);
+  const [revRow, setRevRow] = useState(null);
+  const [revBusy, setRevBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -45,6 +48,21 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
   const chosen = rows.filter((r) => sel.includes(r.approval_task_id));
   const allChecked = ready.length > 0 && ready.every((r) => sel.includes(r.approval_task_id));
   const t = batchTotals(chosen);
+
+  // Minta Revisi pada tahap Approval 2: PO kembali ke purchasing dengan catatan wajib.
+  const requestRevision = async (note) => {
+    if (!revRow) return;
+    setRevBusy(true);
+    try {
+      await api.post(`/po/${revRow.po_id}/request-revision`, { note });
+      toast.success("PO dikembalikan untuk revisi");
+      setRevRow(null); setSel([]);
+      await load();
+      onChanged?.();
+    } catch (err) {
+      toast.error(apiError(err.response?.data?.detail));
+    } finally { setRevBusy(false); }
+  };
 
   const create = async () => {
     if (!title.trim()) { toast.error("Judul Pengajuan wajib diisi"); return; }
@@ -76,12 +94,12 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
         <table className="m-stack w-full min-w-[1000px] text-sm zebra">
           <thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
             <th className="w-10 p-3"><Checkbox checked={allChecked} disabled={ready.length === 0} onCheckedChange={() => setSel(allChecked ? sel.filter((id) => !ready.some((r) => r.approval_task_id === id)) : Array.from(new Set([...sel, ...ready.map((r) => r.approval_task_id)])))} aria-label="Pilih semua" data-testid="approval2-select-all" /></th>
-            <th className="p-3">No PO</th><th className="p-3">Tanggal PO</th><th className="p-3">Nama Vendor</th><th className="p-3">Project</th><th className="p-3 text-right">Nilai</th><th className="p-3">PIC</th><th className="p-3">Status Pengajuan</th>
+            <th className="p-3">No PO</th><th className="p-3">Tanggal PO</th><th className="p-3">Nama Vendor</th><th className="p-3">Project</th><th className="p-3 text-right">Nilai</th><th className="p-3">PIC</th><th className="p-3">Status Pengajuan</th><th className="p-3 text-right">Aksi</th>
           </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={8} className="p-6"><div className="h-4 w-1/3 animate-pulse rounded bg-muted" /></td></tr>}
-            {!loading && error && <tr><td colSpan={8} className="p-6 text-center text-destructive" data-testid="approval2-error">{error} <Button variant="link" onClick={load}>Coba lagi</Button></td></tr>}
-            {!loading && !error && filtered.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-muted-foreground" data-testid="approval2-empty">Tidak ada PO yang menunggu Approval Level 2</td></tr>}
+            {loading && <tr><td colSpan={9} className="p-6"><div className="h-4 w-1/3 animate-pulse rounded bg-muted" /></td></tr>}
+            {!loading && error && <tr><td colSpan={9} className="p-6 text-center text-destructive" data-testid="approval2-error">{error} <Button variant="link" onClick={load}>Coba lagi</Button></td></tr>}
+            {!loading && !error && filtered.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-muted-foreground" data-testid="approval2-empty">Tidak ada PO yang menunggu Approval Level 2</td></tr>}
             {!loading && !error && filtered.map((r) => {
               const isReady = r.submission_status === A2_READY;
               return <tr key={r.approval_task_id} className="border-t" data-testid={`approval2-row-${r.po_no}`}>
@@ -90,6 +108,7 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
                 <td data-label="Tanggal PO" className="p-3">{fmtA2Date(r.po_date)}</td><td data-label="Nama Vendor" className="p-3">{r.supplier_name}</td><td data-label="Project" className="p-3">{r.project_text}</td>
                 <td data-label="Nilai" className="p-3 text-right tabular-nums">{fmtRp(r.grand_total)}</td><td data-label="PIC" className="p-3">{r.pic_name}</td>
                 <td data-label="Status Pengajuan" className="p-3"><div className="flex items-center gap-2"><StatusBadge status={r.submission_status} />{!isReady && r.batch_id && <button className="font-mono text-xs text-primary hover:underline" onClick={() => nav(`/approval/approval2/${r.batch_id}`)}>{r.batch_no}</button>}</div></td>
+                <td data-label="Aksi" className="m-full p-3 text-right">{r.can_approve && <Button size="sm" variant="outline" onClick={() => setRevRow(r)} data-testid={`approval2-revision-${r.po_no}`}>Minta Revisi</Button>}</td>
               </tr>;
             })}
           </tbody>
@@ -133,5 +152,8 @@ export function Approval2Panel({ scope = "mine", onChanged }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <PoRevisionDialog open={!!revRow} onOpenChange={(v) => !v && setRevRow(null)} poNo={revRow?.po_no}
+      busy={revBusy} onSubmit={requestRevision} testid="approval2-revision" />
   </div>;
 }
