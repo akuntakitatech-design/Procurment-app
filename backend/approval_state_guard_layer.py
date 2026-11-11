@@ -57,6 +57,11 @@ def _assert_submit_state(module: str, doc: dict):
     approval = _norm(doc.get("approval_status"))
     status = _norm(doc.get("status"))
 
+    # Hasil "Minta Revisi": rantai approval sudah ditutup dan purchasing boleh mengajukan ulang
+    # (submit membuat rantai baru dari level 1 seperti biasa).
+    if approval == "revision" or status == "revision":
+        return
+
     if approval == "waiting approval" or status == "waiting approval":
         raise HTTPException(409, f"{module.upper()} masih menunggu approval")
 

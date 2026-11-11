@@ -65,6 +65,8 @@ const MAP = {
   lengkap: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
   "belum lengkap": "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800",
   "tidak berlaku": "bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-500 border-slate-300",
+  revision: "bg-amber-100 text-amber-900 border-amber-400 dark:bg-amber-950/60 dark:text-amber-200 dark:border-amber-700",
+  revoked: "bg-slate-200 text-slate-600 border-slate-300 line-through dark:bg-slate-800 dark:text-slate-400",
 };
 
 const LABEL_ID = {
@@ -75,6 +77,7 @@ const LABEL_ID = {
   posted: "Diposting", completed: "Selesai", closed: "Ditutup", cancelled: "Dibatalkan", submitted: "Diajukan",
   counting: "Penghitungan", review: "Review", "out of stock": "Stok Habis", "low stock": "Stok Rendah", overstock: "Stok Berlebih",
   "without stock": "Tanpa Stok",
+  revision: "Perlu Revisi", revoked: "Ditarik",
 };
 
 export function StatusBadge({ status, className }) {

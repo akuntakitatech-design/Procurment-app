@@ -12,6 +12,7 @@ import { Check, X, Search, RefreshCw, Layers } from "lucide-react";
 import { Approval2Panel } from "@/components/approval2/Approval2Panel";
 import { SupplierApprovalPanel } from "@/components/SupplierApprovalPanel";
 import { isLevel2PoTask } from "@/lib/approval2";
+import { PoRevisionDialog } from "@/components/po/PoApprovalDialogs";
 import { toast } from "sonner";
 
 const ROUTES = { mro: "/mro/", ro: "/ro/", po: "/po/" };
@@ -28,6 +29,8 @@ export default function Approval() {
   const setView = (v) => { setViewState(v); setParams(v === "approval2" ? { view: "approval2" } : {}, { replace: true }); };
   const [scope, setScope] = useState("mine");
   const [moduleFilter, setModuleFilter] = useState("all");
+  const [revRow, setRevRow] = useState(null);
+  const [revBusy, setRevBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [supplierPending, setSupplierPending] = useState(0);
 
@@ -75,6 +78,22 @@ export default function Approval() {
     if (base) nav(base + row.document_id);
   };
 
+  // Minta Revisi (khusus PO): approver mengembalikan PO ke purchasing + catatan wajib.
+  const requestRevision = async (note) => {
+    if (!revRow) return;
+    setRevBusy(true);
+    try {
+      await api.post(`/po/${revRow.document_id}/request-revision`, { note });
+      toast.success("PO dikembalikan untuk revisi");
+      setRevRow(null);
+      load();
+    } catch (e) {
+      toast.error(apiError(e.response?.data?.detail));
+    } finally {
+      setRevBusy(false);
+    }
+  };
+
   const pending = rows.filter((r) => r.status === "Pending").length;
   const processed = rows.filter((r) => ["Approved", "Rejected"].includes(r.status)).length;
   const level2 = rows.filter(isLevel2PoTask).length;
@@ -120,12 +139,14 @@ export default function Approval() {
             <td data-label="Tanggal" className="p-3">{fmtDate(r.date)}</td><td data-label="Vendor" className="p-3">{r.context_name || "-"}</td><td data-label="Project" className="p-3">{r.project_name || "-"}</td><td data-label="Termin Pembayaran" className="p-3" data-testid={`approval-term-${r.document_no}`}>{r.payment_term || "-"}</td><td data-label="Level" className="p-3">Level {r.seq}</td>
             <td data-label="Approver" className="m-full p-3"><div className="font-medium">{r.approver_name || "-"}</div><div className="text-xs text-muted-foreground">{r.approver_email || ""}</div></td>
             <td data-label="Nilai" className="p-3 text-right tabular-nums">{r.module === "po" && r.grand_total != null ? rupiah(r.grand_total) : "-"}</td><td data-label="Status" className="p-3"><StatusBadge status={r.status} /></td>
-            <td data-label="Aksi" className="m-full p-3"><div className="flex flex-wrap justify-end gap-2">{isLevel2PoTask(r) ? <Button size="sm" variant="outline" onClick={() => setView("approval2")} data-testid={`approval-process-l2-${r.document_no}`}><Layers className="h-4 w-4 mr-1" />Proses Approval 2</Button> : r.status === "Pending" && <><Button size="sm" onClick={() => act(r, "approve")}><Check className="h-4 w-4 mr-1" />Approve</Button><Button size="sm" variant="outline" onClick={() => act(r, "reject")}><X className="h-4 w-4 mr-1" />Reject</Button></>}</div></td>
+            <td data-label="Aksi" className="m-full p-3"><div className="flex flex-wrap justify-end gap-2">{isLevel2PoTask(r) ? <Button size="sm" variant="outline" onClick={() => setView("approval2")} data-testid={`approval-process-l2-${r.document_no}`}><Layers className="h-4 w-4 mr-1" />Proses Approval 2</Button> : r.status === "Pending" && <><Button size="sm" onClick={() => act(r, "approve")}><Check className="h-4 w-4 mr-1" />Approve</Button>{r.module === "po" && <Button size="sm" variant="outline" onClick={() => setRevRow(r)} data-testid={`approval-revision-${r.document_no}`}>Minta Revisi</Button>}<Button size="sm" variant="outline" onClick={() => act(r, "reject")}><X className="h-4 w-4 mr-1" />Reject</Button></>}</div></td>
           </tr>)}
         </tbody>
       </table>
     </CardContent></Card>
     </>}
     {view === "approval2" && isAdmin && <div className="mt-3 flex gap-2"><Button size="sm" variant={scope === "mine" ? "default" : "outline"} onClick={() => setScope("mine")}>Milik Saya</Button><Button size="sm" variant={scope === "all" ? "default" : "outline"} onClick={() => setScope("all")}>Semua Approval</Button></div>}
+    <PoRevisionDialog open={!!revRow} onOpenChange={(v) => !v && setRevRow(null)} poNo={revRow?.document_no}
+      busy={revBusy} onSubmit={requestRevision} />
   </div>;
 }
