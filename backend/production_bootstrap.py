@@ -295,6 +295,11 @@ import supplier_dp_layer  # noqa: E402
 import po_approval2_layer  # noqa: E402
 supplier_dp_layer.install(server)
 po_approval2_layer.install(server)  # PO Approval Level 2 via Pengajuan Batch
+# Reject / Batalkan PO = PO batal final, lalu RO sumber ditutup otomatis (dan MRO bila seluruh RO-nya
+# sudah batal) tanpa mengorbankan RO yang masih dipakai PO aktif lain. Dipasang paling luar agar
+# berjalan setelah guard divisi/dokumen turunan, penutupan task approval, dan pelepasan komitmen SPK.
+import po_cancel_cascade_layer  # noqa: E402
+po_cancel_cascade_layer.install(server)
 import transaction_input_guard_layer  # noqa: E402
 transaction_input_guard_layer.install(server)  # Divisi wajib + Qty transaksi > 0 (create/edit/submit/post)
 import supplier_document_layer  # noqa: E402

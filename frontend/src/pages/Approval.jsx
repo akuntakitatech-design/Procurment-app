@@ -64,7 +64,7 @@ export default function Approval() {
 
   const act = async (row, action) => {
     try {
-      if (action === "reject" && !window.confirm(`Tolak ${row.document_no}?`)) return;
+      if (action === "reject" && !window.confirm(`Tolak ${row.document_no}?${row.module === "po" ? " PO akan dibatalkan (final) dan RO/MRO sumber yang tidak dipakai PO lain ikut dibatalkan." : ""}`)) return;
       await api.post(`/approvals/${row.id}/${action}`, action === "reject" ? { reason: "Ditolak dari menu Approval" } : {});
       toast.success(action === "approve" ? "Approval disetujui" : "Approval ditolak");
       load();
