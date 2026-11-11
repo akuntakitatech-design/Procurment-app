@@ -29,7 +29,7 @@ F_DIV, F_PROJ = Filter("division_id", "Divisi", "division"), Filter("project_id"
 F_SUP = Filter("supplier_id", "Supplier", "supplier")
 F_ITEM, F_CAT = Filter("item_id", "Barang", "item"), Filter("category_id", "Kategori", "category")
 DOC_COLL = {"mro": "mro", "ro": "ro", "po": "po", "do": "do", "mi": "mi"}
-PO_BASE = ("Draft", "Waiting Approval", "Approved", "Closed", "Rejected", "Cancelled")  # receipt_control_layer.document_status
+PO_BASE = ("Draft", "Waiting Approval", "Revision", "Approved", "Closed", "Rejected", "Cancelled")  # receipt_control_layer.document_status
 PO_RECEIPT = ("Belum Diterima", "Diterima Sebagian", "Diterima Penuh", "Over Receipt")    # receipt_control_layer.receipt_status
 
 

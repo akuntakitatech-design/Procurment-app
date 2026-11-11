@@ -52,6 +52,8 @@ GROUPS = {
            ("draft", "Draft", False, _eq("document_status", "Draft")),
            ("waiting", "Menunggu Persetujuan", False,
             lambda r: _po_doc(r) in ("waiting approval", "waiting approval 1", "ready approval 2", "waiting approval 2")),
+           # Hasil "Minta Revisi": PO dikembalikan ke purchasing (bukan lagi menunggu approver).
+           ("revision", "Perlu Revisi", False, _eq("document_status", "Revision")),
            ("approved", "Disetujui", False, _eq("document_status", "Approved")),
            ("rejected", "Ditolak", False, _eq("document_status", "Rejected")),
            ("partial", "Diterima Sebagian", False, lambda r: _po_receipt(r) == "diterima sebagian"),

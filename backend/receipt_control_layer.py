@@ -89,6 +89,9 @@ def document_status(po, rs):
         return "Cancelled"
     if _norm(st) == "rejected" or _norm(po.get("approval_status")) == "rejected":
         return "Rejected"
+    # "Minta Revisi": PO dikembalikan ke purchasing, jadi bukan Approved dan bukan menunggu approver.
+    if _norm(st) == "revision" or _norm(po.get("approval_status")) == "revision":
+        return "Revision"
     if _norm(st) in ("draft", "waiting approval"):
         return st
     return "Closed" if rs in ("Diterima Penuh", "Over Receipt") else "Approved"
