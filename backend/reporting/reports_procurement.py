@@ -70,12 +70,15 @@ register(ReportSpec(
         Column("do_date", "Tanggal DO", "date", width=13), Column("do_no", "No. DO", width=22),
         Column("qty_received", "Qty DO", "qty", total=True, width=11),
         Column("do_total", "Total DO", "money", price=True, total=True, width=18),
+        # Status sengaja ditempatkan tepat setelah Total DO agar barang yang belum datang (Open/Partial)
+        # langsung terlihat tanpa menggulir ke ujung tabel.
+        Column("status", "Status", width=11),
         Column("inv_date", "Tanggal Invoice", "date", width=13), Column("inv_no", "No. Invoice", width=20),
         Column("qty_invoice", "Qty Invoice", "qty", total=True, width=11),
         Column("inv_total", "Total Invoice", "money", price=True, total=True, width=15),
         Column("mi_date", "Tanggal MI", "date", width=13), Column("mi_no", "No. MI", width=22),
         Column("qty_mi", "Qty MI", "qty", total=True, width=11),
-        Column("outstanding", "Outstanding", "qty", total=True, width=12), Column("status", "Status", width=11),
+        Column("outstanding", "Outstanding", "qty", total=True, width=12),
     ),
     filters=(Filter("date_from", "Tanggal Awal", "date"), Filter("date_to", "Tanggal Akhir", "date"),
              Filter("division_id", "Divisi", "division"), Filter("status", "Status", "select", STATUS),
