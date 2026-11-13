@@ -5,6 +5,9 @@ import report_trace_detail as RTD
 from reporting.registry import Column, Filter, ReportSpec, register
 
 STATUS = (("Open", "Open"), ("Partial", "Partial"), ("Completed", "Completed"))
+# Status penerimaan (DO) — terpisah dari status MI.
+STATUS_DO = (("Diterima", "Diterima"), ("Diterima Sebagian", "Diterima Sebagian"),
+             ("Belum Diterima", "Belum Diterima"), ("-", "Tanpa PO"))
 
 
 def _flat(r):
@@ -53,6 +56,8 @@ async def mro_traceability(server, user, p):
     out = [_flat(r) for r in rows]
     if p.get("status"):
         out = [r for r in out if r["status"] == p["status"]]
+    if p.get("do_status"):
+        out = [r for r in out if r["do_status"] == p["do_status"]]
     return out
 
 
@@ -98,6 +103,7 @@ register(ReportSpec(
     ),
     filters=(Filter("date_from", "Tanggal Awal", "date"), Filter("date_to", "Tanggal Akhir", "date"),
              Filter("division_id", "Divisi", "division"), Filter("status", "Status MI", "select", STATUS),
+             Filter("do_status", "Status DO", "select", STATUS_DO),
              Filter("item_id", "Barang", "item"), Filter("category_id", "Kategori", "category")),
     search_keys=("item_code", "item_name", "category", "mro_no", "ro_no", "po_no", "do_no", "mi_no", "inv_no", "spk_no",
                  "project_name", "supplier_name"),

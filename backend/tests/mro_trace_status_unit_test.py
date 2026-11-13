@@ -97,5 +97,63 @@ check("harga satuan mengikuti izin harga (price=True)",
 check("filter status diberi label 'Status MI'",
       next(x for x in spec.filters if x.key == "status").label == "Status MI")
 
+# --- Filter Status DO
+fdo = next((x for x in spec.filters if x.key == "do_status"), None)
+check("filter Status DO ada & berlabel 'Status DO'", fdo is not None and fdo.label == "Status DO",
+      fdo.label if fdo else "tidak ada")
+check("opsi filter Status DO lengkap (4 nilai)",
+      fdo is not None and [v for v, _ in fdo.options] == ["Diterima", "Diterima Sebagian", "Belum Diterima", "-"],
+      [v for v, _ in fdo.options] if fdo else None)
+check("label '-' pada filter Status DO = Tanpa PO",
+      fdo is not None and dict(fdo.options).get("-") == "Tanpa PO", dict(fdo.options) if fdo else None)
+
+# --- Builder menyaring berdasarkan kedua status (RTD._build_rows di-monkeypatch, tanpa DB)
+import asyncio  # noqa: E402
+
+RAW = [
+    row(qty_po=10.0, qty_received=10.0, status="Completed", qty_mi=10.0, outstanding=0.0, po_gross=1000.0),
+    row(qty_po=10.0, qty_received=4.0, status="Partial", qty_mi=4.0, outstanding=6.0, po_gross=1000.0),
+    row(qty_po=10.0, qty_received=0.0, status="Open", qty_mi=0.0, outstanding=10.0, po_gross=1000.0),
+    row(qty_po=0.0, qty_received=0.0, status="Open", qty_mi=0.0, outstanding=10.0),
+]
+_orig = RP.RTD._build_rows
+
+
+async def _fake_build_rows(server, date_from, date_to, user):
+    return [dict(x) for x in RAW]
+
+
+RP.RTD._build_rows = _fake_build_rows
+
+try:
+    async def run_filters():
+        out = {}
+        for params in ({}, {"do_status": "Diterima"}, {"do_status": "Diterima Sebagian"},
+                       {"do_status": "Belum Diterima"}, {"do_status": "-"},
+                       {"status": "Open"}, {"status": "Completed"}, {"status": "Open", "do_status": "-"}):
+            out[json_key(params)] = await RP.mro_traceability(None, None, dict(params))
+        return out
+
+    def json_key(params):
+        return ",".join(f"{k}={v}" for k, v in sorted(params.items())) or "semua"
+
+    got = asyncio.run(run_filters())
+finally:
+    RP.RTD._build_rows = _orig
+
+check("tanpa filter: 4 baris", len(got["semua"]) == 4, len(got["semua"]))
+check("filter Status DO=Diterima -> 1 baris",
+      len(got["do_status=Diterima"]) == 1 and got["do_status=Diterima"][0]["do_status"] == "Diterima")
+check("filter Status DO=Diterima Sebagian -> 1 baris",
+      len(got["do_status=Diterima Sebagian"]) == 1, len(got["do_status=Diterima Sebagian"]))
+check("filter Status DO=Belum Diterima -> 1 baris",
+      len(got["do_status=Belum Diterima"]) == 1, len(got["do_status=Belum Diterima"]))
+check("filter Status DO='-' (Tanpa PO) -> 1 baris",
+      len(got["do_status=-"]) == 1 and got["do_status=-"][0]["qty_po"] == 0.0, len(got["do_status=-"]))
+check("filter Status MI=Open -> 2 baris", len(got["status=Open"]) == 2, len(got["status=Open"]))
+check("filter Status MI=Completed -> 1 baris", len(got["status=Completed"]) == 1)
+check("kombinasi Status MI=Open + Status DO='-' -> 1 baris",
+      len(got["do_status=-,status=Open"]) == 1, len(got["do_status=-,status=Open"]))
+
 print(f"\n{'SEMUA PASS' if not fail else str(len(fail)) + ' GAGAL -> ' + str(fail)}  ({len(keys)} kolom)")
 sys.exit(1 if fail else 0)
