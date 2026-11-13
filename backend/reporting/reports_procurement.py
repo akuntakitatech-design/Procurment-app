@@ -9,6 +9,17 @@ STATUS = (("Open", "Open"), ("Partial", "Partial"), ("Completed", "Completed"))
 
 def _flat(r):
     j = RTD._join_refs
+    qty_po = r.get("qty_po")
+    gross = r.get("po_gross")
+    ordered = float(qty_po or 0)
+    received = float(r.get("qty_received") or 0)
+    # Harga satuan PO = Nilai PO (sebelum diskon) / Qty PO. None bila kolom harga disembunyikan.
+    unit_price = (gross / ordered) if (gross is not None and ordered > 0) else None
+    # Status penerimaan (DO): menjawab "PO sudah diterima atau belum" — terpisah dari status MI di bawah.
+    do_status = ("-" if ordered <= 0 else
+                 "Belum Diterima" if received <= 0 else
+                 "Diterima Sebagian" if received + 1e-9 < ordered else
+                 "Diterima")
     return {
         "mro_id": r.get("mro_id"), "item_code": r.get("item_code"), "item_name": r.get("item_name"),
         "category": r.get("category"), "unit": r.get("unit"), "spk_no": r.get("spk_no"),
@@ -16,11 +27,11 @@ def _flat(r):
         "mro_date": j(r.get("mro_refs"), "date"), "mro_no": j(r.get("mro_refs"), "no"), "request": r.get("request"),
         "ro_date": j(r.get("ro_refs"), "date"), "ro_no": j(r.get("ro_refs"), "no"), "qty_ro": r.get("qty_ro"),
         "po_date": j(r.get("po_refs"), "date"), "supplier_name": r.get("supplier_name"),
-        "po_no": j(r.get("po_refs"), "no"), "qty_po": r.get("qty_po"),
+        "po_no": j(r.get("po_refs"), "no"), "qty_po": r.get("qty_po"), "po_unit_price": unit_price,
         "po_gross": r.get("po_gross"), "po_discount": r.get("po_discount"), "po_dpp": r.get("po_dpp"),
         "po_tax": r.get("po_tax"), "po_total": r.get("po_total"),
         "do_date": j(r.get("do_refs"), "date"), "do_no": j(r.get("do_refs"), "no"), "qty_received": r.get("qty_received"),
-        "do_total": r.get("do_total"),
+        "do_total": r.get("do_total"), "do_status": do_status,
         "inv_date": r.get("inv_date"), "inv_no": r.get("inv_no"), "qty_invoice": r.get("qty_invoice"),
         "inv_total": r.get("inv_total"),
         "mi_date": j(r.get("mi_refs"), "date"), "mi_no": j(r.get("mi_refs"), "no"), "qty_mi": r.get("qty_mi"),
@@ -62,6 +73,8 @@ register(ReportSpec(
         Column("supplier_name", "Nama Supplier", width=24),
         Column("po_no", "No. PO", width=22),
         Column("qty_po", "Qty PO", "qty", total=True, width=11),
+        # Harga satuan = Nilai PO / Qty PO, supaya qty x harga satuan bisa dicek langsung.
+        Column("po_unit_price", "Harga Satuan", "money", price=True, width=15),
         Column("po_gross", "Nilai PO", "money", price=True, total=True, width=15),
         Column("po_discount", "Diskon PO", "money", price=True, total=True, width=14),
         Column("po_dpp", "DPP PO", "money", price=True, total=True, width=15),
@@ -70,18 +83,21 @@ register(ReportSpec(
         Column("do_date", "Tanggal DO", "date", width=13), Column("do_no", "No. DO", width=22),
         Column("qty_received", "Qty DO", "qty", total=True, width=11),
         Column("do_total", "Total DO", "money", price=True, total=True, width=18),
-        # Status sengaja ditempatkan tepat setelah Total DO agar barang yang belum datang (Open/Partial)
-        # langsung terlihat tanpa menggulir ke ujung tabel.
-        Column("status", "Status", width=11),
+        # Status DO = status PENERIMAAN: apakah PO sudah diterima (Diterima / Diterima Sebagian /
+        # Belum Diterima). Berbeda dari Status MI di ujung kanan yang mengikuti outstanding MI.
+        Column("do_status", "Status DO", width=17),
         Column("inv_date", "Tanggal Invoice", "date", width=13), Column("inv_no", "No. Invoice", width=20),
         Column("qty_invoice", "Qty Invoice", "qty", total=True, width=11),
         Column("inv_total", "Total Invoice", "money", price=True, total=True, width=15),
         Column("mi_date", "Tanggal MI", "date", width=13), Column("mi_no", "No. MI", width=22),
         Column("qty_mi", "Qty MI", "qty", total=True, width=11),
         Column("outstanding", "Outstanding", "qty", total=True, width=12),
+        # Status MI = status outstanding MI (Open / Partial / Completed): apakah qty MRO sudah
+        # dikeluarkan lewat MI.
+        Column("status", "Status MI", width=12),
     ),
     filters=(Filter("date_from", "Tanggal Awal", "date"), Filter("date_to", "Tanggal Akhir", "date"),
-             Filter("division_id", "Divisi", "division"), Filter("status", "Status", "select", STATUS),
+             Filter("division_id", "Divisi", "division"), Filter("status", "Status MI", "select", STATUS),
              Filter("item_id", "Barang", "item"), Filter("category_id", "Kategori", "category")),
     search_keys=("item_code", "item_name", "category", "mro_no", "ro_no", "po_no", "do_no", "mi_no", "inv_no", "spk_no",
                  "project_name", "supplier_name"),
