@@ -139,6 +139,12 @@ check("pagination: CSS halaman A4 landscape + footer nomor halaman",
   h.includes(".page{width:297mm;height:209.5mm") && h.includes('.pfoot{position:absolute'));
 check("pagination: skrip mengulang kop (clone .head) dan menomori halaman",
   h.includes('querySelector(".head")') && h.includes('"Halaman " + (i + 1) + "/" + pages.length'));
+// Batas tinggi diukur dari DOM nyata (.page dikurangi padding + 4mm ruang aman), bukan angka perkiraan,
+// supaya tabel tidak masuk ke area nomor halaman (footer) di mesin dengan metrik font berbeda.
+check("pagination: batas tinggi diukur dari kotak isi nyata + ruang aman 4mm",
+  h.includes("paddingTop") && h.includes("paddingBottom") && h.includes("body.scrollHeight") && h.includes("MM * 4"));
+check("pagination: guard memindahkan baris yang meluber ke halaman berikutnya",
+  h.includes("function over(") && h.includes("insertBefore(moved") && h.includes("rows.length > 1"));
 check("pagination: autoPrint=false tetap tanpa window.print", !h.includes("window.print()"));
 check("pagination: autoPrint=true mencetak setelah pagination selesai",
   buildTransmittalHtml({ doc, company: {}, autoPrint: true }).includes("window.print()")

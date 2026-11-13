@@ -142,7 +142,9 @@ const paginationScript = (autoPrint) => `<script>
 (function () {
   var split = ${splitRowsByHeight.toString()};
   var MM = 96 / 25.4;
-  var CONTENT_H = MM * 186; /* 210 - 10 atas - 12 bawah - 2 buffer (mm) */
+  /* Ruang aman di bawah tabel (mm). Nomor halaman duduk 4mm dari tepi bawah, jadi tabel harus
+     berhenti minimal 4mm di atas kotak isi agar tidak menimpa footer. */
+  var RESERVE = MM * 4;
   function build() {
     var docs = [].slice.call(document.querySelectorAll("section.doc"));
     var pages = [];
@@ -152,31 +154,17 @@ const paginationScript = (autoPrint) => `<script>
     host.setAttribute("style", "position:absolute;left:-10000px;top:0;visibility:hidden");
     document.body.appendChild(host);
 
-    function measuringPage() {
-      var sec = document.createElement("section");
-      sec.className = "page";
-      sec.style.height = "auto";
-      sec.style.overflow = "visible";
-      sec.style.margin = "0";
-      var body = document.createElement("div");
-      body.className = "pbody";
-      sec.appendChild(body);
-      host.appendChild(sec);
-      return { sec: sec, body: body };
+    /* Batas tinggi isi = kotak isi .page (tinggi halaman dikurangi padding atas/bawah) - ruang aman.
+       Diukur dari DOM nyata supaya hasil di layar sama dengan hasil cetak di mesin mana pun. */
+    function limit(sec) {
+      var cs = window.getComputedStyle(sec);
+      return sec.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0) - RESERVE;
     }
+    function used(pg) { return pg.body.scrollHeight; }
+    function room(pg) { return limit(pg.sec) - used(pg); }
+    function over(pg) { return used(pg) > limit(pg.sec); }
 
-    function tableShell(src) {
-      var t = document.createElement("table");
-      if (src.className) t.className = src.className;
-      var cg = src.querySelector("colgroup");
-      if (cg) t.appendChild(cg.cloneNode(true));
-      if (src.tHead) t.appendChild(src.tHead.cloneNode(true));
-      var tb = document.createElement("tbody");
-      t.appendChild(tb);
-      return { table: t, tbody: tb };
-    }
-
-    function newPage(head, info, srcTable, withTable, includeInfo) {
+    function newPage(head, info, srcTable, includeInfo) {
       var sec = document.createElement("section");
       sec.className = "page";
       var body = document.createElement("div");
@@ -184,13 +172,18 @@ const paginationScript = (autoPrint) => `<script>
       if (head) body.appendChild(head.cloneNode(true));
       if (includeInfo && info) body.appendChild(info.cloneNode(true));
       var tbody = null;
-      if (withTable && srcTable) {
-        var ts = tableShell(srcTable);
-        body.appendChild(ts.table);
-        tbody = ts.tbody;
+      if (srcTable) {
+        var t = document.createElement("table");
+        if (srcTable.className) t.className = srcTable.className;
+        var cg = srcTable.querySelector("colgroup");
+        if (cg) t.appendChild(cg.cloneNode(true));
+        if (srcTable.tHead) t.appendChild(srcTable.tHead.cloneNode(true));
+        tbody = document.createElement("tbody");
+        t.appendChild(tbody);
+        body.appendChild(t);
       }
       sec.appendChild(body);
-      /* Wajib sudah di DOM agar getBoundingClientRect() mengukur tinggi sebenarnya. */
+      /* Wajib sudah di DOM agar ukuran nyata bisa dibaca. */
       host.appendChild(sec);
       return { sec: sec, body: body, tbody: tbody };
     }
@@ -210,55 +203,48 @@ const paginationScript = (autoPrint) => `<script>
       var notes = doc.querySelector(".notes");
       var signs = doc.querySelector(".signs");
 
-      var pr = measuringPage();
-      if (head) pr.body.appendChild(head.cloneNode(true));
-      var headH = pr.body.getBoundingClientRect().height;
-      if (info) pr.body.appendChild(info.cloneNode(true));
-      var infoH = pr.body.getBoundingClientRect().height - headH;
-      var theadH = 0;
-      var tb = null;
-      if (table) {
-        var ts = tableShell(table);
-        pr.body.appendChild(ts.table);
-        tb = ts.tbody;
-        theadH = pr.body.getBoundingClientRect().height - headH - infoH;
-        rows.forEach(function (r) { tb.appendChild(r.cloneNode(true)); });
-      }
-      var heights = tb ? [].slice.call(tb.rows).map(function (r) { return r.getBoundingClientRect().height; }) : [];
-      host.removeChild(pr.sec);
+      /* Ukur sisa ruang nyata: halaman pertama (dengan info) dan halaman lanjutan (tanpa info). */
+      var probeFirst = newPage(head, info, table, true);
+      var availFirst = room(probeFirst);
+      var probeNext = newPage(head, info, table, false);
+      var availNext = room(probeNext);
+      rows.forEach(function (r) { probeNext.tbody.appendChild(r.cloneNode(true)); });
+      var heights = probeNext.tbody
+        ? [].slice.call(probeNext.tbody.rows).map(function (r) { return r.getBoundingClientRect().height; })
+        : [];
+      host.removeChild(probeFirst.sec);
+      host.removeChild(probeNext.sec);
 
-      var tailH = 0;
-      if (notes || signs) {
-        var tr = measuringPage();
-        if (head) tr.body.appendChild(head.cloneNode(true));
-        var base = tr.body.getBoundingClientRect().height;
-        if (notes) tr.body.appendChild(notes.cloneNode(true));
-        if (signs) tr.body.appendChild(signs.cloneNode(true));
-        tailH = tr.body.getBoundingClientRect().height - base;
-        host.removeChild(tr.sec);
-      }
-
-      var availFirst = CONTENT_H - headH - infoH - theadH;
-      var availNext = CONTENT_H - headH - theadH;
       var slices = split(heights, availFirst, availNext);
-
-      slices.forEach(function (slice, idx) {
-        var pg = newPage(head, info, table, true, idx === 0);
+      var docPages = slices.map(function (slice, idx) {
+        var pg = newPage(head, info, table, idx === 0);
         slice.forEach(function (ri) { pg.tbody.appendChild(rows[ri].cloneNode(true)); });
-        pages.push(pg);
+        return pg;
       });
 
-      if (notes || signs) {
-        var last = pages[pages.length - 1];
-        var holder = tailHolder(notes, signs);
-        last.body.appendChild(holder);
-        if (last.body.getBoundingClientRect().height > CONTENT_H) {
-          last.body.removeChild(holder);
-          var extra = newPage(head, info, table, false, false);
-          extra.body.appendChild(tailHolder(notes, signs));
-          pages.push(extra);
+      /* Guard: bila halaman tetap melewati batas aman (mis. baris lebih tinggi dari perkiraan),
+         pindahkan baris terakhirnya ke halaman berikutnya supaya tidak menimpa nomor halaman. */
+      for (var i = 0; i < docPages.length; i++) {
+        while (over(docPages[i]) && docPages[i].tbody && docPages[i].tbody.rows.length > 1) {
+          var moved = docPages[i].tbody.rows[docPages[i].tbody.rows.length - 1];
+          docPages[i].tbody.removeChild(moved);
+          if (!docPages[i + 1]) docPages.push(newPage(head, info, table, false));
+          docPages[i + 1].tbody.insertBefore(moved, docPages[i + 1].tbody.firstChild);
         }
       }
+
+      if (notes || signs) {
+        var last = docPages[docPages.length - 1];
+        var holder = tailHolder(notes, signs);
+        last.body.appendChild(holder);
+        if (over(last)) {
+          last.body.removeChild(holder);
+          var extra = newPage(head, info, null, false);
+          extra.body.appendChild(tailHolder(notes, signs));
+          docPages.push(extra);
+        }
+      }
+      docPages.forEach(function (pg) { pages.push(pg); });
     });
 
     host.parentNode.removeChild(host);
