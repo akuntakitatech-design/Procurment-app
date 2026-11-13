@@ -1,6 +1,6 @@
 // Uji template cetak Transmittal Invoice (murni HTML, tanpa jaringan).
 // Jalankan: cd frontend && npx esbuild tests/transmittal_print_test.mjs --bundle --platform=node --format=cjs --loader:.js=jsx --outfile=./tmp-transmittal.cjs --log-level=error && node ./tmp-transmittal.cjs
-import { buildTransmittalHtml, buildTransmittalMultiHtml, checklistMark, PRINT_CHECKLIST, MIN_ROWS } from "../src/lib/transmittalPrint.js";
+import { buildTransmittalHtml, buildTransmittalMultiHtml, checklistMark, PRINT_CHECKLIST, MIN_ROWS, splitRowsByHeight } from "../src/lib/transmittalPrint.js";
 import { checklistSummary, emptyChecklist } from "../src/lib/docChecklist.js";
 
 let pass = 0, fail = 0;
@@ -123,6 +123,26 @@ check("multi: satu window.print untuk seluruh halaman",
 check("multi: escaping tetap berlaku",
   !buildTransmittalMultiHtml({ docs: [{ ...doc, destination: "<b>x</b>" }], autoPrint: false }).includes("<b>x</b>"));
 check("multi: landscape sama dengan cetak tunggal", buildTransmittalMultiHtml({ docs: [doc], autoPrint: false }).includes("@page{size:A4 landscape;margin:0}"));
+
+// --- Pagination: kop diulang tiap halaman + nomor halaman "Halaman n/N"
+check("pagination: baris dibagi sesuai tinggi halaman",
+  JSON.stringify(splitRowsByHeight([100, 100, 100, 100], 250, 250)) === JSON.stringify([[0, 1], [2, 3]]),
+  splitRowsByHeight([100, 100, 100, 100], 250, 250));
+check("pagination: halaman pertama lebih pendek karena info (kop+info+thead)",
+  JSON.stringify(splitRowsByHeight([100, 100, 100], 150, 250)) === JSON.stringify([[0], [1, 2]]),
+  splitRowsByHeight([100, 100, 100], 150, 250));
+check("pagination: baris lebih tinggi dari ruang tetap ditaruh (tidak hilang)",
+  JSON.stringify(splitRowsByHeight([400, 100], 200, 200)) === JSON.stringify([[0], [1]]),
+  splitRowsByHeight([400, 100], 200, 200));
+check("pagination: tanpa baris tetap satu halaman", JSON.stringify(splitRowsByHeight([], 100, 100)) === JSON.stringify([[]]));
+check("pagination: CSS halaman A4 landscape + footer nomor halaman",
+  h.includes(".page{width:297mm;height:209.5mm") && h.includes('.pfoot{position:absolute'));
+check("pagination: skrip mengulang kop (clone .head) dan menomori halaman",
+  h.includes('querySelector(".head")') && h.includes('"Halaman " + (i + 1) + "/" + pages.length'));
+check("pagination: autoPrint=false tetap tanpa window.print", !h.includes("window.print()"));
+check("pagination: autoPrint=true mencetak setelah pagination selesai",
+  buildTransmittalHtml({ doc, company: {}, autoPrint: true }).includes("window.print()")
+  && buildTransmittalHtml({ doc, company: {}, autoPrint: true }).includes("printNow();"));
 
 console.log(`\n${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

@@ -27,6 +27,27 @@ export const checklistMark = (status) => (status === "Lengkap" ? "✓" : status 
 
 const COLS = 11;
 
+/**
+ * Bagi indeks baris ke beberapa halaman berdasarkan tinggi tiap baris (px).
+ * `firstAvail` = ruang baris di halaman pertama (sudah dikurangi kop + info + thead),
+ * `nextAvail` = ruang baris di halaman berikutnya (kop + thead). Baris yang lebih tinggi dari
+ * ruang tetap ditaruh sendiri agar tidak hilang (overflow ditangani CSS).
+ */
+export function splitRowsByHeight(heights, firstAvail, nextAvail) {
+  const pages = [];
+  let cur = [], avail = Math.max(1, firstAvail), used = 0;
+  for (let i = 0; i < heights.length; i += 1) {
+    const h = Number(heights[i]) || 0;
+    if (cur.length && used + h > avail) {
+      pages.push(cur);
+      cur = []; used = 0; avail = Math.max(1, nextAvail);
+    }
+    cur.push(i); used += h;
+  }
+  if (cur.length || pages.length === 0) pages.push(cur);
+  return pages;
+}
+
 /** Isi satu dokumen transmittal (kop, info, tabel, tanda tangan). */
 const docBody = ({ doc, company, logoImg }) => {
   const items = doc.items || [];
@@ -117,6 +138,146 @@ const docBody = ({ doc, company, logoImg }) => {
     </div>`;
 };
 
+const paginationScript = (autoPrint) => `<script>
+(function () {
+  var split = ${splitRowsByHeight.toString()};
+  var MM = 96 / 25.4;
+  var CONTENT_H = MM * 186; /* 210 - 10 atas - 12 bawah - 2 buffer (mm) */
+  function build() {
+    var docs = [].slice.call(document.querySelectorAll("section.doc"));
+    var pages = [];
+    var printNow = function () { ${autoPrint ? "setTimeout(function () { window.print(); }, 300);" : "void 0;"} };
+    if (!docs.length) { printNow(); return; }
+    var host = document.createElement("div");
+    host.setAttribute("style", "position:absolute;left:-10000px;top:0;visibility:hidden");
+    document.body.appendChild(host);
+
+    function measuringPage() {
+      var sec = document.createElement("section");
+      sec.className = "page";
+      sec.style.height = "auto";
+      sec.style.overflow = "visible";
+      sec.style.margin = "0";
+      var body = document.createElement("div");
+      body.className = "pbody";
+      sec.appendChild(body);
+      host.appendChild(sec);
+      return { sec: sec, body: body };
+    }
+
+    function tableShell(src) {
+      var t = document.createElement("table");
+      if (src.className) t.className = src.className;
+      var cg = src.querySelector("colgroup");
+      if (cg) t.appendChild(cg.cloneNode(true));
+      if (src.tHead) t.appendChild(src.tHead.cloneNode(true));
+      var tb = document.createElement("tbody");
+      t.appendChild(tb);
+      return { table: t, tbody: tb };
+    }
+
+    function newPage(head, info, srcTable, withTable, includeInfo) {
+      var sec = document.createElement("section");
+      sec.className = "page";
+      var body = document.createElement("div");
+      body.className = "pbody";
+      if (head) body.appendChild(head.cloneNode(true));
+      if (includeInfo && info) body.appendChild(info.cloneNode(true));
+      var tbody = null;
+      if (withTable && srcTable) {
+        var ts = tableShell(srcTable);
+        body.appendChild(ts.table);
+        tbody = ts.tbody;
+      }
+      sec.appendChild(body);
+      /* Wajib sudah di DOM agar getBoundingClientRect() mengukur tinggi sebenarnya. */
+      host.appendChild(sec);
+      return { sec: sec, body: body, tbody: tbody };
+    }
+
+    function tailHolder(notes, signs) {
+      var holder = document.createElement("div");
+      if (notes) holder.appendChild(notes.cloneNode(true));
+      if (signs) holder.appendChild(signs.cloneNode(true));
+      return holder;
+    }
+
+    docs.forEach(function (doc) {
+      var head = doc.querySelector(".head");
+      var info = doc.querySelector(".info");
+      var table = doc.querySelector("table");
+      var rows = table && table.tBodies[0] ? [].slice.call(table.tBodies[0].rows) : [];
+      var notes = doc.querySelector(".notes");
+      var signs = doc.querySelector(".signs");
+
+      var pr = measuringPage();
+      if (head) pr.body.appendChild(head.cloneNode(true));
+      var headH = pr.body.getBoundingClientRect().height;
+      if (info) pr.body.appendChild(info.cloneNode(true));
+      var infoH = pr.body.getBoundingClientRect().height - headH;
+      var theadH = 0;
+      var tb = null;
+      if (table) {
+        var ts = tableShell(table);
+        pr.body.appendChild(ts.table);
+        tb = ts.tbody;
+        theadH = pr.body.getBoundingClientRect().height - headH - infoH;
+        rows.forEach(function (r) { tb.appendChild(r.cloneNode(true)); });
+      }
+      var heights = tb ? [].slice.call(tb.rows).map(function (r) { return r.getBoundingClientRect().height; }) : [];
+      host.removeChild(pr.sec);
+
+      var tailH = 0;
+      if (notes || signs) {
+        var tr = measuringPage();
+        if (head) tr.body.appendChild(head.cloneNode(true));
+        var base = tr.body.getBoundingClientRect().height;
+        if (notes) tr.body.appendChild(notes.cloneNode(true));
+        if (signs) tr.body.appendChild(signs.cloneNode(true));
+        tailH = tr.body.getBoundingClientRect().height - base;
+        host.removeChild(tr.sec);
+      }
+
+      var availFirst = CONTENT_H - headH - infoH - theadH;
+      var availNext = CONTENT_H - headH - theadH;
+      var slices = split(heights, availFirst, availNext);
+
+      slices.forEach(function (slice, idx) {
+        var pg = newPage(head, info, table, true, idx === 0);
+        slice.forEach(function (ri) { pg.tbody.appendChild(rows[ri].cloneNode(true)); });
+        pages.push(pg);
+      });
+
+      if (notes || signs) {
+        var last = pages[pages.length - 1];
+        var holder = tailHolder(notes, signs);
+        last.body.appendChild(holder);
+        if (last.body.getBoundingClientRect().height > CONTENT_H) {
+          last.body.removeChild(holder);
+          var extra = newPage(head, info, table, false, false);
+          extra.body.appendChild(tailHolder(notes, signs));
+          pages.push(extra);
+        }
+      }
+    });
+
+    host.parentNode.removeChild(host);
+    docs.forEach(function (d) { d.parentNode.removeChild(d); });
+    var wrap = document.createElement("div");
+    pages.forEach(function (pg) { wrap.appendChild(pg.sec); });
+    document.body.appendChild(wrap);
+    pages.forEach(function (pg, i) {
+      var foot = document.createElement("div");
+      foot.className = "pfoot";
+      foot.textContent = "Halaman " + (i + 1) + "/" + pages.length;
+      pg.sec.appendChild(foot);
+    });
+    printNow();
+  }
+  if (document.readyState === "complete") build(); else window.addEventListener("load", build);
+})();
+</script>`;
+
 const pageHtml = ({ title, body, autoPrint }) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
   <style>
     /* margin halaman 0 + padding di .doc: header/footer otomatis browser (tanggal, jam, judul, URL
@@ -126,6 +287,14 @@ const pageHtml = ({ title, body, autoPrint }) => `<!doctype html><html><head><me
     html,body{margin:0;padding:0;background:#fff}
     body{color:#000;font-family:Arial,Helvetica,sans-serif;font-size:10.5px;line-height:1.3;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .doc{padding:10mm;background:#fff}
+    /* Paging manual: setiap .page = satu lembar A4 landscape. Kop (dan thead) diulang di tiap halaman,
+       footer memuat nomor halaman. Tinggi 209,5mm (bukan 210mm) agar pembulatan cetak tidak membuat
+       halaman kosong tambahan. */
+    .page{width:297mm;height:209.5mm;padding:10mm 10mm 12mm;position:relative;overflow:hidden;background:#fff}
+    .pbody{width:100%}
+    .pfoot{position:absolute;right:10mm;bottom:4mm;font-size:9px;color:#000}
+    @media screen{.page{margin:0 auto 6mm;box-shadow:0 1px 3px rgba(0,0,0,.18)}}
+    @media print{.page{break-after:page;page-break-after:always}.page:last-of-type{break-after:auto;page-break-after:auto}}
     @media screen{body{background:#e5e7eb}.print-hint{font:12px/1.4 Arial,sans-serif;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12;border-radius:6px;padding:6px 10px;margin:10mm 10mm 0}}
     @media print{.print-hint{display:none!important}}
     .head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5mm}
@@ -160,7 +329,7 @@ const pageHtml = ({ title, body, autoPrint }) => `<!doctype html><html><head><me
   </style></head><body>
     ${autoPrint ? `<div class="print-hint">Dialog cetak terbuka otomatis. Pilih "Save as PDF" bila ingin menyimpan salinan.</div>` : ""}
     ${body}
-    ${autoPrint ? `<script>window.onload=function(){setTimeout(function(){window.print()},450)}</script>` : ""}
+    ${paginationScript(autoPrint)}
   </body></html>`;
 
 export function buildTransmittalHtml({ doc, company, logoImg = "", autoPrint = true }) {
