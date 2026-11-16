@@ -42,9 +42,27 @@ def _flat(r):
     }
 
 
+def _po_dates(r):
+    """Tanggal PO pada satu baris (YYYY-MM-DD), dari hasil gabungan ref PO."""
+    return [str((x or {}).get("date") or "")[:10] for x in (r.get("po_refs") or [])]
+
+
+def _has_po_in_period(r, date_from, date_to):
+    """True bila minimal satu PO pada baris jatuh di periode — dasar tanggal laporan = tanggal PO."""
+    for d in _po_dates(r):
+        if d and (not date_from or d >= date_from) and (not date_to or d <= date_to):
+            return True
+    return False
+
+
 async def mro_traceability(server, user, p):
     # Rantai builder existing (scope divisi + koreksi finansial) -> identik dengan endpoint lama.
-    rows = await RTD._build_rows(server, p.get("date_from"), p.get("date_to"), user)
+    # Dasar tanggal laporan = TANGGAL PO: rantai dibangun tanpa batas tanggal MRO (PO bisa lebih tua /
+    # lebih baru dari tanggal MRO karena koreksi & backdate), lalu baris disaring lewat tanggal PO-nya.
+    rows = await RTD._build_rows(server, None, None, user)
+    date_from, date_to = p.get("date_from"), p.get("date_to")
+    if date_from or date_to:  # periode kosong = "Semua data" (termasuk barang yang belum dipesan)
+        rows = [r for r in rows if _has_po_in_period(r, date_from, date_to)]
     if p.get("division_id"):  # sudah divalidasi dalam cakupan oleh report_center.parse_params
         ids = {m["id"] for m in await server.db.mro.find({"division_id": p["division_id"]}, {"_id": 0, "id": 1}).to_list(None)}
         rows = [r for r in rows if r.get("mro_id") in ids]
@@ -63,8 +81,10 @@ async def mro_traceability(server, user, p):
 
 register(ReportSpec(
     key="mro-traceability", group="procurement", title="MRO Traceability",
-    description="Telusur per barang dari MRO ke RO, PO, DO, dan MI beserta outstanding.",
-    date_basis="Tanggal dokumen MRO (WIB), inklusif.", builder=mro_traceability,
+    description=("Telusur per barang dari MRO ke RO, PO, DO, dan MI beserta outstanding. "
+                 "Saat periode diisi, baris masuk bila minimal satu PO-nya jatuh di periode itu "
+                 "(barang tanpa PO tidak tampil)."),
+    date_basis="Tanggal PO (WIB), inklusif.", builder=mro_traceability,
     columns=(
         Column("item_code", "Kode Barang", width=15), Column("item_name", "Nama Barang", width=28),
         Column("category", "Kategori", width=18), Column("unit", "Satuan", width=10),
