@@ -156,7 +156,7 @@ check("kombinasi Status MI=Open + Status DO='-' -> 1 baris",
       len(got["do_status=-,status=Open"]) == 1, len(got["do_status=-,status=Open"]))
 
 # --- Dasar tanggal = TANGGAL PO (opsi A): baris masuk bila minimal satu PO-nya di periode
-check("judul laporan tetap 'MRO Traceability'", spec.title == "MRO Traceability", spec.title)
+check("judul laporan 'PO Traceability'", spec.title == "PO Traceability", spec.title)
 check("date_basis menyebut Tanggal PO", "Tanggal PO" in spec.date_basis, spec.date_basis)
 
 RAW_PERIOD = [

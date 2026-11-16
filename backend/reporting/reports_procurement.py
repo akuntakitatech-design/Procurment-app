@@ -1,4 +1,5 @@
-"""Laporan kelompok Procurement pada Pusat Laporan. P0: MRO Traceability (migrasi; endpoint lama tetap)."""
+"""Laporan kelompok Procurement pada Pusat Laporan. P0: PO Traceability (dulu "MRO Traceability";
+satu sumber dengan endpoint lama `/api/reports/mro-traceability` yang tetap memakai tanggal MRO)."""
 from __future__ import annotations
 
 import report_trace_detail as RTD
@@ -80,7 +81,7 @@ async def mro_traceability(server, user, p):
 
 
 register(ReportSpec(
-    key="mro-traceability", group="procurement", title="MRO Traceability",
+    key="mro-traceability", group="procurement", title="PO Traceability",
     description=("Telusur per barang dari MRO ke RO, PO, DO, dan MI beserta outstanding. "
                  "Saat periode diisi, baris masuk bila minimal satu PO-nya jatuh di periode itu "
                  "(barang tanpa PO tidak tampil)."),
