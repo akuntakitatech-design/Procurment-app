@@ -340,6 +340,7 @@ async def pull_mro_for_ro(user=Depends(current_user)):
                     "division_name": m["divisions"].get(d.get("division_id"), {}).get("name"),
                     "item_id": l["item_id"], "item_code": l["item_code"], "item_name": l["item_name"],
                     "unit": l["unit"], "requested": l["qty"], "processed": processed, "outstanding": outstanding,
+                    "notes": l.get("notes"),
                     "warehouse_id": l.get("warehouse_id"), "project_id": l.get("project_id"),
                     "unit_id": l.get("unit_id"), "warehouse_name": l.get("warehouse_name"),
                     "project_name": l.get("project_name")})

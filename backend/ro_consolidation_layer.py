@@ -200,6 +200,7 @@ async def ro_line_sources(server, did, line, m, ucache):
             "project_id": ml.get("project_id"), "project_name": m["projects"].get(ml.get("project_id"), {}).get("name"),
             "unit_id": ml.get("unit_id"), "unit_name": (lambda u: u.get("plate_no") or u.get("name"))(m["units"].get(ml.get("unit_id"), {}) or {}),
             "warehouse_id": ml.get("warehouse_id"),
+            "notes": ml.get("notes"),
             "spk": spks, "non_spk_qty": non, "spk_label": _spk_label(spks, non),
             "mro_qty": mro_qty, "sudah_ro": round(elsewhere, 6), "sisa": round(max(0.0, mro_qty - elsewhere), 6),
             "qty": float(a.get("qty") or 0), "base_qty": float(a.get("qty") or 0),

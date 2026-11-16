@@ -141,16 +141,16 @@ export function RoSourceDetailDialog({ line, onClose, onChange, readOnly }) {
         <DialogHeader><DialogTitle className="font-head">Rincian Sumber — {line.item_code} {line.item_name}</DialogTitle></DialogHeader>
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-            <th className="p-2">MRO</th><th className="p-2">SPK</th><th className="p-2">Proyek</th><th className="p-2">Unit/Aset</th><th className="p-2 text-right">Qty MRO</th><th className="p-2 text-right">Sudah RO</th><th className="p-2 text-right">Sisa</th><th className="p-2 text-right w-36">Qty ke RO</th>
+            <th className="p-2">MRO</th><th className="p-2">SPK</th><th className="p-2">Proyek</th><th className="p-2">Unit/Aset</th><th className="p-2">Keterangan</th><th className="p-2 text-right">Qty MRO</th><th className="p-2 text-right">Sudah RO</th><th className="p-2 text-right">Sisa</th><th className="p-2 text-right w-36">Qty ke RO</th>
           </tr></thead><tbody>
             {line.sources.map((s, i) => { const over = n(s.qty) > n(s.sisa) + EPS; return (
               <tr key={s.line_id} className="border-t" data-testid={`ro-source-detail-row-${i}`}>
                 <td className="p-2 font-mono text-xs font-semibold">{s.mro_no}</td>
-                <td className="p-2 text-xs">{s.spk_label}</td><td className="p-2">{s.project_name || "-"}</td><td className="p-2">{s.unit_name || "-"}</td>
+                <td className="p-2 text-xs">{s.spk_label}</td><td className="p-2">{s.project_name || "-"}</td><td className="p-2">{s.unit_name || "-"}</td><td className="p-2 text-xs">{s.notes || "-"}</td>
                 <td className="p-2 text-right tabular-nums">{num(s.mro_qty)}</td><td className="p-2 text-right tabular-nums">{num(s.sudah_ro)}</td><td className="p-2 text-right tabular-nums">{num(s.sisa)}</td>
                 <td className="p-1.5 text-right">{readOnly ? <span className="font-semibold tabular-nums">{num(s.qty)}</span> : <><Input type="number" min="0" step="any" value={s.qty} onChange={(e) => setSrc(i, e.target.value)} className={`h-8 text-right ${over ? "border-destructive ring-1 ring-destructive/40" : ""}`} aria-invalid={over || undefined} data-testid={`ro-source-qty-${i}`} />{over && <div className="mt-0.5 text-[11px] text-destructive">Melebihi sisa</div>}</>}</td>
               </tr>); })}
-          </tbody><tfoot><tr className="border-t bg-muted/40 font-semibold"><td className="p-2" colSpan={4}>Total</td><td className="p-2 text-right">{num(t.need)}</td><td className="p-2 text-right">{num(t.done)}</td><td className="p-2 text-right">{num(t.sisa)}</td><td className="p-2 text-right" data-testid="ro-source-detail-total">{num(t.alloc)} {line.unit}</td></tr></tfoot></table>
+          </tbody><tfoot><tr className="border-t bg-muted/40 font-semibold"><td className="p-2" colSpan={5}>Total</td><td className="p-2 text-right">{num(t.need)}</td><td className="p-2 text-right">{num(t.done)}</td><td className="p-2 text-right">{num(t.sisa)}</td><td className="p-2 text-right" data-testid="ro-source-detail-total">{num(t.alloc)} {line.unit}</td></tr></tfoot></table>
         </div>
         <p className="text-xs text-muted-foreground">Qty RO = total alokasi sumber. Alokasi per MRO tidak boleh melebihi sisa; server memvalidasi ulang saat simpan.</p>
         <DialogFooter><Button onClick={onClose} data-testid="ro-source-detail-close">Selesai</Button></DialogFooter>
@@ -167,12 +167,13 @@ export function RoConsolidatedTable({ lines, onChange, readOnly, divisionName, a
   return <>
     <div className="overflow-x-auto rounded-md border">
       <table className="w-full text-sm zebra"><thead className="bg-muted"><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
-        <th className="p-2">Barang</th><th className="p-2">Divisi</th><th className="p-2 text-right">Qty Kebutuhan</th><th className="p-2 text-right">Sudah RO</th><th className="p-2 text-right">Sisa</th><th className="p-2 text-right w-32">Qty RO</th><th className="p-2">Satuan</th><th className="p-2 text-right">Jumlah MRO</th><th className="p-2">Alokasi SPK</th><th className="p-2 text-right">Rincian</th>{extraCols?.head}{!readOnly && <th className="w-10 p-2" />}
+        <th className="p-2">Barang</th><th className="p-2">Keterangan</th><th className="p-2">Divisi</th><th className="p-2 text-right">Qty Kebutuhan</th><th className="p-2 text-right">Sudah RO</th><th className="p-2 text-right">Sisa</th><th className="p-2 text-right w-32">Qty RO</th><th className="p-2">Satuan</th><th className="p-2 text-right">Jumlah MRO</th><th className="p-2">Alokasi SPK</th><th className="p-2 text-right">Rincian</th>{extraCols?.head}{!readOnly && <th className="w-10 p-2" />}
       </tr></thead><tbody>
-        {lines.length === 0 && <tr><td colSpan={13} className="p-6 text-center text-muted-foreground" data-testid="ro-consolidated-empty">Belum ada kebutuhan MRO. Gunakan tombol Tarik MRO.</td></tr>}
+        {lines.length === 0 && <tr><td colSpan={14} className="p-6 text-center text-muted-foreground" data-testid="ro-consolidated-empty">Belum ada kebutuhan MRO. Gunakan tombol Tarik MRO.</td></tr>}
         {lines.map((l, i) => { const t = lineTotals(l); const over = n(l.qty) > t.sisa + EPS; const bad = !readOnly && !lineIsValid(l); const sk = spkSummary(l.sources); return (
           <tr key={l.id || l._key || i} className="border-t" data-testid={`ro-line-${i}`}>
             <td className="p-2"><div className="font-medium">{l.item_name}</div><div className="font-mono text-xs text-muted-foreground">{l.item_code}</div></td>
+            <td className="p-1.5 min-w-[150px]" data-label="Keterangan">{readOnly ? (l.notes || "-") : <Input value={l.notes || ""} onChange={(e) => upd(i, { notes: e.target.value })} className="h-8" placeholder="Keterangan" data-testid={`ro-line-notes-${i}`} />}</td>
             <td className="p-2">{l.division_name || divisionName || "-"}</td>
             <td className="p-2 text-right tabular-nums">{num(t.need)}</td><td className="p-2 text-right tabular-nums">{num(t.done)}</td><td className="p-2 text-right tabular-nums">{num(t.sisa)}</td>
             <td className="p-1.5 text-right">{readOnly ? <span className="font-semibold tabular-nums" data-testid={`ro-line-qty-${i}`}>{num(l.qty)}</span> : <><Input type="number" min="0" step="any" value={l.qty} onChange={(e) => setQty(i, e.target.value)} className={`h-8 text-right ${over || bad ? "border-destructive ring-1 ring-destructive/40" : ""}`} aria-invalid={over || bad || undefined} data-testid={`ro-line-qty-${i}`} />{over && <div className="mt-0.5 text-[11px] text-destructive">Melebihi sisa</div>}</>}</td>

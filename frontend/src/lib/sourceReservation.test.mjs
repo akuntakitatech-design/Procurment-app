@@ -67,6 +67,48 @@ const eq = (a, b) => Math.abs(Number(a) - Number(b)) < 1e-6;
   check("picker MRO: item yang sisa efektifnya habis hilang dari pilihan", !!m1 && !m1.lines.some((r) => r.item_id === "I1"));
 }
 
+// ---------------------------------------------------------------- Keterangan MRO terbawa ke RO
+{
+  const mkPull = (lineId, notes, outstanding = 5) => ({ line_id: lineId, item_id: "I", mro_id: "D1", mro_no: "MRO-1",
+    mro_date: "2026-10-01", division_id: "V", outstanding_base: outstanding, outstanding, notes });
+  // sourceFromPull wajib membawa keterangan MRO
+  const src = R.sourceFromPull(mkPull("L1", "01-30 September 2026"));
+  check("sourceFromPull membawa keterangan MRO", src.notes === "01-30 September 2026", src.notes);
+
+  const grp = (list) => [{
+    key: "V|I", item_id: "I", item_code: "A1", item_name: "Baut", division_id: "V",
+    base_unit: "Unit", base_uom_id: "U",
+    sources: list.map((x) => ({ ...R.sourceFromPull(x), qty: x.outstanding })),
+  }];
+
+  // Tarik 1 MRO: keterangan ikut ke baris RO
+  let lines = R.mergeRoPicked([], grp([mkPull("L1", "01-30 September 2026")]));
+  check("Tarik MRO: keterangan masuk ke baris RO", lines[0].notes === "01-30 September 2026", lines[0].notes);
+
+  // 2 sumber berbeda keterangan -> digabung
+  lines = R.mergeRoPicked([], grp([mkPull("L1", "Sewa September"), mkPull("L2", "Sewa Oktober")]));
+  check("Tarik MRO: keterangan berbeda digabung ' | '", lines[0].notes === "Sewa September | Sewa Oktober", lines[0].notes);
+
+  // Keterangan sama -> tidak dobel
+  lines = R.mergeRoPicked([], grp([mkPull("L1", "Sewa September"), mkPull("L2", "Sewa September")]));
+  check("Tarik MRO: keterangan sama tidak diduplikasi", lines[0].notes === "Sewa September", lines[0].notes);
+
+  // Tarik ulang sumber lain ke baris yang keterangannya masih kosong -> terisi
+  let one = R.mergeRoPicked([], grp([{ line_id: "L1", item_id: "I", mro_id: "D1", mro_no: "MRO-1", division_id: "V", outstanding_base: 5, outstanding: 5 }]));
+  check("Sumber tanpa keterangan -> baris RO kosong", one[0].notes === "", one[0].notes);
+  one = R.mergeRoPicked(one, grp([mkPull("L2", "Sewa Oktober")]));
+  check("Tarik ulang -> keterangan terisi dari sumber baru", one[0].notes === "Sewa Oktober", one[0].notes);
+
+  // Isian manual tidak ditimpa saat merge berikutnya
+  one = one.map((l) => ({ ...l, notes: "Catatan manual" }));
+  one = R.mergeRoPicked(one, grp([mkPull("L3", "Sewa November")]));
+  check("Keterangan yang sudah diisi manual tidak ditimpa", one[0].notes === "Catatan manual", one[0].notes);
+
+  // Payload simpan membawa keterangan (supaya tersimpan di ro_lines.notes)
+  const payload = JSON.parse(JSON.stringify({ lines: one.map((l) => ({ ...l, qty: 5, sources: l.sources.map((s) => ({ ...s, qty: 1 })) })) }));
+  check("Baris RO menyimpan field notes untuk payload server", payload.lines[0].notes === "Catatan manual", payload.lines[0].notes);
+}
+
 // ---------------------------------------------------------------- PO <- RO
 {
   const pull = [{ line_id: "R1", ro_id: "RO", ro_no: "RO-1", item_id: "I", division_id: "V", outstanding_base: 10,
