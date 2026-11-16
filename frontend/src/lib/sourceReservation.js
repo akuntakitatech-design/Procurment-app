@@ -72,6 +72,7 @@ export const sourceFromPull = (r) => ({
   mro_id: r.mro_id, mro_no: r.mro_no, mro_date: r.mro_date, line_id: r.line_id,
   spk: r.spk || [], non_spk_qty: r.non_spk_qty, spk_label: r.spk_label || "Non-SPK",
   project_id: r.project_id, project_name: r.project_name, unit_id: r.unit_id, unit_name: r.unit_name, warehouse_id: r.warehouse_id, source_header: r.source_header || null,
+  notes: r.notes || "",
   mro_qty: n(r.requested_base ?? r.requested), sudah_ro: n(r.processed_base ?? r.processed), sisa: n(r.outstanding_base ?? r.outstanding), qty: 0,
   db_sisa: n(r._db_outstanding_base ?? r.outstanding_base ?? r.outstanding), reserved: n(r._reserved_base),
 });
@@ -139,7 +140,11 @@ export function applyRoReservation(rows, reserved) {
   return out;
 }
 
-/** Gabungkan grup hasil Tarik MRO ke baris RO terkonsolidasi (kunci: Barang; Divisi sudah satu per RO). */
+/** Keterangan gabungan dari sumber MRO (unik, urut tarik) — dipakai sebagai keterangan awal baris RO. */
+const notesOf = (sources) => [...new Set((sources || []).map((s) => String(s.notes || "").trim()).filter(Boolean))].join(" | ");
+
+/** Gabungkan grup hasil Tarik MRO ke baris RO terkonsolidasi (kunci: Barang; Divisi sudah satu per RO).
+ *  Keterangan MRO ikut dibawa: sumber berbeda -> digabung " | "; isian manual tidak ditimpa saat merge. */
 export function mergeRoPicked(current, picked, defaults = {}) {
   const out = current.map((l) => ({ ...l, sources: [...(l.sources || [])] }));
   for (const g of picked) {
@@ -158,6 +163,10 @@ export function mergeRoPicked(current, picked, defaults = {}) {
       }
       hit.sources.sort(byMroDate);
       hit.qty = +sumK(hit.sources, "qty").toFixed(6);
+      if (!String(hit.notes || "").trim()) {
+        const add = notesOf(g.sources);
+        if (add) hit.notes = add;
+      }
       continue;
     }
     const uniq = (k) => { const v = [...new Set(g.sources.map((s) => s[k] || ""))]; return v.length === 1 ? v[0] : ""; };
@@ -165,7 +174,7 @@ export function mergeRoPicked(current, picked, defaults = {}) {
       _key: `c-${g.key}-${Date.now()}`, _consolidated: true, item_id: g.item_id, item_code: g.item_code, item_name: g.item_name,
       division_id: g.division_id, division_name: g.division_name, unit: g.base_unit, uom_id: g.base_uom_id, conversion_factor: 1,
       warehouse_id: uniq("warehouse_id") || defaults.warehouse_id || "", project_id: uniq("project_id"), unit_id: uniq("unit_id"),
-      qty: +sumK(g.sources, "qty").toFixed(6), sources: g.sources.map((s) => ({ ...s, sisa: n(s.db_sisa ?? s.sisa) })), notes: "",
+      qty: +sumK(g.sources, "qty").toFixed(6), sources: g.sources.map((s) => ({ ...s, sisa: n(s.db_sisa ?? s.sisa) })), notes: notesOf(g.sources),
     });
   }
   return out;
