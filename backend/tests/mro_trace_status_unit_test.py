@@ -155,5 +155,58 @@ check("filter Status MI=Completed -> 1 baris", len(got["status=Completed"]) == 1
 check("kombinasi Status MI=Open + Status DO='-' -> 1 baris",
       len(got["do_status=-,status=Open"]) == 1, len(got["do_status=-,status=Open"]))
 
+# --- Dasar tanggal = TANGGAL PO (opsi A): baris masuk bila minimal satu PO-nya di periode
+check("judul laporan tetap 'MRO Traceability'", spec.title == "MRO Traceability", spec.title)
+check("date_basis menyebut Tanggal PO", "Tanggal PO" in spec.date_basis, spec.date_basis)
+
+RAW_PERIOD = [
+    row(po_refs=[{"no": "PO/1", "date": "2026-11-05"}], qty_po=5.0, qty_received=5.0),
+    row(po_refs=[{"no": "PO/2", "date": "2026-10-20"}], qty_po=5.0),
+    row(po_refs=[{"no": "PO/3", "date": "2026-10-28"}, {"no": "PO/4", "date": "2026-11-10"}], qty_po=5.0),
+    row(po_refs=[], qty_po=0.0),
+]
+_calls = []
+
+
+async def _fake_period(server, date_from, date_to, user):
+    _calls.append((date_from, date_to))
+    return [dict(x) for x in RAW_PERIOD]
+
+
+RP.RTD._build_rows = _fake_period
+try:
+    async def run_period():
+        out = {}
+        for params in ({}, {"date_from": "2026-11-01", "date_to": "2026-11-30"},
+                       {"date_from": "2026-10-01", "date_to": "2026-10-31"},
+                       {"date_from": "2026-12-01", "date_to": "2026-12-31"},
+                       {"date_from": "2026-11-01", "date_to": "2026-11-30", "do_status": "Diterima"}):
+            out[json_key(params)] = await RP.mro_traceability(None, None, dict(params))
+        return out
+
+    period = asyncio.run(run_period())
+finally:
+    RP.RTD._build_rows = _orig
+
+check("rantai dibangun tanpa batas tanggal MRO (None, None)",
+      _calls[0] == (None, None), str(_calls[0]))
+check("periode kosong = 'Semua data' (barang tanpa PO tetap tampil)", len(period["semua"]) == 4,
+      len(period["semua"]))
+check("periode Nov: hanya baris yang punya PO di Nov (2 baris)",
+      len(period["date_from=2026-11-01,date_to=2026-11-30"]) == 2,
+      [x["po_no"] for x in period["date_from=2026-11-01,date_to=2026-11-30"]])
+check("PO di luar periode tidak ikut (Des -> 0 baris)",
+      len(period["date_from=2026-12-01,date_to=2026-12-31"]) == 0,
+      len(period["date_from=2026-12-01,date_to=2026-12-31"]))
+check("satu baris dengan 2 PO: masuk bila salah satu PO di periode (Okt: 2 baris)",
+      len(period["date_from=2026-10-01,date_to=2026-10-31"]) == 2,
+      [x["po_no"] for x in period["date_from=2026-10-01,date_to=2026-10-31"]])
+check("barang tanpa PO tidak muncul saat periode diisi",
+      all(x["po_no"] for x in period["date_from=2026-11-01,date_to=2026-11-30"]),
+      [x["po_no"] for x in period["date_from=2026-11-01,date_to=2026-11-30"]])
+check("periode PO + Status DO bisa dikombinasikan (1 baris)",
+      len(period["date_from=2026-11-01,date_to=2026-11-30,do_status=Diterima"]) == 1,
+      len(period["date_from=2026-11-01,date_to=2026-11-30,do_status=Diterima"]))
+
 print(f"\n{'SEMUA PASS' if not fail else str(len(fail)) + ' GAGAL -> ' + str(fail)}  ({len(keys)} kolom)")
 sys.exit(1 if fail else 0)
