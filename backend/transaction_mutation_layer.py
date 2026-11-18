@@ -247,6 +247,9 @@ async def _replace(server, module, did, body, user):
         line = dict(line)
         if line.get("qty") is not None and float(line.get("qty") or 0) <= 0 and module not in ("adjustment", "opname"):
             continue
+        # Barang wajib dipilih untuk baris yang akan disimpan (opname: baris mengikuti snapshot).
+        if module != "opname" and not str(line.get("item_id") or "").strip():
+            raise HTTPException(400, f"Baris {idx + 1}: barang belum dipilih.")
         specs = await _source_specs(server, module, line, line.get("qty"))
         prepared.append((line, specs, uom_metas[idx] if idx < len(uom_metas) else None))
     await _validate_sources_total(server, module, did, [(specs, line.get("item_id")) for line, specs, _ in prepared])

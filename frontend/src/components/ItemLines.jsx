@@ -18,6 +18,10 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const items = masters.map("items");
   const uoms = masters.map("uoms");
   const taxes = masters.map("taxes");
+  // Barang yang baru dibuat dari baris ini (quick create). Disimpan lokal supaya baris langsung
+  // terpilih walau daftar master (lookup) belum memuatnya — mis. barang di luar cakupan lookup.
+  const createdRef = useRef({});
+  const itemOf = (id) => items[id] || (id ? createdRef.current[id] : null);
   const prev = useRef({ warehouse_id: "", project_id: "", unit_id: "" });
   const linesRef = useRef(lines);
   const onChangeRef = useRef(onChange);
@@ -57,7 +61,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const taxOpts = [{ value: "", label: "Tanpa Pajak", selectedLabel: "Tanpa Pajak" }, ...(masters.data.taxes || []).map((d) => ({ value: d.id, label: `${d.name} (${num(d.rate)}%)`, selectedLabel: d.name }))];
   const uomLabel = (id) => { const u = uoms[id]; return u ? (u.symbol || u.name || u.code) : ""; };
   const itemUoms = (id) => {
-    const it = items[id]; if (!it) return [];
+    const it = itemOf(id); if (!it) return [];
     if (!it.base_uom_id) return it.unit ? [{ value: `legacy:${it.unit}`, label: it.unit, selectedLabel: it.unit, factor: 1, unit: it.unit }] : [];
     const rows = [{ uom_id: it.base_uom_id, factor: 1, is_base: true }, ...(it.uoms || []).filter((x) => x.uom_id !== it.base_uom_id)];
     const seen = new Set();
@@ -74,7 +78,7 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const update = (i, patch) => {
     const next = [...lines]; const cur = { ...next[i] };
     if (patch.item_id) {
-      const it = items[patch.item_id]; const base = it?.base_uom_id || "";
+      const it = itemOf(patch.item_id); const base = it?.base_uom_id || "";
       next[i] = { ...cur, ...patch, uom_id: base, conversion_factor: 1, unit: base ? uomLabel(base) : (it?.unit || "") };
     } else if (patch.uom_id !== undefined) {
       const pick = itemUoms(cur.item_id).find((x) => x.value === patch.uom_id); const oldF = Number(cur.conversion_factor) || 1; const newF = Number(pick?.factor) || 1;
@@ -106,16 +110,24 @@ export function ItemLines({ lines, onChange, masters, fields = {}, showPrice = f
   const total = (l) => { const base = (Number(l.qty) || 0) * (Number(l.price) || 0) - discAmt(l); return taxInclusive ? Math.max(0, base) : base + base * (Number(l.tax) || 0) / 100; };
   const grand = lines.reduce((s, l) => s + total(l), 0);
   const whOf = (l) => (stockWarehouse ? stockWarehouse(l) : l.warehouse_id || defaults.warehouse_id || "");
-  const Stock = ({ l, i }, input) => <QtyStock itemId={l.item_id} warehouseId={whOf(l)} itemName={items[l.item_id]?.name} testid={`${testidPrefix}-stock-${i}`}>{input}</QtyStock>;
-  const footer = itemCreate ? (i) => ({ label: "Tambah Barang", testid: `${testidPrefix}-add-item-${i}`, onClick: () => itemCreate((id) => setPick({ i, id })) }) : () => null;
+  const Stock = ({ l, i }, input) => <QtyStock itemId={l.item_id} warehouseId={whOf(l)} itemName={itemOf(l.item_id)?.name} testid={`${testidPrefix}-stock-${i}`}>{input}</QtyStock>;
+  const footer = itemCreate ? (i) => ({ label: "Tambah Barang", testid: `${testidPrefix}-add-item-${i}`, onClick: () => itemCreate((id, doc) => { if (id && doc) createdRef.current[id] = doc; setPick({ i, id, doc: doc || null }); }) }) : () => null;
   // PO: label barang = Nama · Merk · Part Number (tanpa kode), boleh 2 baris agar terbaca jelas.
   const Picker = ({ l, i }) => <ItemPicker items={masters.data.items || []} lookup={masters.status?.("items")} uoms={uoms} value={l.item_id} onChange={(v) => update(i, { item_id: v })} warehouseId={whOf(l)} disabled={l._locked} onCreate={footer(i)} testid={`${testidPrefix}-item-${i}`}
     formatLabel={itemLabel || (poControl ? itemDisplayName : null)} fallbackLabel={[l.item_name, l.item_brand, l.item_part_number].filter(Boolean).join(" · ") || l.item_code || ""} />;
   const updateRef = useRef(update);
   updateRef.current = update;
-  useEffect(() => { if (pick && items[pick.id] && linesRef.current[pick.i]) { setPick(null); updateRef.current(pick.i, { item_id: pick.id }); } }, [pick, items]);
-  const stockInfo = (l) => { const it = items[l.item_id]; if (!it) return ""; const base = it.base_uom_id ? uomLabel(it.base_uom_id) : it.unit; return base ? `${num((Number(l.qty) || 0) * (Number(l.conversion_factor) || 1))} ${base}` : ""; };
-  const Uom = ({ l, i }) => <div className="flex items-center gap-1"><div className="min-w-0 flex-1"><Combobox dense testid={`${testidPrefix}-uom-${i}`} options={itemUoms(l.item_id)} lookup={masters.status?.("uoms")} value={l.uom_id || items[l.item_id]?.base_uom_id || ""} onChange={(v) => update(i, { uom_id: v })} placeholder="Satuan" disabled={!l.item_id || itemUoms(l.item_id).length <= 1} /></div>{l.item_id && <Popover><PopoverTrigger asChild><button type="button" className="shrink-0 text-muted-foreground transition-colors hover:text-primary" title="Konversi Stok" data-testid={`po-uom-info-${i}`}><Info className="h-4 w-4" /></button></PopoverTrigger><PopoverContent align="end" className="w-60 text-xs"><div className="space-y-1"><div className="font-semibold">Konversi Stok</div><div className="flex justify-between gap-3"><span className="text-muted-foreground">Satuan transaksi</span><span className="font-medium">{num(l.qty)} {l.unit || ""}</span></div>{(Number(l.conversion_factor) || 1) !== 1 && <div className="flex justify-between gap-3"><span className="text-muted-foreground">Konversi</span><span>1 {l.unit || ""} = {num(l.conversion_factor)} {items[l.item_id]?.unit || ""}</span></div>}<div className="flex justify-between gap-3 border-t pt-1"><span className="text-muted-foreground">Terhitung stok</span><span className="font-semibold">{stockInfo(l)}</span></div></div></PopoverContent></Popover>}</div>;
+  useEffect(() => {
+    if (!pick) return;
+    if (!linesRef.current[pick.i]) { setPick(null); return; }
+    const doc = pick.doc || items[pick.id] || (pick.id ? createdRef.current[pick.id] : null);
+    if (!doc) return; // tunggu data barang tersedia (lookup / hasil quick create)
+    setPick(null);
+    // Snapshot kode & nama ikut disimpan: label baris tetap terbaca walau lookup tidak memuat barang ini.
+    updateRef.current(pick.i, { item_id: pick.id, item_code: doc.code, item_name: doc.name });
+  }, [pick, items]);
+  const stockInfo = (l) => { const it = itemOf(l.item_id); if (!it) return ""; const base = it.base_uom_id ? uomLabel(it.base_uom_id) : it.unit; return base ? `${num((Number(l.qty) || 0) * (Number(l.conversion_factor) || 1))} ${base}` : ""; };
+  const Uom = ({ l, i }) => <div className="flex items-center gap-1"><div className="min-w-0 flex-1"><Combobox dense testid={`${testidPrefix}-uom-${i}`} options={itemUoms(l.item_id)} lookup={masters.status?.("uoms")} value={l.uom_id || itemOf(l.item_id)?.base_uom_id || ""} onChange={(v) => update(i, { uom_id: v })} placeholder="Satuan" disabled={!l.item_id || itemUoms(l.item_id).length <= 1} /></div>{l.item_id && <Popover><PopoverTrigger asChild><button type="button" className="shrink-0 text-muted-foreground transition-colors hover:text-primary" title="Konversi Stok" data-testid={`po-uom-info-${i}`}><Info className="h-4 w-4" /></button></PopoverTrigger><PopoverContent align="end" className="w-60 text-xs"><div className="space-y-1"><div className="font-semibold">Konversi Stok</div><div className="flex justify-between gap-3"><span className="text-muted-foreground">Satuan transaksi</span><span className="font-medium">{num(l.qty)} {l.unit || ""}</span></div>{(Number(l.conversion_factor) || 1) !== 1 && <div className="flex justify-between gap-3"><span className="text-muted-foreground">Konversi</span><span>1 {l.unit || ""} = {num(l.conversion_factor)} {itemOf(l.item_id)?.unit || ""}</span></div>}<div className="flex justify-between gap-3 border-t pt-1"><span className="text-muted-foreground">Terhitung stok</span><span className="font-semibold">{stockInfo(l)}</span></div></div></PopoverContent></Popover>}</div>;
 
   // Total rendered columns (keeps empty-row / grand-total colSpans correct).
   const colCount = 4 + (allocationColumn ? 1 : 0) + (fields.warehouse ? 1 : 0) + (fields.project ? 1 : 0) + (fields.unit ? 1 : 0) + (showPrice ? 4 : 0) + 1;

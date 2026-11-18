@@ -1,6 +1,7 @@
 // Validasi input transaksi di frontend (UX guard). Backend tetap menjadi sumber kebenaran.
 export const DIVISION_REQUIRED_MSG = "Divisi wajib diisi.";
 export const QTY_REQUIRED_MSG = "Qty harus lebih besar dari 0.";
+export const ITEM_REQUIRED_MSG = "Barang belum dipilih.";
 export const ADJ_QTY_MSG = "Qty Penyesuaian tidak boleh 0.";
 export const COUNT_NEGATIVE_MSG = "Qty hasil hitung fisik tidak boleh minus.";
 export const SOURCE_DIVISION_CONFLICT_MSG = "Dokumen sumber berasal dari Divisi yang berbeda. Pisahkan transaksi per Divisi.";
@@ -31,6 +32,7 @@ export function hasDivision(v) {
 
 /**
  * Cek baris transaksi. mode: "normal" (qty > 0), "adjustment" (+/- tetapi tidak 0), "opname" (counted >= 0, boleh 0/kosong).
+ * Semua mode kecuali "opname" juga mewajibkan Barang terpilih (baris tanpa barang tidak boleh ikut tersimpan).
  * Return {index, message} untuk baris pertama yang tidak valid, atau null.
  */
 export function firstInvalidLine(lines, mode = "normal", key) {
@@ -48,6 +50,8 @@ export function firstInvalidLine(lines, mode = "normal", key) {
     } else if (!isPositiveQty(l[key || "qty"])) {
       return { index: i, message: QTY_REQUIRED_MSG };
     }
+    // Barang wajib dipilih. Opname dikecualikan: barisnya mengikuti snapshot dan boleh belum dihitung.
+    if (mode !== "opname" && blank(l.item_id)) return { index: i, message: ITEM_REQUIRED_MSG };
   }
   return null;
 }
