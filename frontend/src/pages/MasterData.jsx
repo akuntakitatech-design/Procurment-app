@@ -271,21 +271,25 @@ export function MasterFormDialog({ name, open, onOpenChange, form, setForm, refs
   const updUom = (i, patch) => setForm((s) => ({ ...s, uoms: (s.uoms || []).map((u, x) => x === i ? { ...u, ...patch } : u) }));
   const delUom = (i) => setForm((s) => ({ ...s, uoms: (s.uoms || []).filter((_, x) => x !== i) }));
   const [invalid, setInvalid] = useState(new Set());
+  const [saving, setSaving] = useState(false);
   useEffect(() => { if (!open) setInvalid(new Set()); }, [open]);
   const missing = missingRequired(name, form);
   useEffect(() => { setInvalid((cur) => (cur.size ? new Set(missing.map((f) => f.k)) : cur)); }, [form]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
+    if (saving) return; // cegah klik ganda saat proses simpan
     if (missing.length) {
       setInvalid(new Set(missing.map((f) => f.k)));
       toast.error(`Wajib diisi: ${missing.map((f) => f.l).join(", ")}`);
       return;
     }
+    setSaving(true);
     try {
       const editing = !!form.id;
       const res = editing ? await api.put(`/master/${name}/${form.id}`, form) : await api.post(`/master/${name}`, form);
       toast.success(editing ? `Perubahan tersimpan — ${res.data.code}` : `${cfg.label} tersimpan — ${res.data.code}`);
       onSaved(res.data);
     } catch (e) { toast.error(apiError(e.response?.data?.detail)); }
+    finally { setSaving(false); }
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -329,7 +333,7 @@ export function MasterFormDialog({ name, open, onOpenChange, form, setForm, refs
           </div>}
         </>}
 
-        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)} data-testid={`master-${name}-form-cancel`}>Batal</Button><Button onClick={save} data-testid={`master-${name}-form-save`}>Simpan</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)} data-testid={`master-${name}-form-cancel`}>Batal</Button><BusyButton onClick={save} busy={saving} data-testid={`master-${name}-form-save`}>Simpan</BusyButton></DialogFooter>
       </DialogContent>
     </Dialog>
   );
