@@ -21,6 +21,7 @@ from fastapi import HTTPException
 
 DIVISION_MSG = "Divisi wajib diisi."
 QTY_MSG = "Qty harus lebih besar dari 0."
+ITEM_MSG = "Barang belum dipilih."
 ADJ_MSG = "Qty Penyesuaian tidak boleh 0."
 COUNT_MSG = "Qty hasil hitung fisik tidak boleh minus."
 LOCKED_MSG = "Divisi harus mengikuti dokumen sumber dan tidak dapat diubah."
@@ -61,7 +62,7 @@ def validate_lines(module: str, lines) -> None:
         return
     if not isinstance(lines, list):
         raise HTTPException(400, QTY_MSG)
-    for line in lines:
+    for idx, line in enumerate(lines, start=1):
         if not isinstance(line, dict):
             raise HTTPException(400, QTY_MSG)
         if module == "adjustment":
@@ -77,6 +78,10 @@ def validate_lines(module: str, lines) -> None:
             v = _num(line.get("qty"))
             if v is None or v <= 0:
                 raise HTTPException(400, QTY_MSG)
+        # Barang wajib dipilih (sama dengan form): baris berisi qty tanpa barang tidak boleh tersimpan.
+        # Opname dikecualikan: barisnya mengikuti snapshot / add-item yang sudah membawa barang.
+        if module != "opname" and not str(line.get("item_id") or "").strip():
+            raise HTTPException(400, f"Baris {idx}: {ITEM_MSG}")
 
 
 def has_division(v) -> bool:
