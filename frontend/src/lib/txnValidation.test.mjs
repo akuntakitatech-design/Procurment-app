@@ -4,12 +4,12 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const tmp = join(tmpdir(), `txnValidation.${process.pid}.mjs`);
 writeFileSync(tmp, readFileSync(join(here, "txnValidation.js"), "utf8"));
-const V = await import(tmp);
+const V = await import(pathToFileURL(tmp).href);
 const page = (n) => readFileSync(join(here, "..", "pages", n), "utf8");
 const comp = (n) => readFileSync(join(here, "..", "components", n), "utf8");
 
@@ -28,16 +28,23 @@ for (const [label, q] of [["0", 0], ["negatif", -1], ["null", null], ["kosong", 
 }
 t("qty 0.5 -> valid", V.isPositiveQty(0.5));
 t("qty '3' -> valid", V.isPositiveQty("3"));
-t("lineQtyError baris 2", V.lineQtyError([{ qty: 1 }, { qty: 0 }]) === "Baris 2: Qty harus lebih besar dari 0.");
-t("lineQtyError semua valid -> null", V.lineQtyError([{ qty: 1 }, { qty: 2 }]) === null);
+t("lineQtyError baris 2", V.lineQtyError([{ item_id: "i1", qty: 1 }, { item_id: "i2", qty: 0 }]) === "Baris 2: Qty harus lebih besar dari 0.");
+t("lineQtyError semua valid -> null", V.lineQtyError([{ item_id: "i1", qty: 1 }, { item_id: "i2", qty: 2 }]) === null);
+
+// Barang wajib dipilih (baris tanpa barang tidak boleh ikut tersimpan)
+t("baris tanpa barang -> ditolak", V.lineQtyError([{ item_id: "", qty: 1 }]) === "Baris 1: Barang belum dipilih.");
+t("barang kosong di baris 3 -> pesan baris 3", V.lineQtyError([{ item_id: "i1", qty: 1 }, { item_id: "i2", qty: 1 }, { qty: 1 }]) === "Baris 3: Barang belum dipilih.");
+t("qty 0 tetap dilaporkan lebih dulu daripada barang kosong", V.lineQtyError([{ item_id: "", qty: 0 }]) === "Baris 1: Qty harus lebih besar dari 0.");
+t("barang null -> ditolak", V.lineQtyError([{ item_id: null, qty: 1 }]) === "Baris 1: Barang belum dipilih.");
 
 // Penyesuaian
-t("penyesuaian +5 valid", V.lineQtyError([{ adjustment: 5 }], "adjustment") === null);
-t("penyesuaian -3 valid", V.lineQtyError([{ adjustment: -3 }], "adjustment") === null);
-t("penyesuaian 0 ditolak", V.lineQtyError([{ adjustment: 0 }], "adjustment") === "Baris 1: Qty Penyesuaian tidak boleh 0.");
-t("penyesuaian kosong ditolak", V.lineQtyError([{ adjustment: "" }], "adjustment") !== null);
+t("penyesuaian +5 valid", V.lineQtyError([{ item_id: "i1", adjustment: 5 }], "adjustment") === null);
+t("penyesuaian -3 valid", V.lineQtyError([{ item_id: "i1", adjustment: -3 }], "adjustment") === null);
+t("penyesuaian 0 ditolak", V.lineQtyError([{ item_id: "i1", adjustment: 0 }], "adjustment") === "Baris 1: Qty Penyesuaian tidak boleh 0.");
+t("penyesuaian kosong ditolak", V.lineQtyError([{ item_id: "i1", adjustment: "" }], "adjustment") !== null);
+t("penyesuaian tanpa barang ditolak", V.lineQtyError([{ item_id: "", adjustment: 5 }], "adjustment") === "Baris 1: Barang belum dipilih.");
 
-// Opname counted = 0 valid
+// Opname counted = 0 valid (baris opname mengikuti snapshot -> tidak diwajibkan memilih barang)
 t("opname counted 0 valid", V.lineQtyError([{ counted: 0 }], "opname") === null);
 t("opname counted kosong (belum dihitung) valid", V.lineQtyError([{ counted: "" }], "opname") === null);
 t("opname counted negatif ditolak", V.lineQtyError([{ counted: -1 }], "opname") !== null);
@@ -78,7 +85,7 @@ t("Adjustment.jsx: label dropdown memuat kode + nama + konversi (cari via kode/n
   t("Terpilih PCS/Pieces: hanya 'Pieces'", V.adjustmentSelectedUnitLabel(u) === "Pieces"); }
 t("Adjustment.jsx: qty mode adjustment", adj.includes('lineQtyError(lines,"adjustment")'));
 const cb = comp("Combobox.jsx");
-t("Combobox: pencarian tetap memakai label opsi", cb.includes("value={o.label}"));
+t("Combobox: pencarian tetap memakai label opsi", cb.includes("{o.sublabel ?") && cb.includes(": o.label}") && !cb.includes("value={o.value"));
 t("Combobox: selectedLabel hanya untuk tampilan terpilih", cb.includes("selected.selectedLabel ?? selected.label"));
 const df = comp("DivisionField.jsx");
 t("DivisionField: label Divisi * dan pesan error", df.includes("Divisi <span") && df.includes("-error"));

@@ -273,8 +273,13 @@ async def create_mro(body: dict, user=Depends(current_user)):
               "default_project_id": body.get("default_project_id"), "notes": body.get("notes"),
               "submitted": body.get("submitted", False), "cancelled": False,
               "created_by": user.get("email"), "created_at": now_iso()}
+    # Barang wajib dipilih: divalidasi SEBELUM menulis apa pun agar tidak ada header yatim.
+    payload_lines = body.get("lines", [])
+    for idx, l in enumerate(payload_lines, start=1):
+        if not str(l.get("item_id") or "").strip():
+            raise HTTPException(400, f"Baris {idx}: barang belum dipilih.")
     await db.mro.insert_one(header)
-    for l in body.get("lines", []):
+    for l in payload_lines:
         await db.mro_lines.insert_one({"id": gid(), "mro_id": did, "item_id": l["item_id"],
             "qty": float(l.get("qty", 0)), "unit": l.get("unit"),
             "warehouse_id": l.get("warehouse_id") or header["default_warehouse_id"],
@@ -295,6 +300,11 @@ async def update_mro(did: str, body: dict, user=Depends(current_user)):
         raise HTTPException(400, "MRO sudah submit, tidak bisa diedit langsung")
     upd = {k: body[k] for k in ("date","need_date","division_id","requester","department",
            "default_warehouse_id","default_project_id","notes") if k in body}
+    if "lines" in body:
+        # Barang wajib dipilih: divalidasi sebelum baris lama dihapus, agar tidak ada data yang hilang.
+        for idx, l in enumerate(body["lines"], start=1):
+            if not str(l.get("item_id") or "").strip():
+                raise HTTPException(400, f"Baris {idx}: barang belum dipilih.")
     await db.mro.update_one({"id": did}, {"$set": upd})
     if "lines" in body:
         await db.mro_lines.delete_many({"mro_id": did})
