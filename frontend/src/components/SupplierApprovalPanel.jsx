@@ -113,7 +113,7 @@ export function SupplierApprovalPanel({ onChanged }) {
           {rows.map((r) => <tr key={r.id} className="border-t">
             {status === "pending" && <td data-label="Pilih" className="p-3"><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} aria-label={`Pilih ${r.code}`} data-testid={`supplier-approval-check-${r.code}`} /></td>}
             <td data-label="Kode" className="p-3 font-mono text-xs font-semibold">{r.code || "-"}</td>
-            <td data-label="Nama Supplier" className="m-full p-3"><div className="font-medium">{r.name || "-"}</div>{r.legal_name ? <div className="text-xs text-muted-foreground">{r.legal_name}</div> : null}</td>
+            <td data-label="Nama Supplier" className="m-full p-3"><div className="font-medium">{r.legal_name || r.name || "-"}</div>{r.legal_name && r.name ? <div className="text-xs text-muted-foreground">PIC: {r.name}</div> : null}</td>
             <td data-label="Kota" className="p-3">{r.city || "-"}</td>
             <td data-label="Diajukan Oleh" className="p-3"><div className="text-xs">{r.approval_requested_by_name || r.approval_requested_by || "-"}</div></td>
             <td data-label="Tanggal" className="p-3">{r.approval_requested_at ? fmtDate(r.approval_requested_at) : fmtDate(r.created_at)}</td>

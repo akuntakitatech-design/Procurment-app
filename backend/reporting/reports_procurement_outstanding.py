@@ -149,6 +149,8 @@ async def outstanding(server, user, mod, p):
     raw = {d["id"]: d for d in raw_l}
     lines = [ln for v in (await _lines_by_doc(server, src, list(raw))).values() for ln in v]
     nm = lambda coll, i: (m[coll].get(i) or {}).get("name") if i else None  # noqa: E731
+    # Supplier memakai nama legal perusahaan (field `name` pada master berisi nama PIC).
+    sup_nm = lambda i: ((m["suppliers"].get(i) or {}).get("legal_name") or (m["suppliers"].get(i) or {}).get("name")) if i else None  # noqa: E731
     if mod == "do":
         done, refs = await _do_to_mi(server, lines, cutoff)
     else:
@@ -187,7 +189,7 @@ async def outstanding(server, user, mod, p):
         day = local_day(h.get("date"))
         out.append({"doc_id": h["id"], "mod": src, "no": h.get("no"), "date": day,
                     "division": h.get("trace_division") or nm("divisions", h.get("division_id")) or "-",
-                    "project": nm("projects", pid) or h.get("trace_project") or "-", "supplier": nm("suppliers", sup) or "-",
+                    "project": nm("projects", pid) or h.get("trace_project") or "-", "supplier": sup_nm(sup) or "-",
                     "item_code": it.get("code") or ln.get("item_code"), "item_name": it.get("name") or ln.get("item_name"),
                     "unit": ln.get("display_unit") or ln.get("unit") or it.get("unit") or "-",
                     "qty": round(qty, 6), "done": round(d, 6), "outstanding": round(osd, 6),

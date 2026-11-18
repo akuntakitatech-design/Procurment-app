@@ -212,7 +212,7 @@ def install(server):
             last = last_by_sup.get(sid)
             is_primary = sid == primary_id
             status = ST_BOTH if (c and is_primary) else ST_CONTRACT if c else ST_PRIMARY if is_primary else ST_HISTORY
-            row = {"supplier_id": sid, "supplier_name": s.get("name"), "supplier_code": s.get("code"), "status": status,
+            row = {"supplier_id": sid, "supplier_name": s.get("legal_name") or s.get("name"), "supplier_code": s.get("code"), "status": status,
                    "is_contract": bool(c), "is_primary": is_primary, "contract_count": len(by_sup.get(sid) or [])}
             if c:
                 f = factor(c.get("uom_id"))
@@ -254,7 +254,7 @@ def install(server):
         rows = [r for r in await approved_purchases(server, item, alw, await _uoms()) if r["supplier_id"] == supplier_id]
         n = max(1, min(int(limit or 5), 5))
         for r in rows:
-            r["supplier_name"] = sup.get("name")
-        return {"supplier_id": supplier_id, "supplier_name": sup.get("name"), "count": len(rows), "rows": rows[:n]}
+            r["supplier_name"] = sup.get("legal_name") or sup.get("name")
+        return {"supplier_id": supplier_id, "supplier_name": sup.get("legal_name") or sup.get("name"), "count": len(rows), "rows": rows[:n]}
 
     server.logger.info("PO price insight (Tarik RO) layer installed")

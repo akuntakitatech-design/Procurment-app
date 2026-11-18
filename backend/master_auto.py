@@ -145,7 +145,7 @@ async def _normalize_item(server, body: dict) -> dict:
         sup = await server.db.suppliers.find_one({"id": supplier_id, "is_active": {"$ne": False}})
         if not sup:
             raise HTTPException(status_code=400, detail="Supplier utama tidak ditemukan / nonaktif")
-        out["primary_supplier_name"] = sup.get("name")
+        out["primary_supplier_name"] = sup.get("legal_name") or sup.get("name")
     else:
         out["primary_supplier_name"] = None
     return out

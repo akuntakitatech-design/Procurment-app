@@ -255,13 +255,13 @@ async def global_search(q: str, user=Depends(current_user)):
             hay = " ".join(str(d.get(f, "")) for f in fields).lower()
             if ql in hay:
                 res.append({"type": dtype, "id": d["id"], "no": d.get("no") or d.get("code"),
-                            "label": d.get("name") or d.get("supplier_invoice") or d.get("no")})
+                            "label": d.get("legal_name") or d.get("name") or d.get("supplier_invoice") or d.get("no")})
     await scan(db.mro, "mro", ["no", "requester", "notes"])
     await scan(db.ro, "ro", ["no", "requester"])
     await scan(db.po, "po", ["no", "supplier_notes"])
     await scan(db.do, "do", ["no", "supplier_dn", "supplier_invoice"])
     await scan(db.mi, "mi", ["no", "receiver"])
-    await scan(db.suppliers, "suppliers", ["code", "name"])
+    await scan(db.suppliers, "suppliers", ["code", "name", "legal_name"])
     await scan(db.items, "items", ["code", "name", "part_number"])
     await scan(db.projects, "projects", ["code", "name"])
     await scan(db.units, "units", ["code", "name", "plate_no"])

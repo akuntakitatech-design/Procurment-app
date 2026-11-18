@@ -841,7 +841,7 @@ def install(server):
         primary = next((c for c in contacts if c.get("is_primary")), contacts[0] if contacts else {})
         cfg = await E.public_config(server)
         logs = await server.db.po_email_logs.find({"po_id": did}, {"_id": 0}).sort("sent_at", -1).to_list(20)
-        return {"po_no": po.get("no"), "status": po.get("status"), "supplier_name": sup.get("name"),
+        return {"po_no": po.get("no"), "status": po.get("status"), "supplier_name": sup.get("legal_name") or sup.get("name"),
                 "default_to": sup.get("email") or (primary or {}).get("email") or "",
                 "subject": f"Purchase Order {po.get('no') or ''}".strip(),
                 "message": "Terlampir informasi Purchase Order yang telah disetujui.",

@@ -223,7 +223,7 @@ async def purchase_price_history(item_id: str, uom_id: str = "", supplier_id: st
     pos = await db.po.find({"status": {"$in": VALID}, "cancelled": {"$ne": True}}).to_list(1000)
     po_by_id = {p["id"]: p for p in pos}
     sup_docs = await db.suppliers.find({}).to_list(2000)
-    sup_name = {s["id"]: s.get("name") for s in sup_docs}
+    sup_name = {s["id"]: (s.get("legal_name") or s.get("name")) for s in sup_docs}
     lq = {"item_id": item_id}
     if uom_id:
         lq["uom_id"] = uom_id
@@ -518,9 +518,9 @@ async def list_po(user=Depends(current_user)):
     for d in docs:
         d["line_count"] = len(by_doc.get(d["id"], []))
         sup = m["suppliers"].get(d.get("supplier_id")) or {}
-        d["supplier_name"] = sup.get("name")
-        # Nama perusahaan untuk kolom daftar: `name` pada master supplier berisi nama PIC.
-        d["supplier_legal_name"] = sup.get("legal_name") or sup.get("name")
+        # Kolom "Supplier" = nama legal perusahaan (field `name` pada master berisi nama PIC).
+        d["supplier_name"] = sup.get("legal_name") or sup.get("name")
+        d["supplier_legal_name"] = d["supplier_name"]
         d["division_name"] = m["divisions"].get(d.get("division_id"), {}).get("name")
         if not show_price:
             d["grand_total"] = None
@@ -552,7 +552,9 @@ async def get_po(did: str, user=Depends(current_user)):
         if not show_price:
             for k in ("price","discount","tax","total","contract_price_snapshot","price_variance","price_variance_pct"): l[k] = None
     d["lines"] = lines
-    d["supplier_name"] = m["suppliers"].get(d.get("supplier_id"), {}).get("name")
+    sup_po = m["suppliers"].get(d.get("supplier_id"), {}) or {}
+    d["supplier_name"] = sup_po.get("legal_name") or sup_po.get("name")
+    d["supplier_legal_name"] = d["supplier_name"]
     d["division_name"] = m["divisions"].get(d.get("division_id"), {}).get("name")
     d["approvals"] = await db.po_approvals.find({"po_id": did}, {"_id": 0}).sort("seq", 1).to_list(50)
     d.setdefault("dp_enabled", False)  # PO lama tanpa field DP = tidak menggunakan DP
@@ -935,7 +937,7 @@ async def pull_po_for_do(user=Depends(current_user), supplier_id: str = None):
             if outstanding > 0:
                 enrich_line(l, m)
                 out.append({"po_id": d["id"], "po_no": d["no"], "supplier_id": d.get("supplier_id"),
-                    "supplier_name": sup.get("name"),
+                    "supplier_name": sup.get("legal_name") or sup.get("name"),
                     # Nama perusahaan (bukan nama PIC yang tersimpan di field `name`).
                     "supplier_legal_name": sup.get("legal_name") or sup.get("name"),
                     "line_id": l["id"], "item_id": l["item_id"], "item_code": l["item_code"],
@@ -955,9 +957,9 @@ async def list_do(user=Depends(current_user)):
     by_doc = await lines_by_doc("do_lines", "do_id", [d["id"] for d in docs])
     for d in docs:
         sup = m["suppliers"].get(d.get("supplier_id")) or {}
-        d["supplier_name"] = sup.get("name")
-        # Nama perusahaan untuk kolom daftar: `name` pada master supplier berisi nama PIC.
-        d["supplier_legal_name"] = sup.get("legal_name") or sup.get("name")
+        # Kolom "Supplier" = nama legal perusahaan (field `name` pada master berisi nama PIC).
+        d["supplier_name"] = sup.get("legal_name") or sup.get("name")
+        d["supplier_legal_name"] = d["supplier_name"]
         d["line_count"] = len(by_doc.get(d["id"], []))
     return docs
 
@@ -975,8 +977,9 @@ async def get_do(did: str, user=Depends(current_user)):
         l["po_no"] = ph["no"] if ph else None
     d["lines"] = lines
     sup = m["suppliers"].get(d.get("supplier_id"), {}) or {}
-    d["supplier_name"] = sup.get("name")
-    d["supplier_legal_name"] = sup.get("legal_name") or sup.get("name")
+    # Kolom "Supplier" = nama legal perusahaan (field `name` pada master berisi nama PIC).
+    d["supplier_name"] = sup.get("legal_name") or sup.get("name")
+    d["supplier_legal_name"] = d["supplier_name"]
     d["supplier_address"] = sup.get("address")
     d["supplier_city"] = sup.get("city")
     contacts = sup.get("contacts") or []
@@ -1206,7 +1209,7 @@ async def compute_do_receiving_value(did, user):
         tot["total"] += base["total_receiving_value"]
     return {"do_id": did, "do_no": d.get("no"), "date": d.get("date"),
             "supplier_id": d.get("supplier_id"),
-            "supplier_name": m["suppliers"].get(d.get("supplier_id"), {}).get("name"),
+            "supplier_name": (m["suppliers"].get(d.get("supplier_id"), {}).get("legal_name") or m["suppliers"].get(d.get("supplier_id"), {}).get("name")),
             "lines": out_lines, "totals": tot}
 
 
