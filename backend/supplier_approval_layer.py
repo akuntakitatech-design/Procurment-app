@@ -51,7 +51,7 @@ def install(server):
             label = "menunggu approval" if _status(supplier) == PENDING else "ditolak"
             raise HTTPException(
                 400,
-                f"Supplier {supplier.get('name')} masih {label}. Supplier baru harus disetujui atasan "
+                f"Supplier {supplier.get('legal_name') or supplier.get('name')} masih {label}. Supplier baru harus disetujui atasan "
                 f"di menu Approval → Supplier sebelum dipakai di PO.",
             )
 

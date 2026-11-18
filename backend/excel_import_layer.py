@@ -40,7 +40,7 @@ MASTER_DATASETS = {
             "contact_name", "contact_role", "contact_phone", "contact_email",
             "bank_name", "bank_account_no", "bank_account_name", "bank_branch", "bank_currency", "is_active",
         ],
-        "required": ["code", "name", "supplier_category_code"],
+        "required": ["code", "legal_name", "name", "supplier_category_code"],
         "example": ["SUP-00001", "PT. Profita Abadi", "SPAREPART", "", "", "PT. Profita Abadi", "Lokal", "", "", "", "Indonesia", "", "", "Ya", "Net 120", "IDR", "PPN11", 7, 0, "H+7 After PO", "", "Ibu Lidya", "Marketing", "085214080112", "", "BANK MANDIRI", "108-001-023-364-2", "PT. Profita Abadi", "", "IDR", "Ya"],
     },
     "units": {
