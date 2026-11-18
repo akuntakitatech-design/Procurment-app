@@ -21,9 +21,10 @@ import { divisionError, lineQtyError } from "@/lib/txnValidation";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { BusyButton } from "@/components/ui/busy-button";
 import { Input } from "@/components/ui/input";
 import { num, toNum, fmtDate, todayISO } from "@/lib/format";
-import { Save, Send, Printer, Ban, ArrowLeft, Plus, X } from "lucide-react";
+import { Save, Send, Printer, Ban, ArrowLeft, X } from "lucide-react";
 import { toast } from "sonner";
 import { printDoc } from "@/lib/print";
 import { SpkAllocationModal, formatAllocText } from "@/components/SpkAllocationModal";
@@ -82,6 +83,7 @@ export function MroForm() {
   const [lines, setLines] = useState([]); const [doc, setDoc] = useState(null); const [editing,setEditing]=useState(false); const isNew = !id;
   const [allocs, setAllocs] = useState({}); const [allocLine, setAllocLine] = useState(null); const [spkMap, setSpkMap] = useState({});
   const [pending, setPending] = useState([]); // in-memory attachments chosen before first save
+  const [busy, setBusy] = useState(""); // "" | "draft" | "submit" — status proses simpan (spinner di tombol)
   const [noError, setNoError] = useState(false); const noRef = useRef(null);
   const { confirm, dialog } = useCompletenessWarning();
   const lineKey = (l) => l.id || l._key;
@@ -109,6 +111,8 @@ export function MroForm() {
     return false;
   };
   const doSave = async (submit) => {
+    if (busy) return; // cegah klik ganda saat proses simpan berjalan
+    setBusy(submit ? "submit" : "draft");
     try {
       const no=(h.no||"").trim();
       const payload={...h,no,submitted:false,lines}; let mroId;
@@ -130,6 +134,7 @@ export function MroForm() {
       if(submit) await api.post(`/mro/${mroId}/submit`);
       toast.success(submit?"MRO disubmit":"MRO tersimpan"); nav(`/mro/${mroId}`); if(!isNew) load();
     } catch(e){ const msg=apiError(e.response?.data?.detail); if(/nomor mro/i.test(String(msg))){ setNoError(true); noRef.current?.focus?.(); noRef.current?.scrollIntoView?.({behavior:"smooth",block:"center"}); } toast.error(msg); }
+    finally { setBusy(""); }
   };
   const [divErr,setDivErr]=useState(null);
   const save = (submit=false) => {
@@ -148,7 +153,7 @@ export function MroForm() {
   const factor=(l)=>Number(l.conversion_factor)||1, q=(l,v)=>num((Number(v)||0)/factor(l)), unitText=(l)=>l.display_unit||l.unit||"";
   const defaults={warehouse_id:h.default_warehouse_id,project_id:h.default_project_id,unit_id:h.default_unit_id};
   const projectOpts = (masters.data.projects||[]).map(projectOption); const unitOpts = (masters.data.units||[]).map(unitOption);
-  return <div><TransactionPageHeader type="mro" mode={isNew?"new":!doc?null:(editing||!readOnly)?"edit":"view"} number={doc?.no} subtitle={doc&&<StatusBadge status={doc.status}/>} numberInput={isNew?<Input ref={noRef} value={h.no||""} onChange={(e)=>{setH({...h,no:e.target.value});if(noError)setNoError(false);}} placeholder="mis. MRO-OMSS-001" data-testid="mro-no-input" className={`h-8 w-56 font-mono ${noError?"border-destructive ring-1 ring-destructive":""}`}/>:undefined}><Button variant="outline" onClick={()=>nav("/mro")}><ArrowLeft className="h-4 w-4 mr-2"/>Kembali</Button>{!isNew&&!editing&&<TransactionMutationActions module="mro" id={id} ready={!!doc} onEdit={()=>setEditing(true)} onDeleted={()=>nav("/mro")}/>} {editing&&<Button variant="outline" onClick={load}><X className="h-4 w-4 mr-2"/>Batal Edit</Button>}{(!readOnly||editing)&&can("edit")&&!isNew&&<Button variant="outline" onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Perubahan</Button>}{isNew&&can("create")&&<Button variant="outline" onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Draft</Button>}{isNew&&can("submit")&&<Button onClick={()=>save(true)}><Send className="h-4 w-4 mr-2"/>Simpan & Submit</Button>}{!isNew&&!submitted&&!waitingApproval&&!editing&&can("submit")&&<Button onClick={doSubmit}><Send className="h-4 w-4 mr-2"/>Submit</Button>}{!isNew&&doc&&!doc.cancelled&&!editing&&can("cancel")&&<Button variant="outline" onClick={doCancel}><Ban className="h-4 w-4 mr-2"/>Batalkan</Button>}{!isNew&&!editing&&<Button variant="outline" onClick={()=>printDoc("MRO",doc)}><Printer className="h-4 w-4 mr-2"/>Print</Button>}</TransactionPageHeader>
+  return <div><TransactionPageHeader type="mro" mode={isNew?"new":!doc?null:(editing||!readOnly)?"edit":"view"} number={doc?.no} subtitle={doc&&<StatusBadge status={doc.status}/>} numberInput={isNew?<Input ref={noRef} value={h.no||""} onChange={(e)=>{setH({...h,no:e.target.value});if(noError)setNoError(false);}} placeholder="mis. MRO-OMSS-001" data-testid="mro-no-input" className={`h-8 w-56 font-mono ${noError?"border-destructive ring-1 ring-destructive":""}`}/>:undefined}><Button variant="outline" onClick={()=>nav("/mro")}><ArrowLeft className="h-4 w-4 mr-2"/>Kembali</Button>{!isNew&&!editing&&<TransactionMutationActions module="mro" id={id} ready={!!doc} onEdit={()=>setEditing(true)} onDeleted={()=>nav("/mro")}/>} {editing&&<Button variant="outline" onClick={load}><X className="h-4 w-4 mr-2"/>Batal Edit</Button>}{(!readOnly||editing)&&can("edit")&&!isNew&&<BusyButton variant="outline" busy={busy==="draft"} busyLabel="Menyimpan..." onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Perubahan</BusyButton>}{isNew&&can("create")&&<BusyButton variant="outline" busy={busy==="draft"} busyLabel="Menyimpan..." onClick={()=>save(false)}><Save className="h-4 w-4 mr-2"/>Simpan Draft</BusyButton>}{isNew&&can("submit")&&<BusyButton busy={busy==="submit"} busyLabel="Menyimpan & submit..." onClick={()=>save(true)}><Send className="h-4 w-4 mr-2"/>Simpan & Submit</BusyButton>}{!isNew&&!submitted&&!waitingApproval&&!editing&&can("submit")&&<Button onClick={doSubmit}><Send className="h-4 w-4 mr-2"/>Submit</Button>}{!isNew&&doc&&!doc.cancelled&&!editing&&can("cancel")&&<Button variant="outline" onClick={doCancel}><Ban className="h-4 w-4 mr-2"/>Batalkan</Button>}{!isNew&&!editing&&<Button variant="outline" onClick={()=>printDoc("MRO",doc)}><Printer className="h-4 w-4 mr-2"/>Print</Button>}</TransactionPageHeader>
     <TransactionProgress className="mb-4" stages={["Draft","Waiting Approval","Open","Partial","Completed"]} status={isNew?"Draft":editing?"Edit":doc?.status}/><DocMetaTabs entity="mro" entityId={id} attachmentPending={pending} onAttachmentPendingChange={setPending}><div className="space-y-4"><Card><CardContent className="pt-6 space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Pemohon"><Input value={h.requester||""} onChange={(e)=>setH({...h,requester:e.target.value})} disabled={readOnly}/></Field><DivisionField testid="mro-division-field" options={masters.opts("divisions",d=>d.name)} value={h.division_id} onChange={(v)=>{setH({...h,division_id:v});setDivErr(null);}} disabled={readOnly} error={divErr}/><Field label="Tanggal MRO"><DatePicker value={h.date} onChange={(v)=>setH({...h,date:v})} disabled={readOnly}/></Field><Field label="Tanggal Kebutuhan"><DatePicker value={h.need_date} onChange={(v)=>setH({...h,need_date:v})} disabled={readOnly}/></Field></div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"><Field label="Proyek Default"><MasterProjectCombobox masters={masters} options={projectOpts} value={h.default_project_id||""} onChange={(v)=>setH(s=>({...s,default_project_id:v}))} disabled={readOnly} testid="mro-hdr-project"/></Field><Field label="Gudang Default"><Combobox options={masters.opts("warehouses",d=>d.name)} value={h.default_warehouse_id} onChange={(v)=>setH({...h,default_warehouse_id:v})} disabled={readOnly}/></Field><Field label="Unit/Aset Default"><MasterUnitCombobox masters={masters} options={unitOpts} value={h.default_unit_id||""} onChange={(v)=>setH(s=>({...s,default_unit_id:v}))} disabled={readOnly} prefill={()=>inlinePrefill("units",{division_id:h.division_id})} testid="mro-hdr-unit"/></Field><Field label="Keterangan"><Input value={h.notes||""} onChange={(e)=>setH({...h,notes:e.target.value})} disabled={readOnly}/></Field></div>
