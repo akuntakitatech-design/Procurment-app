@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { BusyButton } from "@/components/ui/busy-button";
 import { Input } from "@/components/ui/input";
 import { num, toNum, fmtDate, todayISO } from "@/lib/format";
-import { Save, Send, Printer, Ban, ArrowLeft, X } from "lucide-react";
+import { Save, Send, Printer, Ban, ArrowLeft, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { printDoc } from "@/lib/print";
 import { SpkAllocationModal, formatAllocText } from "@/components/SpkAllocationModal";

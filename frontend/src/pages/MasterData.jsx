@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { AttachmentPanel } from "@/components/DocMeta";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { BusyButton } from "@/components/ui/busy-button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Field } from "@/components/DatePicker";
