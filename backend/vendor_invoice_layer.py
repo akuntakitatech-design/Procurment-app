@@ -248,7 +248,7 @@ def install(server):
             # payment_status selalu diturunkan dari pembayaran aktual tersimpan (mencegah status usang)
             i["payment_status"] = pay_status(float(i.get("amount") or 0), float(i.get("paid_total") or 0), float(i.get("dp_allocated_total") or 0))
             i.update({
-                "supplier_name": (sups.get(i.get("supplier_id")) or {}).get("name"),
+                "supplier_name": (sups.get(i.get("supplier_id")) or {}).get("legal_name") or (sups.get(i.get("supplier_id")) or {}).get("name"),
                 # Kolom Supplier pada daftar memakai nama legal perusahaan (fallback ke nama lama).
                 "supplier_legal_name": (sups.get(i.get("supplier_id")) or {}).get("legal_name") or (sups.get(i.get("supplier_id")) or {}).get("name"),
                 "do_nos": ", ".join(t.get("no") for t in ts if t.get("no")),
@@ -451,7 +451,7 @@ def install(server):
                      "trace_division_ids": [d["division_id"]] if d.get("division_id") else [],
                      "trace_project_ids": [d["project_id"]] if d.get("project_id") else []}
             out.append({"do_id": d["id"], "do_no": d.get("no"), "date": d.get("date"), "supplier_id": d.get("supplier_id"),
-                        "supplier_name": (sups.get(d.get("supplier_id")) or {}).get("name"),
+                        "supplier_name": (sups.get(d.get("supplier_id")) or {}).get("legal_name") or (sups.get(d.get("supplier_id")) or {}).get("name"),
                         "supplier_legal_name": (sups.get(d.get("supplier_id")) or {}).get("legal_name") or (sups.get(d.get("supplier_id")) or {}).get("name"),
                         "po_nos": t.get("trace_po"), "ro_nos": t.get("trace_ro"),
                         "mro_nos": t.get("trace_mro"), "project": t.get("trace_project"), "division": t.get("trace_division"),

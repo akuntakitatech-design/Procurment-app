@@ -350,7 +350,7 @@ def install(server):
         ids = [i for i in ids if i]
         if not ids:
             return {}
-        return {r["id"]: r.get("name") for r in await getattr(db(), coll).find({"id": {"$in": list(set(ids))}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(ids) + 5)}
+        return {r["id"]: (r.get("legal_name") or r.get("name")) for r in await getattr(db(), coll).find({"id": {"$in": list(set(ids))}}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(len(ids) + 5)}
 
     def pay_out(p):
         return {**p, "status_label": LABEL.get(p.get("status"), p.get("status"))}

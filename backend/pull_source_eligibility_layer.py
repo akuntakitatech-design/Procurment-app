@@ -186,7 +186,7 @@ async def _po_rows(server, supplier_id, user):
             doc_procurement.enrich_line(line, m)
             out.append({
                 "po_id": d["id"], "po_no": d.get("no"), "supplier_id": d.get("supplier_id"),
-                "supplier_name": sup.get("name"),
+                "supplier_name": sup.get("legal_name") or sup.get("name"),
                 # Nama perusahaan (field `name` pada master supplier berisi nama PIC).
                 "supplier_legal_name": sup.get("legal_name") or sup.get("name"),
                 "line_id": line["id"], "item_id": line.get("item_id"),

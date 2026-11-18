@@ -65,8 +65,9 @@ def install(server):
         item_category = {x.get("id"): x.get("category_id") for x in items}
         categories = await server.db.item_categories.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(5000)
         category_name = {x.get("id"): x.get("name") for x in categories}
-        suppliers = await server.db.suppliers.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(10000)
-        supplier_name = {x.get("id"): x.get("name") for x in suppliers}
+        suppliers = await server.db.suppliers.find({}, {"_id": 0, "id": 1, "name": 1, "legal_name": 1}).to_list(10000)
+        # Nama supplier = nama legal perusahaan (field `name` pada master berisi nama PIC).
+        supplier_name = {x.get("id"): (x.get("legal_name") or x.get("name")) for x in suppliers}
 
         line_count = len(po_lines)
         closed_lines = partial_lines = not_received_lines = over_delivery_lines = 0

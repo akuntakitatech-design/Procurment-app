@@ -294,7 +294,7 @@ def install(server):
             out.append({
                 "id": inv["id"], "no": inv.get("no"), "invoice_no": inv.get("invoice_no"),
                 "invoice_date": inv.get("invoice_date"),
-                "supplier_name": (sups.get(inv.get("supplier_id")) or {}).get("name") or "",
+                "supplier_name": (sups.get(inv.get("supplier_id")) or {}).get("legal_name") or (sups.get(inv.get("supplier_id")) or {}).get("name") or "",
                 "supplier_legal_name": (sups.get(inv.get("supplier_id")) or {}).get("legal_name") or (sups.get(inv.get("supplier_id")) or {}).get("name") or "",
                 "tax_invoice_no": str(inv.get("tax_invoice_no") or ""),
                 "po_nos": (tr.get(inv["id"]) or {}).get("po_nos", ""),

@@ -502,7 +502,7 @@ def install(server):
                                 sup = m["suppliers"].get(res.get("supplier_id"), {})
                                 if sup.get("is_active") is False:
                                     continue
-                                found.append({"supplier_id": res.get("supplier_id"), "supplier_name": sup.get("name") or res.get("supplier_name"),
+                                found.append({"supplier_id": res.get("supplier_id"), "supplier_name": sup.get("legal_name") or sup.get("name") or res.get("supplier_name"),
                                               "contract_number": res.get("contract_number"), "uom_name": res.get("uom_name"),
                                               "net_contract_price": res.get("net_contract_price") if show_price else None})
                     contract_cache[rl.get("item_id")] = found
@@ -510,7 +510,7 @@ def install(server):
                 if contracts:
                     rec = {"supplier_id": contracts[0]["supplier_id"], "supplier_name": contracts[0]["supplier_name"], "source": "Kontrak Aktif"}
                 elif prim:
-                    rec = {"supplier_id": prim.get("id"), "supplier_name": prim.get("name"), "source": "Supplier Utama"}
+                    rec = {"supplier_id": prim.get("id"), "supplier_name": prim.get("legal_name") or prim.get("name"), "source": "Supplier Utama"}
                 else:
                     rec = {"supplier_id": None, "supplier_name": None, "source": "Pilih Manual"}
                 sources = await describe_sources(ctx, st, m)
@@ -522,7 +522,7 @@ def install(server):
                     "base_unit": (u or {}).get("code") or (u or {}).get("name") or it.get("unit") or rl.get("unit"),
                     "qty_ro_base": _r(rl.get("qty")), "ordered_base": st["ordered_other"], "outstanding_base": st["remaining"],
                     "po_status": po_status_label(rl.get("qty"), st["ordered_other"]),
-                    "primary_supplier_id": prim.get("id"), "primary_supplier_name": prim.get("name"),
+                    "primary_supplier_id": prim.get("id"), "primary_supplier_name": prim.get("legal_name") or prim.get("name"),
                     "contract_suppliers": contracts, "recommended_supplier": rec,
                     "sources": sources, "mro_nos": [s["mro_no"] for s in sources if s.get("mro_no")],
                     "mro_count": len({s["mro_id"] for s in sources if s.get("mro_id")}), "spk_label": spk_lbl,

@@ -357,7 +357,7 @@ async def _import_master(server, key, rows, user, tracker=None):
                 sup_id = _ref(maps, "suppliers", sup_code, n, "primary_supplier_code", errors)
                 if sup_id:
                     prepared[-1]["primary_supplier_id"] = sup_id
-                    prepared[-1]["primary_supplier_name"] = (maps["suppliers"].get(sup_code.upper()) or {}).get("name")
+                    prepared[-1]["primary_supplier_name"] = (maps["suppliers"].get(sup_code.upper()) or {}).get("legal_name") or (maps["suppliers"].get(sup_code.upper()) or {}).get("name")
             # Field turunan yang sama dengan form Master Barang (master_auto._normalize_item) agar hasil import
             # tidak kosong di kolom Kategori/Satuan maupun konversi satuan dasar.
             uom_doc = maps["uoms"].get(_text(r.get("base_uom_code")).upper()) or {}
