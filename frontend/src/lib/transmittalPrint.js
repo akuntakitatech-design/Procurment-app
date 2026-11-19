@@ -91,8 +91,8 @@ const docBody = ({ doc, company, logoImg }) => {
     </div>
     <div class="info">
       <div class="row"><span class="lab">Tujuan / Departemen</span><span class="val">${esc(doc.destination || "-")}</span></div>
-      <div class="row"><span class="lab">Pengirim</span><span class="val"></span></div>
-      <div class="row"><span class="lab">Penerima</span><span class="val"></span></div>
+      <div class="row"><span class="lab">Pengirim</span><span class="val">${esc(doc.sender_name || "")}</span></div>
+      <div class="row"><span class="lab">Penerima</span><span class="val">${esc(doc.receiver_name || "")}</span></div>
       <div class="row"><span class="lab">Total Invoice</span><span class="val">${items.length}</span></div>
     </div>
     <table>
