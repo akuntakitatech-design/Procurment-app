@@ -10,12 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BusyButton } from "@/components/ui/busy-button";
 import { rupiah, fmtDateTime } from "@/lib/format";
 import { dateOnly, fmtD, todayDate } from "@/lib/invoice";
 import { checklistSummary } from "@/lib/docChecklist";
 import { openTransmittalPrint } from "@/lib/transmittalPrint";
 import { companyLogoPath, printImage } from "@/lib/printAssets";
-import { ArrowLeft, CheckCircle2, Printer, Send, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Pencil, Printer, Send, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 const Info = ({ label, children }) => <div><div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div><div className="mt-0.5 text-sm font-medium">{children || "-"}</div></div>;
@@ -37,6 +39,12 @@ export default function InvoiceTransmittalForm() {
   const [reason, setReason] = useState("");
   const [proofFile, setProofFile] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Ubah daftar invoice pada transmittal Draft (backend: PUT /invoice-transmittals/{id} dengan invoice_ids).
+  const [itemsOpen, setItemsOpen] = useState(false);
+  const [itemsEligible, setItemsEligible] = useState([]);
+  const [itemsChecked, setItemsChecked] = useState([]);
+  const [itemsSearch, setItemsSearch] = useState("");
+  const [itemsSaving, setItemsSaving] = useState(false);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -65,6 +73,44 @@ export default function InvoiceTransmittalForm() {
 
   const toggle = (iid) => setChecked((cur) => (cur.includes(iid) ? cur.filter((x) => x !== iid) : [...cur, iid]));
   const toggleAll = () => setChecked((cur) => (rows.every((r) => cur.includes(r.id)) ? cur.filter((x) => !rows.some((r) => r.id === x)) : [...new Set([...cur, ...rows.map((r) => r.id)])]));
+
+  const openItems = async () => {
+    setItemsOpen(true); setItemsSearch("");
+    setItemsChecked((t?.invoice_ids || []).slice());
+    try { const r = await api.get("/invoice-transmittals/eligible-invoices"); setItemsEligible(r.data || []); }
+    catch (e) { setItemsEligible([]); toast.error(apiError(e.response?.data?.detail)); }
+  };
+
+  // Gabungan: invoice yang sudah ada di transmittal ini + invoice lain yang masih bisa dipilih.
+  // /eligible-invoices sengaja mengecualikan invoice yang sudah terpakai (termasuk dokumen ini).
+  const itemsRows = useMemo(() => {
+    const existing = (t?.items || []).map((i) => ({
+      id: i.invoice_id, invoice_no: i.invoice_no, supplier: i.supplier_legal_name || i.supplier_name,
+      tax_invoice_no: i.tax_invoice_no, po_nos: i.po_nos, amount: Number(i.amount) || 0, existing: true,
+    }));
+    const inThis = new Set(existing.map((x) => x.id));
+    const others = (itemsEligible || []).filter((r) => !inThis.has(r.id)).map((r) => ({
+      id: r.id, invoice_no: r.invoice_no, supplier: r.supplier_legal_name || r.supplier_name,
+      tax_invoice_no: r.tax_invoice_no, po_nos: r.po_nos, amount: Number(r.amount) || 0, existing: false,
+    }));
+    const all = [...existing, ...others];
+    const q = itemsSearch.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((r) => `${r.invoice_no || ""} ${r.supplier || ""} ${r.tax_invoice_no || ""} ${r.po_nos || ""}`.toLowerCase().includes(q));
+  }, [t, itemsEligible, itemsSearch]);
+
+  const itemsTotal = useMemo(() => itemsRows.filter((r) => itemsChecked.includes(r.id)).reduce((s, r) => s + r.amount, 0), [itemsRows, itemsChecked]);
+  const toggleItem = (iid) => setItemsChecked((cur) => (cur.includes(iid) ? cur.filter((x) => x !== iid) : [...cur, iid]));
+
+  const saveItems = async () => {
+    if (!itemsChecked.length) return toast.error("Pilih minimal satu invoice");
+    setItemsSaving(true);
+    try {
+      await api.put(`/invoice-transmittals/${id}`, { invoice_ids: itemsChecked });
+      toast.success("Daftar invoice transmittal diperbarui");
+      setItemsOpen(false); load();
+    } catch (e) { toast.error(apiError(e.response?.data?.detail)); } finally { setItemsSaving(false); }
+  };
 
   const create = async () => {
     if (!checked.length) return toast.error("Pilih minimal satu invoice");
@@ -134,6 +180,7 @@ export default function InvoiceTransmittalForm() {
         {isNew && can("transmittal.create") && <Button onClick={create} disabled={saving} data-testid="transmittal-save-btn">{saving ? "Menyimpan..." : "Buat Transmittal"}</Button>}
         {!isNew && can("transmittal.print") && <Button variant="outline" onClick={print} data-testid="transmittal-print-btn"><Printer className="mr-2 h-4 w-4" />Cetak</Button>}
         {!isNew && isDraft && can("transmittal.delete") && <Button variant="outline" className="text-destructive" onClick={() => setDialog("delete")} data-testid="transmittal-delete-btn"><Trash2 className="mr-2 h-4 w-4" />Hapus</Button>}
+        {!isNew && isDraft && can("transmittal.edit") && <Button variant="outline" onClick={openItems} data-testid="transmittal-edit-items-btn"><Pencil className="mr-2 h-4 w-4" />Ubah Invoice</Button>}
         {!isNew && isDraft && can("transmittal.edit") && <Button onClick={() => setDialog("send")} data-testid="transmittal-send-btn"><Send className="mr-2 h-4 w-4" />Tandai Dikirim</Button>}
         {!isNew && status === "Dikirim" && can("transmittal.receive") && <Button onClick={() => setDialog("receive")} data-testid="transmittal-receive-btn"><CheckCircle2 className="mr-2 h-4 w-4" />Tandai Diterima</Button>}
         {!isNew && ["Dikirim", "Diterima"].includes(status) && can("transmittal.receive") && <Button variant="outline" onClick={() => setDialog("return")} data-testid="transmittal-return-btn"><Undo2 className="mr-2 h-4 w-4" />Kembalikan</Button>}
@@ -232,6 +279,43 @@ export default function InvoiceTransmittalForm() {
           ))}
         </CardContent></Card>
       )}
+
+      <Dialog open={itemsOpen} onOpenChange={(o) => { if (!o) setItemsOpen(false); }}>
+        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto" data-testid="transmittal-items-dialog">
+          <DialogHeader><DialogTitle>Ubah Daftar Invoice</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground">Centang invoice yang dikirim. Invoice lain yang sudah terpakai transmittal aktif tidak dapat dipilih.</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Input value={itemsSearch} onChange={(e) => setItemsSearch(e.target.value)} placeholder="Cari no invoice, supplier, faktur pajak, PO..." className="h-9 max-w-md" data-testid="transmittal-items-search" />
+            <span className="text-xs text-muted-foreground">{itemsChecked.length} dipilih · {rupiah(itemsTotal)}</span>
+          </div>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="bg-muted"><tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <th className="w-10 p-2.5"><input type="checkbox" aria-label="Pilih semua" checked={itemsRows.length > 0 && itemsRows.every((r) => itemsChecked.includes(r.id))} onChange={() => setItemsChecked((cur) => (itemsRows.every((r) => cur.includes(r.id)) ? cur.filter((x) => !itemsRows.some((r) => r.id === x)) : [...new Set([...cur, ...itemsRows.map((r) => r.id)])]))} data-testid="transmittal-items-toggle-all" /></th>
+                <th className="p-2.5">Vendor</th><th className="p-2.5">No Invoice</th><th className="p-2.5">Faktur Pajak</th><th className="p-2.5">PO</th><th className="p-2.5 text-right">Nilai Invoice</th><th className="p-2.5">Status</th>
+              </tr></thead>
+              <tbody>
+                {itemsRows.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Tidak ada invoice yang dapat dipilih.</td></tr>}
+                {itemsRows.map((r) => (
+                  <tr key={r.id} className="border-t" data-testid={`transmittal-items-row-${r.invoice_no}`}>
+                    <td className="p-2.5"><input type="checkbox" checked={itemsChecked.includes(r.id)} onChange={() => toggleItem(r.id)} aria-label={`Pilih ${r.invoice_no}`} data-testid={`transmittal-items-check-${r.id}`} /></td>
+                    <td className="p-2.5">{r.supplier || "-"}</td>
+                    <td className="p-2.5 font-mono text-xs font-semibold">{r.invoice_no}</td>
+                    <td className="p-2.5 font-mono text-xs">{r.tax_invoice_no || "-"}</td>
+                    <td className="p-2.5 font-mono text-xs">{r.po_nos || "-"}</td>
+                    <td className="p-2.5 text-right tabular-nums">{rupiah(r.amount)}</td>
+                    <td className="p-2.5 text-xs">{r.existing ? "Sudah ada" : "Belum ada"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setItemsOpen(false)} data-testid="transmittal-items-cancel">Batal</Button>
+            <BusyButton onClick={saveItems} busy={itemsSaving} busyLabel="Menyimpan..." data-testid="transmittal-items-save">Simpan Daftar Invoice</BusyButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!dialog} onOpenChange={(o) => { if (!o) { setDialog(""); setReason(""); setProofFile(null); } }}>
         <AlertDialogContent>
