@@ -307,6 +307,13 @@ async def _replace(server, module, did, body, user):
             available = float(await server.stock_balance(*key) or 0) + reversal_by_key.get(key, 0.0)
             if qty > available + 1e-6 and not server.has_perm(user, "override_qty"):
                 raise HTTPException(400, f"Stok tidak cukup setelah koreksi (tersedia {available})")
+        if module == "mi":
+            # Anti-backdate: dicek SEBELUM reversal. Tanpa ini, edit MI bertanggal lampau membalik nilai
+            # lama lalu posting ulang ditolak guard tanggal -> nilai keluar = nilai masuk (HPP MI 0).
+            for line, _s, _u in prepared:
+                wh_chk = line.get("warehouse_id") or normalized.get("default_warehouse_id")
+                await server.assert_posting_window(line.get("item_id"), wh_chk,
+                                                   normalized.get("date"), doc_id=did)
 
     old_po_ids = set()
     if module == "do":

@@ -1363,6 +1363,17 @@ async def create_mi(body: dict, user=Depends(current_user)):
     if source_type == "Direct" and not _can_direct_mi(user, st):
         raise HTTPException(403, "Direct MI tidak diizinkan untuk tenant/pengguna ini")
     source_mode = "direct" if source_type == "Direct" else "mro"
+    # Pre-flight guard tanggal (pola sama dengan create_do): posting yang tanggalnya lebih awal dari
+    # pergerakan stok terakhir PASTI ditolak, jadi dokumen tidak boleh tersimpan lebih dulu. Tanpa ini
+    # MI tertinggal berstatus "Posted" tanpa entri nilai -> HPP MI tampil 0.
+    for l in body.get("lines", []):
+        if float(l.get("qty", 0)) <= 0:
+            continue
+        wh_pf = l.get("warehouse_id") or body.get("default_warehouse_id")
+        if source_type == "MRO" and l.get("mro_line_id"):
+            ml_pf = await db.mro_lines.find_one({"id": l["mro_line_id"]}, {"_id": 0, "warehouse_id": 1})
+            wh_pf = (ml_pf or {}).get("warehouse_id") or wh_pf
+        await assert_posting_window(l.get("item_id"), wh_pf, body.get("date"))
     did = gid(); no = await next_number("MI")
     await db.mi.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
         "division_id": body.get("division_id"), "default_warehouse_id": body.get("default_warehouse_id"),
