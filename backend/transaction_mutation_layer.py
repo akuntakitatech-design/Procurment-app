@@ -340,6 +340,16 @@ async def _replace(server, module, did, body, user):
         "opname": ("date","warehouse_id","division_id","mode","scope","notes"),
     }[module]
     patch = {k: normalized.get(k) for k in header_fields if k in normalized}
+    if module == "po":
+        # Cetak PO memprioritaskan snapshot supplier_bank_*, jadi snapshot WAJIB mengikuti supplier &
+        # rekening yang dipilih saat edit. Tanpa ini, PO yang suppliernya diganti tetap mencetak
+        # rekening supplier sebelumnya (id rekening berubah, nama/nomor rekening tidak).
+        import supplier_po_layer as SPL
+        new_sup = patch.get("supplier_id", doc.get("supplier_id"))
+        new_bank = patch.get("supplier_bank_id", doc.get("supplier_bank_id"))
+        if SPL.needs_refresh(doc, new_sup, new_bank):
+            supplier = await server.db.suppliers.find_one({"id": new_sup}, {"_id": 0}) or {}
+            patch.update(SPL.snapshot_fields(supplier, new_bank))
     patch["updated_by"] = user.get("email")
     patch["updated_at"] = server.now_iso()
     await head_col.update_one({"id": did}, {"$set": patch})
