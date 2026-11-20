@@ -78,11 +78,12 @@ def _num(v):
         return None
 
 
-async def validate_lines(server, lines, user, reversal_credit=None, item_names=None):
+async def validate_lines(server, lines, user, reversal_credit=None, item_names=None, txn_at=None, doc_id=None):
     """Hard-block backend SEBELUM ada penulisan (create) / SEBELUM reversal (edit):
     - barang wajib, qty != 0, gudang line wajib & aktif & dalam tenant + cakupan divisi; project/unit valid;
     - stok tidak boleh minus per (barang, gudang LINE): disimulasikan berurutan sesuai urutan posting baris
       (baris barang+gudang sama diakumulasi) dengan kredit reversal dokumen ini saat edit;
+      txn_at/doc_id -> backdate diizinkan bila stok pada rentang tanggal itu mencukupi;
     - qty (+): biaya masuk mengikuti aturan existing _resolve_in_cost (MWA gudang line; tanpa rata-rata ->
       Approved Unit Cost wajib; override beda rata-rata wajib alasan)."""
     if not lines:
@@ -104,7 +105,8 @@ async def validate_lines(server, lines, user, reversal_credit=None, item_names=N
         key = (ln["item_id"], ln["warehouse_id"])
         if key not in sim:
             iw = await server.db.item_warehouse.find_one({"item_id": key[0], "warehouse_id": key[1]}, {"_id": 0}) or {}
-            qty = float(await server.stock_balance(*key) or 0) + float(credit.get(key, 0.0))
+            qty = float(await server.stock_available_at(
+                key[0], key[1], txn_at, doc_id=doc_id, credit=float(credit.get(key, 0.0))) or 0)
             sim[key] = {"qty": qty, "avg": float(iw.get("avg_cost") or 0) if qty > 1e-9 else 0.0}
         st, delta = sim[key], _delta(ln, idx)
         wname = (cache.get(("warehouses", key[1])) or {}).get("name") or "gudang"

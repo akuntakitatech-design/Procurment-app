@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException
 from stock_summary import missing_average
 from server import (api, db, gid, now_iso, clean, current_user, require, has_perm,
                     is_global, audit, notify, next_number, alloc_out, create_alloc,
-                    post_ledger, stock_balance, assert_posting_window,
+                    post_ledger, stock_balance, stock_available_at, assert_posting_window,
                     reverse_document_valuation, logger)
 
 
@@ -1363,9 +1363,9 @@ async def create_mi(body: dict, user=Depends(current_user)):
     if source_type == "Direct" and not _can_direct_mi(user, st):
         raise HTTPException(403, "Direct MI tidak diizinkan untuk tenant/pengguna ini")
     source_mode = "direct" if source_type == "Direct" else "mro"
-    # Pre-flight guard tanggal (pola sama dengan create_do): posting yang tanggalnya lebih awal dari
-    # pergerakan stok terakhir PASTI ditolak, jadi dokumen tidak boleh tersimpan lebih dulu. Tanpa ini
-    # MI tertinggal berstatus "Posted" tanpa entri nilai -> HPP MI tampil 0.
+    # Pre-flight penyimpanan dokumen (pola sama dengan create_do): MI adalah transaksi KELUAR, jadi
+    # dokumen tidak boleh tersimpan bila postingnya pasti ditolak. Backdate sendiri diizinkan selama
+    # stok pada rentang tanggal itu mencukupi (lihat stock_available_at).
     for l in body.get("lines", []):
         if float(l.get("qty", 0)) <= 0:
             continue
@@ -1373,7 +1373,8 @@ async def create_mi(body: dict, user=Depends(current_user)):
         if source_type == "MRO" and l.get("mro_line_id"):
             ml_pf = await db.mro_lines.find_one({"id": l["mro_line_id"]}, {"_id": 0, "warehouse_id": 1})
             wh_pf = (ml_pf or {}).get("warehouse_id") or wh_pf
-        await assert_posting_window(l.get("item_id"), wh_pf, body.get("date"))
+        await assert_posting_window(l.get("item_id"), wh_pf, body.get("date"),
+                                    qty_out=float(l.get("qty", 0)))
     did = gid(); no = await next_number("MI")
     await db.mi.insert_one({"id": did, "no": no, "date": body.get("date", now_iso()),
         "division_id": body.get("division_id"), "default_warehouse_id": body.get("default_warehouse_id"),
@@ -1397,9 +1398,10 @@ async def create_mi(body: dict, user=Depends(current_user)):
                 raise HTTPException(400, "Barang MI tidak sesuai dengan barang MRO sumber")
         # Warehouse LOCKED to the MRO line's warehouse in MRO mode (client override ignored).
         wh = (mline.get("warehouse_id") if (source_type == "MRO" and mline) else None) or l.get("warehouse_id") or body.get("default_warehouse_id")
-        avail = await stock_balance(l["item_id"], wh)
-        if qty > avail + 1e-6 and not has_perm(user, "override_qty"):
-            raise HTTPException(400, f"Stok tidak cukup (tersedia {avail})")
+        # Ketersediaan stok dihitung pada tanggal dokumen (backdate aman bila stok saat itu cukup).
+        avail = await stock_available_at(l["item_id"], wh, body.get("date"))
+        if qty > float(avail or 0) + 1e-6 and not has_perm(user, "override_qty"):
+            raise HTTPException(400, f"Stok tidak cukup (tersedia {float(avail or 0)})")
         if mline and not has_perm(user, "override_qty"):
             rem = mline.get("qty", 0) - await alloc_out(l["mro_line_id"], "mi")
             if qty > rem + 1e-6:

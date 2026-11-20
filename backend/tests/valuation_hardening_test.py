@@ -519,7 +519,8 @@ class ValuationTester:
             self.log("⚠️  Could not create adjustment for backdate test")
             return True
         
-        # Try to create adjustment dated 5 days ago (should be blocked)
+        # Backdate kini DIIZINKAN selama stok mencukupi: adjustment MASUK bertanggal 5 hari lalu tidak
+        # mungkin membuat saldo historis negatif, sehingga harus berhasil (dulu selalu ditolak 400).
         past_date = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
         adj_past = {
             "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
@@ -533,20 +534,40 @@ class ValuationTester:
             "reason": "Test",
             "notes": "Past adjustment"
         }
-        
-        # We expect this to fail with 400
+
         url = f"{API}/adjustments"
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"}
         response = self.session.post(url, json=adj_past, headers=headers)
-        
+
+        self.tests_run += 1
+        if response.status_code in (200, 201):
+            self.tests_passed += 1
+            self.log("✅ Backdated inbound adjustment accepted (stok historis tidak mungkin minus)")
+        else:
+            self.log(f"❌ Backdated inbound adjustment should be accepted, got {response.status_code}: {response.text[:120]}")
+            return False
+
+        # Backdate yang membuat saldo historis negatif (qty keluar melebihi stok) tetap ditolak 400.
+        adj_past_out = {
+            "warehouse_id": self.master_data["wh1"]["id"], "division_id": self.item_ref["division_id"],
+            "date": past_date,
+            "lines": [{
+                "item_id": self.master_data["item2"]["id"],
+                "adjustment": -999999,
+                "reason": "Test backdate minus"
+            }],
+            "reason": "Test",
+            "notes": "Past negative adjustment"
+        }
+        response = self.session.post(url, json=adj_past_out, headers=headers)
+
         self.tests_run += 1
         if response.status_code == 400:
             self.tests_passed += 1
-            self.log("✅ Backdate correctly blocked (400)")
+            self.log("✅ Impossible backdated adjustment correctly blocked (400)")
             return True
-        else:
-            self.log(f"❌ Expected 400 for backdated adjustment, got {response.status_code}")
-            return False
+        self.log(f"❌ Expected 400 for backdated adjustment without stock, got {response.status_code}")
+        return False
 
     def test_opening_valuation(self):
         """Test opening valuation endpoints"""

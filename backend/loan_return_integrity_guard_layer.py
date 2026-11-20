@@ -65,11 +65,13 @@ async def _normalized_requests(server, loan_id, body, restore_by_line=None):
     return item_totals
 
 
-async def _validate_borrower_stock(server, loan, item_totals, user, restore_by_item=None):
+async def _validate_borrower_stock(server, loan, item_totals, user, restore_by_item=None, txn_at=None, doc_id=None):
     restore_by_item = restore_by_item or {}
     for (item_id, borrower_wh), qty in item_totals.items():
-        current = float(await server.stock_balance(item_id, borrower_wh) or 0)
-        available = current + float(restore_by_item.get((item_id, borrower_wh)) or 0)
+        # Ketersediaan pada tanggal dokumen: backdate boleh bila stok gudang peminjam di rentang itu cukup.
+        available = float(await server.stock_available_at(
+            item_id, borrower_wh, txn_at, doc_id=doc_id,
+            credit=float(restore_by_item.get((item_id, borrower_wh)) or 0)) or 0)
         if qty > available + 1e-6 and not server.has_perm(user, "override_qty"):
             raise HTTPException(400, f"Stok gudang peminjam tidak cukup untuk return (tersedia {available})")
 
@@ -86,7 +88,7 @@ def install(server):
             if not loan:
                 raise HTTPException(404, "Pinjaman tidak ditemukan")
             item_totals = await _normalized_requests(server, did, body)
-            await _validate_borrower_stock(server, loan, item_totals, user)
+            await _validate_borrower_stock(server, loan, item_totals, user, txn_at=(body or {}).get("date"))
             return await original_create(did, body, user)
 
         _replace_route(app, create_route, "/api/loans/{did}/return", "POST", guarded_create_return)
@@ -118,7 +120,8 @@ def install(server):
                 server, ret.get("loan_id"), body, restore_by_line=restore_by_line
             )
             await _validate_borrower_stock(
-                server, loan, item_totals, user, restore_by_item=restore_by_item
+                server, loan, item_totals, user, restore_by_item=restore_by_item,
+                txn_at=(body or {}).get("date") or ret.get("date"), doc_id=rid
             )
             return await original_edit(rid, body, user)
 

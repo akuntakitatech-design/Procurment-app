@@ -281,7 +281,8 @@ async def _replace(server, module, did, body, user):
             for (line, _s, _u), resolved in zip(prepared, _tl):
                 line["from_warehouse_id"], line["to_warehouse_id"] = resolved["from_warehouse_id"], resolved["to_warehouse_id"]
             _items = {i["id"]: i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(20000)}
-            await TL.validate_lines(server, _tl, user, reversal_credit=reversal_by_key, item_names=_items)
+            await TL.validate_lines(server, _tl, user, reversal_credit=reversal_by_key, item_names=_items,
+                                    txn_at=normalized.get("date"), doc_id=did)
         elif module == "loan":
             # Multi gudang per item (Pinjam Barang): gudang/project/unit per LINE; stok per (barang, Gudang Pemberi LINE)
             # + kredit reversal dokumen ini. Divalidasi SEBELUM reversal agar edit tidak valid tidak menulis apa pun.
@@ -291,7 +292,8 @@ async def _replace(server, module, did, body, user):
                 for _k in ("from_warehouse_id", "to_warehouse_id", "project_id", "unit_id"):
                     line[_k] = resolved[_k]
             _items = {i["id"]: i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(20000)}
-            await LL.validate_lines(server, _ll, user, reversal_credit=reversal_by_key, item_names=_items)
+            await LL.validate_lines(server, _ll, user, reversal_credit=reversal_by_key, item_names=_items,
+                                    txn_at=normalized.get("date"), doc_id=did)
         elif module == "adjustment":
             # Multi gudang per item (Penyesuaian Stok): gudang/project/unit per LINE; stok per (barang, gudang LINE)
             # + kredit reversal dokumen ini; biaya masuk per gudang LINE. Divalidasi SEBELUM reversal.
@@ -302,18 +304,18 @@ async def _replace(server, module, did, body, user):
                 for _k in ("warehouse_id", "project_id", "unit_id"):
                     line[_k] = resolved[_k]
             _items = {i["id"]: i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(20000)}
-            await AL.validate_lines(server, _al, user, reversal_credit=reversal_by_key, item_names=_items)
+            await AL.validate_lines(server, _al, user, reversal_credit=reversal_by_key, item_names=_items,
+                                    txn_at=normalized.get("date"), doc_id=did)
         for key, qty in required_out.items():
-            available = float(await server.stock_balance(*key) or 0) + reversal_by_key.get(key, 0.0)
+            # Ketersediaan pada tanggal dokumen: backdate boleh bila stok di rentang tanggal itu cukup.
+            available = float(await server.stock_available_at(
+                key[0], key[1], normalized.get("date"), doc_id=did,
+                credit=reversal_by_key.get(key, 0.0)) or 0)
             if qty > available + 1e-6 and not server.has_perm(user, "override_qty"):
                 raise HTTPException(400, f"Stok tidak cukup setelah koreksi (tersedia {available})")
-        if module == "mi":
-            # Anti-backdate: dicek SEBELUM reversal. Tanpa ini, edit MI bertanggal lampau membalik nilai
-            # lama lalu posting ulang ditolak guard tanggal -> nilai keluar = nilai masuk (HPP MI 0).
-            for line, _s, _u in prepared:
-                wh_chk = line.get("warehouse_id") or normalized.get("default_warehouse_id")
-                await server.assert_posting_window(line.get("item_id"), wh_chk,
-                                                   normalized.get("date"), doc_id=did)
+        # Cek ketersediaan (termasuk tanggal backdate) sudah dilakukan di atas lewat
+        # `stock_available_at` dengan porsi dokumen ini dikreditkan. Guard tanggal tidak lagi
+        # memblokir backdate asal stok mencukupi, jadi tidak perlu pre-flight terpisah di sini.
 
     old_po_ids = set()
     if module == "do":

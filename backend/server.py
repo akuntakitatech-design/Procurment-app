@@ -213,13 +213,9 @@ def _is_retryable_db(exc) -> bool:
     return any(code in s for code in ("1062", "1213", "1205", "Deadlock", "Lock wait timeout", "Duplicate entry"))
 
 
-async def assert_posting_window(item_id, warehouse_id, txn_at=None, doc_id=None):
-    """Tolak posting yang tanggal (WIB) nya lebih awal dari pergerakan stok terakhir di pool.
+async def _latest_active_movement(item_id, warehouse_id, doc_id=None):
+    """Pergerakan stok aktif terakhir (bukan reversal, belum dibalik) pada satu pool, atau None.
 
-    Dipakai sebagai guard di `post_movement` dan sebagai pre-flight sebelum dokumen dibuat,
-    supaya dokumen tidak tersimpan ketika postingnya pasti ditolak.
-
-    - Perbandingan memakai tanggal kalender WIB, bukan potongan string UTC (lihat posting_date).
     - Entri reversal tidak dihitung: entri kompensasi bertanggal "sekarang" dan akan
       memblokir posting ulang dokumen yang sedang diedit.
     - Entri yang SUDAH dibalik (`reversal_of`) juga tidak dihitung: dokumennya bisa sudah dihapus
@@ -233,11 +229,10 @@ async def assert_posting_window(item_id, warehouse_id, txn_at=None, doc_id=None)
         query["doc_id"] = {"$ne": doc_id}
     page = 200
     skip = 0
-    latest = None
     while True:
         rows = await db.valuation_ledger.find(query, {"_id": 0}).sort("txn_at", -1).skip(skip).limit(page).to_list(page)
         if not rows:
-            break
+            return None
         ids = [r.get("id") for r in rows if r.get("id")]
         reversed_ids = set()
         if ids:
@@ -247,21 +242,86 @@ async def assert_posting_window(item_id, warehouse_id, txn_at=None, doc_id=None)
             reversed_ids = {m.get("reversal_of") for m in marks if m.get("reversal_of")}
         active = [r for r in rows if r.get("id") not in reversed_ids]
         if active:
-            latest = active[0]
-            break
+            return active[0]
         if len(rows) < page:  # sudah habis dan seluruhnya telah dibalik
-            break
+            return None
         skip += len(rows)
+
+
+async def stock_available_at(item_id, warehouse_id, txn_at=None, doc_id=None, credit=0.0, anchor=None):
+    """Qty maksimum yang boleh KELUAR dari pool bila diposting pada tanggal bisnis `txn_at`.
+
+    Posting mundur mengurangi saldo di SELURUH rentang sesudah tanggalnya, bukan hanya di tanggal
+    itu. Karena itu yang dibandingkan adalah saldo TERENDAH sejak tanggal tersebut sampai sekarang:
+    contoh 01/11 IN 100, 05/11 OUT 100, 10/11 IN 50 -> pada 02/11 saldo 100 tetapi backdate 40
+    tetap membuat 05/11 menjadi -40, sehingga qty 40 ditolak.
+
+    - Tanggal hari ini / setelah pergerakan terakhir -> saldo pool sekarang (+ `credit`).
+    - `credit` = qty yang akan kembali bila dokumen ini dibalik (edit dokumen).
+    - `anchor` = saldo acuan bila pemanggil sudah membaca pool (dipakai engine agar sejalan
+      dengan versi `_ver` yang sedang di-CAS).
+    - Kurva qty dibaca dari `stock_ledger` (satu-satunya ledger yang memuat SEMUA mutasi,
+      termasuk Import Saldo Awal), sehingga jumlahnya konsisten dengan `current_stock`.
+    """
+    base = float(anchor if anchor is not None else await stock_balance(item_id, warehouse_id) or 0) \
+        + float(credit or 0.0)
+    latest = await _latest_active_movement(item_id, warehouse_id, doc_id=doc_id)
+    if latest is None:
+        return base
+    if not is_backdated(txn_at, latest.get("txn_at") or latest.get("at")):
+        return base
+    d0 = wib_date(txn_at)
+    query = {"item_id": item_id, "warehouse_id": warehouse_id,
+             "is_reversal": {"$ne": True}, "reversed": {"$ne": True}}
+    if doc_id:
+        query["doc_id"] = {"$ne": doc_id}
+    rows = await db.stock_ledger.find(
+        query, {"_id": 0, "qty_in": 1, "qty_out": 1, "txn_at": 1, "at": 1}).to_list(500000)
+    future = []
+    for r in rows:
+        day = wib_date(r.get("txn_at") or r.get("at"))
+        if day > d0:
+            future.append((day, str(r.get("at") or ""),
+                           float(r.get("qty_in") or 0) - float(r.get("qty_out") or 0)))
+    future.sort(key=lambda x: (x[0], x[1]))
+    available = base - sum(delta for _d, _a, delta in future)
+    lowest = available
+    for _d, _a, delta in future:
+        available += delta
+        if available < lowest:
+            lowest = available
+    return lowest
+
+
+def _backdate_msg(txn_at, available, qty_out):
+    return (f"Stok per {wib_date(txn_at)} tidak cukup untuk posting mundur: tersedia "
+            f"{round(float(available), 6):g} setelah memperhitungkan mutasi sesudah tanggal itu "
+            f"(diminta {round(float(qty_out), 6):g}).")
+
+
+async def assert_posting_window(item_id, warehouse_id, txn_at=None, doc_id=None, qty_out=0):
+    """Guard posting mundur (backdate): DIIZINKAN selama stok mencukupi.
+
+    Sebelumnya setiap posting bertanggal lebih awal dari pergerakan terakhir selalu ditolak.
+    Sekarang yang diperiksa adalah ketersediaan stok pada rentang tanggal tersebut
+    (lihat `stock_available_at`), karena itu satu-satunya batas fisik yang nyata.
+
+    - Transaksi MASUK (`qty_out` = 0) tidak pernah membuat saldo historis negatif -> selalu lolos,
+      tetapi tetap tercatat sebagai `backdated` pada ledger untuk jejak audit.
+    - Perbandingan memakai tanggal kalender WIB (lihat posting_date).
+    - Entri reversal / entri yang sudah dibalik / entri dokumen itu sendiri tidak dihitung.
+    """
+    latest = await _latest_active_movement(item_id, warehouse_id, doc_id=doc_id)
     if latest is None:
         return
-    last_at = latest.get("txn_at") or latest.get("at")
-    if not is_backdated(txn_at, last_at):
+    if not is_backdated(txn_at, latest.get("txn_at") or latest.get("at")):
         return
-    last_d = wib_date(last_at)
-    ref = latest.get("doc_no") or last_d
-    raise StockError(
-        f"Transaksi tidak dapat diposting mundur: sudah ada pergerakan stok pada {last_d} "
-        f"(transaksi terakhir: {ref}). Gunakan tanggal {last_d} atau setelahnya.")
+    qty_out = float(qty_out or 0)
+    if qty_out <= 0:
+        return
+    available = await stock_available_at(item_id, warehouse_id, txn_at, doc_id=doc_id)
+    if qty_out > available + 1e-6:
+        raise StockError(_backdate_msg(txn_at, available, qty_out))
 
 
 async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in, qty_out,
@@ -283,8 +343,8 @@ async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in,
         When require_cost and no cost source is given, posting is HARD-BLOCKED (no silent estimate).
       - OUT valued at the average cost snapshot immediately before posting
         (reversal_value overrides to reverse an IN at its original carrying value).
-      - Backdate guard: blocks posting dated earlier than the pool's latest movement
-        (dibandingkan per tanggal kalender WIB; entri reversal tidak dihitung).
+      - Backdate (posting mundur) DIIZINKAN selama stok pada rentang tanggal itu mencukupi
+        (dibandingkan per tanggal kalender WIB; entri ditandai `backdated` untuk audit).
     """
     qty_in = float(qty_in or 0); qty_out = float(qty_out or 0)
     txn_at = txn_at or now_iso()
@@ -301,8 +361,12 @@ async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in,
                     "source_key": source_key, "estimated": prev.get("valuation_estimated")}
 
     # ---------- backdate guard ----------
+    # Posting mundur boleh selama stok pada rentang tanggal itu mencukupi (bukan diblokir begitu saja).
+    # Pemeriksaan qty-nya dilakukan di dalam retry-loop memakai saldo pool yang terbaru.
+    backdated = False
     if backdate_guard and not is_reversal:
-        await assert_posting_window(item_id, warehouse_id, txn_at, doc_id=doc_id)
+        latest = await _latest_active_movement(item_id, warehouse_id, doc_id=doc_id)
+        backdated = bool(latest) and is_backdated(txn_at, latest.get("txn_at") or latest.get("at"))
 
     # ---------- atomic pool update (optimistic version CAS) ----------
     new_qty = new_val_r = new_avg_r = None; v_in = _Dec(0); v_out = _Dec(0)
@@ -337,6 +401,13 @@ async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in,
             new_qty = bal + qin; new_val = old_val + v_in
         else:
             qout = _vd(qty_out)
+            if backdated:
+                # Diulang dengan saldo pool yang baru dibaca: posting bersamaan bisa mengubah
+                # saldo terendah pada rentang tanggal backdate tanpa mengubah saldo hari ini.
+                avail_at = await stock_available_at(item_id, warehouse_id, txn_at, doc_id=doc_id,
+                                                    anchor=float(bal))
+                if float(qout) > avail_at + 1e-6:
+                    raise StockError(_backdate_msg(txn_at, avail_at, qout))
             if not allow_negative and qout > bal + _vd("0.000001"):
                 raise StockError(
                     f"Stok tidak cukup untuk {doc_type} (tersedia {float(bal)}, diminta {float(qout)}).")
@@ -396,6 +467,7 @@ async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in,
         "running_balance": running, "project_id": project_id, "unit_id": unit_id,
         "division_id": division_id, "user": uemail, "line_id": line_id,
         "is_reversal": is_reversal, "reversal_of_ledger_id": reversal_of,
+        "backdated": backdated,
         "source_key": source_key, "txn_at": txn_at, "at": now_iso()})
     await db.valuation_ledger.insert_one({
         "id": vl_id, "doc_type": doc_type, "doc_no": doc_no, "doc_id": doc_id, "line_id": line_id,
@@ -408,7 +480,8 @@ async def post_movement(doc_type, doc_no, doc_id, item_id, warehouse_id, qty_in,
         "qty_before": old_qty_f, "value_before": old_val_f, "avg_before": old_avg_f,
         "qty_after": float(new_qty), "value_after": float(new_val_r), "avg_after": float(new_avg_r),
         "valuation_method": "moving_weighted_average", "valuation_estimated": estimated,
-        "is_reversal": is_reversal, "reversal_of": reversal_of, "source_key": source_key,
+        "is_reversal": is_reversal, "reversal_of": reversal_of, "backdated": backdated,
+        "source_key": source_key,
         "project_id": project_id, "unit_id": unit_id,
         "user": uemail, "txn_at": txn_at, "at": now_iso()})
     return {"idempotent": False, "running": running,

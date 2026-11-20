@@ -82,7 +82,8 @@ async def _validate_adjustment(server, body, did=None, user=None):
     resolved = AL.resolve_lines({**body, "warehouse_id": warehouse_id})
     reversal = await _adjustment_reversal_impact(server, did)
     items = {i["id"]: i.get("code") or i.get("name") for i in await server.db.items.find({}, {"_id": 0, "id": 1, "code": 1, "name": 1}).to_list(20000)}
-    await AL.validate_lines(server, resolved, user or {}, reversal_credit=reversal, item_names=items)
+    await AL.validate_lines(server, resolved, user or {}, reversal_credit=reversal, item_names=items,
+                            txn_at=body.get("date") or (old or {}).get("date"), doc_id=did)
 
 
 def install(server):
