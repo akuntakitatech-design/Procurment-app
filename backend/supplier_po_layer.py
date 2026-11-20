@@ -18,8 +18,50 @@ def _eta_from(date_value, lead_days):
     try:
         base = datetime.fromisoformat(str(date_value)[:10])
         return (base + timedelta(days=int(lead_days))).date().isoformat()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
+
+
+def pick_bank(supplier, bank_id):
+    """Rekening supplier yang dipilih; jatuh ke rekening utama bila id tidak ada pada supplier itu."""
+    banks = (supplier or {}).get("banks") or []
+    chosen = next((b for b in banks if b.get("id") == bank_id), None)
+    if chosen is not None:
+        return chosen
+    return next((b for b in banks if b.get("is_primary")), banks[0] if banks else None)
+
+
+def snapshot_fields(supplier, bank_id):
+    """Field snapshot supplier pada dokumen PO (kategori, rekening, NPWP/PKP).
+
+    Cetak PO memprioritaskan snapshot ini di atas master, sehingga snapshot harus selalu berasal dari
+    supplier yang benar-benar dipakai PO.
+    """
+    supplier = supplier or {}
+    bank = pick_bank(supplier, bank_id)
+    return {
+        "supplier_category_id": supplier.get("supplier_category_id"),
+        "supplier_category_name": supplier.get("supplier_category_name"),
+        "supplier_bank_id": bank.get("id") if bank else None,
+        "supplier_bank_name": bank.get("bank_name") if bank else None,
+        "supplier_bank_account_no": bank.get("account_no") if bank else None,
+        "supplier_bank_account_name": bank.get("account_name") if bank else None,
+        "supplier_bank_currency": bank.get("currency") if bank else None,
+        "supplier_npwp": supplier.get("npwp"),
+        "supplier_pkp": bool(supplier.get("pkp")),
+    }
+
+
+def needs_refresh(doc, new_supplier_id, new_bank_id):
+    """True bila edit dokumen mengubah supplier atau rekening, sehingga snapshot harus dihitung ulang.
+
+    Bila keduanya tidak berubah, snapshot lama dipertahankan apa adanya (dokumen historis tidak
+    berubah hanya karena master supplier diedit belakangan).
+    """
+    if not new_supplier_id:
+        return False
+    return (new_supplier_id != (doc or {}).get("supplier_id")
+            or new_bank_id != (doc or {}).get("supplier_bank_id"))
 
 
 def install(server):
@@ -70,19 +112,7 @@ def install(server):
         # silently alter historical purchase orders.
         snap = {"delivery_term": payload.get("delivery_term") or ""}
         if supplier:
-            banks = supplier.get("banks") or []
-            selected_bank = next((b for b in banks if b.get("id") == payload.get("supplier_bank_id")), None)
-            snap.update({
-                "supplier_category_id": supplier.get("supplier_category_id"),
-                "supplier_category_name": supplier.get("supplier_category_name"),
-                "supplier_bank_id": selected_bank.get("id") if selected_bank else None,
-                "supplier_bank_name": selected_bank.get("bank_name") if selected_bank else None,
-                "supplier_bank_account_no": selected_bank.get("account_no") if selected_bank else None,
-                "supplier_bank_account_name": selected_bank.get("account_name") if selected_bank else None,
-                "supplier_bank_currency": selected_bank.get("currency") if selected_bank else None,
-                "supplier_npwp": supplier.get("npwp"),
-                "supplier_pkp": bool(supplier.get("pkp")),
-            })
+            snap.update(snapshot_fields(supplier, payload.get("supplier_bank_id")))
         await server.db.po.update_one({"id": result["id"]}, {"$set": snap})
 
         get_route = _find_route(app, "/api/po/{did}", "GET")
