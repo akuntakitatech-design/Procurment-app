@@ -110,7 +110,8 @@ async def create_transfer(body: dict, user=Depends(current_user)):
     lines = [l for l in TL.resolve_lines(body) if float(l.get("qty", 0) or 0) > 0]
     im = await _item_map()
     # Hard-block SEBELUM ada penulisan: gudang per line, asal != tujuan, stok per (barang, gudang asal LINE).
-    await TL.validate_lines(server, lines, user, item_names={k: v.get("name") for k, v in im.items()})
+    await TL.validate_lines(server, lines, user, item_names={k: v.get("name") for k, v in im.items()},
+                            txn_at=body.get("date"))
     draft_id = body.get("attachment_draft_id") or None
     did = gid()
     claimed = await TL.claim_draft(server, draft_id, user, did)  # 404/409 sebelum ada penulisan stok
@@ -254,7 +255,8 @@ async def create_loan(body: dict, user=Depends(current_user)):
     lines = [l for l in LL.resolve_lines(body) if float(l.get("qty", 0) or 0) > 0]
     im = await _item_map()
     # Hard-block SEBELUM ada penulisan: gudang/project/unit per line, pemberi != peminjam, stok per (barang, pemberi LINE).
-    await LL.validate_lines(server, lines, user, item_names={k: v.get("name") for k, v in im.items()})
+    await LL.validate_lines(server, lines, user, item_names={k: v.get("name") for k, v in im.items()},
+                            txn_at=body.get("date"))
     draft_id = body.get("attachment_draft_id") or None
     did = gid()
     claimed = await TL.claim_draft(server, draft_id, user, did, module="loan")  # 404/409 sebelum ada penulisan stok
@@ -436,7 +438,8 @@ async def create_adjustment(body: dict, user=Depends(current_user)):
     lines = AL.resolve_lines(body)
     im = await _item_map()
     # Hard-block SEBELUM ada penulisan: gudang/project/unit per line, stok per (barang, gudang LINE), biaya masuk.
-    await AL.validate_lines(server, lines, user, item_names={k: v.get("name") for k, v in im.items()})
+    await AL.validate_lines(server, lines, user, item_names={k: v.get("name") for k, v in im.items()},
+                            txn_at=body.get("date"))
     draft_id = body.get("attachment_draft_id") or None
     did = gid()
     claimed = await TL.claim_draft(server, draft_id, user, did, module="adjustment")  # 404/409 sebelum penulisan stok

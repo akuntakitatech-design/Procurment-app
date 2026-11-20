@@ -85,9 +85,10 @@ async def _check_master(server, coll, mid, idx, label, allowed, cache):
     return m
 
 
-async def validate_lines(server, lines, user, reversal_credit=None, item_names=None):
+async def validate_lines(server, lines, user, reversal_credit=None, item_names=None, txn_at=None, doc_id=None):
     """Hard-block backend per line: qty>0, Gudang Pemberi/Peminjam wajib & aktif & berbeda, project/unit valid
-    dalam tenant + cakupan divisi, stok cukup per (barang, Gudang Pemberi LINE) secara agregat."""
+    dalam tenant + cakupan divisi, stok cukup per (barang, Gudang Pemberi LINE) secara agregat.
+    txn_at/doc_id: tanggal dokumen -> backdate diizinkan bila stok pada rentang tanggal itu mencukupi."""
     if not lines:
         raise HTTPException(400, "Minimal satu baris barang wajib diisi")
     allowed = _allowed_divisions(server, user)
@@ -117,7 +118,8 @@ async def validate_lines(server, lines, user, reversal_credit=None, item_names=N
     # sehingga pre-check ini membuat kegagalan ATOMIC & terjadi SEBELUM reversal pada edit.
     credit = reversal_credit or {}
     for key, qty in required.items():
-        available = float(await server.stock_balance(*key) or 0) + float(credit.get(key, 0.0))
+        available = float(await server.stock_available_at(
+            key[0], key[1], txn_at, doc_id=doc_id, credit=float(credit.get(key, 0.0))) or 0)
         if qty > available + 1e-6:
             wname = (cache.get(("warehouses", key[1])) or {}).get("name") or "gudang pemberi"
             iname = (item_names or {}).get(key[0]) or "barang"

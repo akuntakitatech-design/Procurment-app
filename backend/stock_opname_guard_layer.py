@@ -48,7 +48,8 @@ async def _validate_post_balance(server, doc, rows):
         snapshot = float(row.get("snapshot") or 0)
         counted = _counted_value(row.get("counted"))
         variance = counted - snapshot
-        current = float(await server.stock_balance(row.get("item_id"), wh) or 0)
+        current = float(await server.stock_available_at(row.get("item_id"), wh, doc.get("date"),
+                                                        doc_id=doc.get("id")) or 0)
         after = current + variance
         if after < -1e-9:
             item = await server.db.items.find_one({"id": row.get("item_id")}, {"_id": 0}) or {}

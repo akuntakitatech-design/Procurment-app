@@ -62,9 +62,11 @@ def line_warehouse_ids(lines: list[dict]) -> list[str]:
     return seen
 
 
-async def validate_lines(server, lines: list[dict], user, reversal_credit: dict | None = None, item_names: dict | None = None):
+async def validate_lines(server, lines: list[dict], user, reversal_credit: dict | None = None, item_names: dict | None = None,
+                         txn_at=None, doc_id=None):
     """Validasi per line (backend hard-block): gudang wajib, asal != tujuan, gudang aktif, stok cukup per (barang, gudang asal LINE).
-    reversal_credit: {(item_id, warehouse_id): qty} stok yang akan kembali saat edit (reversal dokumen ini)."""
+    reversal_credit: {(item_id, warehouse_id): qty} stok yang akan kembali saat edit (reversal dokumen ini).
+    txn_at/doc_id: tanggal dokumen -> backdate diizinkan bila stok pada rentang tanggal itu mencukupi."""
     if not lines:
         raise HTTPException(400, "Minimal satu baris barang wajib diisi")
     whs = {}
@@ -91,7 +93,8 @@ async def validate_lines(server, lines: list[dict], user, reversal_credit: dict 
     # sehingga pre-check ini membuat kegagalan ATOMIC (tidak ada line yang terposting sebagian).
     credit = reversal_credit or {}
     for key, qty in required.items():
-        available = float(await server.stock_balance(*key) or 0) + float(credit.get(key, 0.0))
+        available = float(await server.stock_available_at(
+            key[0], key[1], txn_at, doc_id=doc_id, credit=float(credit.get(key, 0.0))) or 0)
         if qty > available + 1e-6:
             wname = (whs.get(key[1]) or {}).get("name") or "gudang asal"
             iname = (item_names or {}).get(key[0]) or "barang"
