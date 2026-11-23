@@ -3,12 +3,59 @@ satu sumber dengan endpoint lama `/api/reports/mro-traceability` yang tetap mema
 from __future__ import annotations
 
 import report_trace_detail as RTD
+import receipt_control_layer as RC
 from reporting.registry import Column, Filter, ReportSpec, register
 
 STATUS = (("Open", "Open"), ("Partial", "Partial"), ("Completed", "Completed"))
 # Status penerimaan (DO) — terpisah dari status MI.
 STATUS_DO = (("Diterima", "Diterima"), ("Diterima Sebagian", "Diterima Sebagian"),
              ("Belum Diterima", "Belum Diterima"), ("-", "Tanpa PO"))
+
+# Status DOKUMEN PO — memakai definisi existing `receipt_control_layer` (sama dengan daftar/detail PO),
+# hanya labelnya diterjemahkan. Tahap "Waiting Approval" dipecah Approval 1 / Approval 2 oleh
+# `display_document_status` + `po_approval_stage_map`; "Closed" = penerimaan penuh (PO ditutup).
+PO_STATUS_LABEL = {
+    "Draft": "Draft",
+    RC.DOC_WAITING_A1: "Menunggu Approval 1",
+    RC.DOC_READY_A2: "Siap Approval 2",
+    RC.DOC_WAITING_A2: "Menunggu Approval 2",
+    "Waiting Approval": "Menunggu Approval",
+    "Approved": "Disetujui",
+    "Closed": "Ditutup",
+    "Revision": "Revisi",
+    "Rejected": "Ditolak",
+    "Cancelled": "Dibatalkan",
+}
+PO_STATUS = tuple((label, label) for label in PO_STATUS_LABEL.values())
+_PO_STATUS_ORDER = {label: i for i, label in enumerate(PO_STATUS_LABEL.values())}
+
+
+def _po_status_text(labels):
+    """Gabungan label status PO pada satu baris (satu baris bisa memuat beberapa PO)."""
+    uniq = [x for x in dict.fromkeys(labels) if x]
+    if not uniq:
+        return "-"
+    return ", ".join(sorted(uniq, key=lambda x: (_PO_STATUS_ORDER.get(x, 99), x)))
+
+
+async def _po_status_map(server, rows):
+    """{po_id: label status dokumen} untuk seluruh PO yang dirujuk baris.
+
+    Sumber = definisi existing (`po_receipt_batch` + `po_approval_stage_map` + `display_document_status`),
+    tanpa rumus baru dan tanpa menulis apa pun.
+    """
+    ids = sorted({ref.get("id") for r in rows for ref in (r.get("po_refs") or []) if ref.get("id")})
+    if not ids:
+        return {}
+    docs = await server.db.po.find({"id": {"$in": ids}}, {"_id": 0}).to_list(len(ids))
+    batch, _rec, _per = await RC.po_receipt_batch(server, docs)
+    stages = await RC.po_approval_stage_map(server, docs)
+    out = {}
+    for po in docs:
+        st = batch.get(po.get("id")) or {}
+        status = RC.display_document_status(po, st.get("document_status"), stages.get(po.get("id")))
+        out[po["id"]] = PO_STATUS_LABEL.get(status, status)
+    return out
 
 
 def _flat(r):
@@ -31,7 +78,10 @@ def _flat(r):
         "mro_date": j(r.get("mro_refs"), "date"), "mro_no": j(r.get("mro_refs"), "no"), "request": r.get("request"),
         "ro_date": j(r.get("ro_refs"), "date"), "ro_no": j(r.get("ro_refs"), "no"), "qty_ro": r.get("qty_ro"),
         "po_date": j(r.get("po_refs"), "date"), "supplier_name": r.get("supplier_name"),
-        "po_no": j(r.get("po_refs"), "no"), "qty_po": r.get("qty_po"), "po_unit_price": unit_price,
+        "po_no": j(r.get("po_refs"), "no"),
+        "po_status": _po_status_text(r.get("_po_statuses") or []),
+        "po_status_list": r.get("_po_statuses") or [],
+        "qty_po": r.get("qty_po"), "po_unit_price": unit_price,
         "po_gross": r.get("po_gross"), "po_discount": r.get("po_discount"), "po_dpp": r.get("po_dpp"),
         "po_tax": r.get("po_tax"), "po_total": r.get("po_total"),
         "do_date": j(r.get("do_refs"), "date"), "do_no": j(r.get("do_refs"), "no"), "qty_received": r.get("qty_received"),
@@ -72,11 +122,20 @@ async def mro_traceability(server, user, p):
     if p.get("category_id"):
         iids = {i["id"] for i in await server.db.items.find({"category_id": p["category_id"]}, {"_id": 0, "id": 1}).to_list(None)}
         rows = [r for r in rows if r.get("item_id") in iids]
+    # Status DOKUMEN PO per baris (definisi existing receipt_control_layer) — dihitung setelah semua
+    # filter baris agar hanya PO yang benar-benar tampil yang di-enrich.
+    status_map = await _po_status_map(server, rows)
+    for r in rows:
+        refs = r.get("po_refs") or []
+        r["_po_statuses"] = list(dict.fromkeys(
+            s for s in (status_map.get(x.get("id")) for x in refs if x.get("id")) if s))
     out = [_flat(r) for r in rows]
     if p.get("status"):
         out = [r for r in out if r["status"] == p["status"]]
     if p.get("do_status"):
         out = [r for r in out if r["do_status"] == p["do_status"]]
+    if p.get("po_status"):
+        out = [r for r in out if p["po_status"] in (r.get("po_status_list") or [])]
     return out
 
 
@@ -98,6 +157,9 @@ register(ReportSpec(
         Column("po_date", "Tanggal PO", "date", width=13),
         Column("supplier_name", "Nama Supplier", width=24),
         Column("po_no", "No. PO", width=22),
+        # Status dokumen PO: Draft / Menunggu Approval 1 / Menunggu Approval 2 / Disetujui / Ditutup
+        # (+ Revisi, Ditolak, Dibatalkan). Satu baris bisa memuat beberapa PO -> digabung dengan koma.
+        Column("po_status", "Status PO", width=20),
         Column("qty_po", "Qty PO", "qty", total=True, width=11),
         # Harga satuan = Nilai PO / Qty PO, supaya qty x harga satuan bisa dicek langsung.
         Column("po_unit_price", "Harga Satuan", "money", price=True, width=15),
@@ -125,6 +187,7 @@ register(ReportSpec(
     filters=(Filter("date_from", "Tanggal Awal", "date"), Filter("date_to", "Tanggal Akhir", "date"),
              Filter("division_id", "Divisi", "division"), Filter("status", "Status MI", "select", STATUS),
              Filter("do_status", "Status DO", "select", STATUS_DO),
+             Filter("po_status", "Status PO", "select", PO_STATUS),
              Filter("item_id", "Barang", "item"), Filter("category_id", "Kategori", "category")),
     search_keys=("item_code", "item_name", "category", "mro_no", "ro_no", "po_no", "do_no", "mi_no", "inv_no", "spk_no",
                  "project_name", "supplier_name"),
