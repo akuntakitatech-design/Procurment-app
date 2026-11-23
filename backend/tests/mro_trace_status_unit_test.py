@@ -76,7 +76,7 @@ check("status MI tetap Completed walau DO belum diterima", f["status"] == "Compl
 spec = REGISTRY["mro-traceability"]
 keys = [c.key for c in spec.columns]
 labels = {c.key: c.label for c in spec.columns}
-check("jumlah kolom = 36", len(keys) == 36, len(keys))
+check("jumlah kolom = 37", len(keys) == 37, len(keys))
 check("harga satuan tepat setelah Qty PO", keys[keys.index("qty_po") + 1] == "po_unit_price",
       " -> ".join(keys[keys.index("qty_po") - 1:keys.index("qty_po") + 2]))
 check("label harga satuan", labels["po_unit_price"] == "Harga Satuan", labels["po_unit_price"])
@@ -101,6 +101,30 @@ check("filter status diberi label 'Status MI'",
 fdo = next((x for x in spec.filters if x.key == "do_status"), None)
 check("filter Status DO ada & berlabel 'Status DO'", fdo is not None and fdo.label == "Status DO",
       fdo.label if fdo else "tidak ada")
+
+# --- Status dokumen PO (Draft / Approval 1 / Approval 2 / Disetujui / Ditutup)
+f = RP._flat(row(_po_statuses=["Disetujui"]))
+check("status PO tunggal", f["po_status"] == "Disetujui", f["po_status"])
+
+f = RP._flat(row(_po_statuses=["Ditutup", "Menunggu Approval 1"]))
+check("beberapa PO digabung berurutan", f["po_status"] == "Menunggu Approval 1, Ditutup", f["po_status"])
+
+f = RP._flat(row())
+check("status PO '-' bila tidak ada PO", f["po_status"] == "-" and f["po_status_list"] == [],
+      f"{f['po_status']} / {f['po_status_list']}")
+
+check("kolom Status PO tepat setelah No. PO", keys[keys.index("po_no") + 1] == "po_status",
+      " -> ".join(keys[keys.index("po_no"):keys.index("po_no") + 2]))
+check("label kolom Status PO", labels["po_status"] == "Status PO", labels["po_status"])
+check("Status PO tidak dijumlahkan di baris TOTAL",
+      not next(c for c in spec.columns if c.key == "po_status").total)
+
+fps = next((x for x in spec.filters if x.key == "po_status"), None)
+check("filter Status PO ada & berlabel 'Status PO'", fps is not None and fps.label == "Status PO",
+      fps.label if fps else "tidak ada")
+_po_vals = [v for v, _ in fps.options] if fps else []
+check("opsi filter Status PO memuat Draft / Approval 1 / Approval 2 / Disetujui / Ditutup",
+      {"Draft", "Menunggu Approval 1", "Menunggu Approval 2", "Disetujui", "Ditutup"} <= set(_po_vals), _po_vals)
 check("opsi filter Status DO lengkap (4 nilai)",
       fdo is not None and [v for v, _ in fdo.options] == ["Diterima", "Diterima Sebagian", "Belum Diterima", "-"],
       [v for v, _ in fdo.options] if fdo else None)
@@ -154,6 +178,49 @@ check("filter Status MI=Open -> 2 baris", len(got["status=Open"]) == 2, len(got[
 check("filter Status MI=Completed -> 1 baris", len(got["status=Completed"]) == 1)
 check("kombinasi Status MI=Open + Status DO='-' -> 1 baris",
       len(got["do_status=-,status=Open"]) == 1, len(got["do_status=-,status=Open"]))
+
+# --- Filter Status PO (peta status di-monkeypatch: builder tetap tanpa DB)
+RAW_PO = [
+    row(po_refs=[{"id": "p1", "no": "PO/1", "date": "2026-11-01"}], qty_po=1.0),
+    row(po_refs=[{"id": "p2", "no": "PO/2", "date": "2026-11-01"}], qty_po=1.0),
+    row(po_refs=[{"id": "p1", "no": "PO/1", "date": "2026-11-01"},
+                 {"id": "p3", "no": "PO/3", "date": "2026-11-01"}], qty_po=3.0),
+]
+PO_MAP = {"p1": "Draft", "p2": "Menunggu Approval 1", "p3": "Disetujui"}
+
+
+async def _fake_po_rows(server, date_from, date_to, user):
+    return [dict(x) for x in RAW_PO]
+
+
+async def _fake_status_map(server, rows):
+    return dict(PO_MAP)
+
+
+_orig_map = RP._po_status_map
+RP.RTD._build_rows = _fake_po_rows
+RP._po_status_map = _fake_status_map
+try:
+    async def run_po_filters():
+        return {json_key(pp): await RP.mro_traceability(None, None, dict(pp))
+                for pp in ({}, {"po_status": "Draft"}, {"po_status": "Disetujui"},
+                           {"po_status": "Menunggu Approval 1"}, {"po_status": "Ditutup"})}
+
+    po_got = asyncio.run(run_po_filters())
+finally:
+    RP.RTD._build_rows = _orig
+    RP._po_status_map = _orig_map
+
+check("tanpa filter Status PO: 3 baris", len(po_got["semua"]) == 3, len(po_got["semua"]))
+check("filter Status PO=Draft -> 2 baris (termasuk baris multi-PO)",
+      len(po_got["po_status=Draft"]) == 2, len(po_got["po_status=Draft"]))
+check("filter Status PO=Disetujui -> 1 baris",
+      len(po_got["po_status=Disetujui"]) == 1, len(po_got["po_status=Disetujui"]))
+check("filter Status PO=Menunggu Approval 1 -> 1 baris",
+      len(po_got["po_status=Menunggu Approval 1"]) == 1)
+check("filter Status PO=Ditutup -> 0 baris", len(po_got["po_status=Ditutup"]) == 0)
+_multi = next(r for r in po_got["semua"] if r["qty_po"] == 3.0)
+check("baris dengan 2 PO menampilkan keduanya", _multi["po_status"] == "Draft, Disetujui", _multi["po_status"])
 
 # --- Dasar tanggal = TANGGAL PO (opsi A): baris masuk bila minimal satu PO-nya di periode
 check("judul laporan 'PO Traceability'", spec.title == "PO Traceability", spec.title)
