@@ -157,9 +157,6 @@ register(ReportSpec(
         Column("po_date", "Tanggal PO", "date", width=13),
         Column("supplier_name", "Nama Supplier", width=24),
         Column("po_no", "No. PO", width=22),
-        # Status dokumen PO: Draft / Menunggu Approval 1 / Menunggu Approval 2 / Disetujui / Ditutup
-        # (+ Revisi, Ditolak, Dibatalkan). Satu baris bisa memuat beberapa PO -> digabung dengan koma.
-        Column("po_status", "Status PO", width=20),
         Column("qty_po", "Qty PO", "qty", total=True, width=11),
         # Harga satuan = Nilai PO / Qty PO, supaya qty x harga satuan bisa dicek langsung.
         Column("po_unit_price", "Harga Satuan", "money", price=True, width=15),
@@ -168,6 +165,10 @@ register(ReportSpec(
         Column("po_dpp", "DPP PO", "money", price=True, total=True, width=15),
         Column("po_tax", "Pajak PO", "money", price=True, total=True, width=14),
         Column("po_total", "Total PO", "money", price=True, total=True, width=15),
+        # Status dokumen PO: Draft / Menunggu Approval 1 / Menunggu Approval 2 / Disetujui / Ditutup
+        # (+ Siap Approval 2, Menunggu Approval, Revisi, Ditolak, Dibatalkan). Satu baris bisa memuat
+        # beberapa PO -> digabung dengan koma sesuai urutan tahapan.
+        Column("po_status", "Status PO", width=20),
         Column("do_date", "Tanggal DO", "date", width=13), Column("do_no", "No. DO", width=22),
         Column("qty_received", "Qty DO", "qty", total=True, width=11),
         Column("do_total", "Total DO", "money", price=True, total=True, width=18),
