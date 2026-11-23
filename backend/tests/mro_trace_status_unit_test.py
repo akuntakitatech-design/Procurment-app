@@ -113,8 +113,8 @@ f = RP._flat(row())
 check("status PO '-' bila tidak ada PO", f["po_status"] == "-" and f["po_status_list"] == [],
       f"{f['po_status']} / {f['po_status_list']}")
 
-check("kolom Status PO tepat setelah No. PO", keys[keys.index("po_no") + 1] == "po_status",
-      " -> ".join(keys[keys.index("po_no"):keys.index("po_no") + 2]))
+check("kolom Status PO tepat setelah Total PO", keys[keys.index("po_total") + 1] == "po_status",
+      " -> ".join(keys[keys.index("po_total"):keys.index("po_total") + 2]))
 check("label kolom Status PO", labels["po_status"] == "Status PO", labels["po_status"])
 check("Status PO tidak dijumlahkan di baris TOTAL",
       not next(c for c in spec.columns if c.key == "po_status").total)
