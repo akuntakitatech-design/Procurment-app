@@ -255,7 +255,7 @@ def install(server):
     app = server.app
 
     async def catalog(user=Depends(server.current_user)):
-        server.require(user, "view")
+        server.require(user, "report_center.view")
         groups = []
         for g in R.GROUPS:
             reps = [{"key": s.key, "title": s.title, "description": s.description}
@@ -267,6 +267,9 @@ def install(server):
                 "price_visible": bool(server.has_perm(user, "view_purchase_price"))}
 
     async def report(key: str, request: Request, user=Depends(server.current_user)):
+        # Halaman Pusat Laporan: izin khusus halaman. Export daftar transaksi (P6) tidak lewat sini,
+        # sehingga user yang boleh mengekspor daftar tetap bisa export tanpa izin halaman laporan.
+        server.require(user, "report_center.view")
         qp = dict(request.query_params)
         return page_of(await run(server, user, key, qp), qp)
 

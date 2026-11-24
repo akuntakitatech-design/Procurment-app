@@ -50,7 +50,7 @@ async def dashboard(user=Depends(current_user)):
 # ---------------- INVENTORY ----------------
 @api.get("/inventory/ledger")
 async def ledger(user=Depends(current_user), item_id: str = None, warehouse_id: str = None, limit: int = 500):
-    require(user, "view")
+    require(user, "inventory.view")
     q = {}
     if item_id: q["item_id"] = item_id
     if warehouse_id: q["warehouse_id"] = warehouse_id
@@ -65,7 +65,7 @@ async def ledger(user=Depends(current_user), item_id: str = None, warehouse_id: 
 
 @api.get("/inventory/position")
 async def stock_position(user=Depends(current_user)):
-    require(user, "view")
+    require(user, "inventory.view")
     im = {i["id"]: i for i in await db.items.find({}, {"_id": 0}).to_list(5000)}
     wm = {w["id"]: w for w in await db.warehouses.find({}, {"_id": 0}).to_list(2000)}
     rows = await db.item_warehouse.find({}, {"_id": 0}).to_list(10000)
@@ -308,7 +308,7 @@ async def get_setting(key: str, user=Depends(current_user)):
 
 @api.put("/settings/{key}")
 async def update_setting(key: str, body: dict, user=Depends(current_user)):
-    require(user, "edit")
+    require(user, "settings.edit")
     body.pop("_id", None); body["id"] = key
     await db.settings.update_one({"id": key}, {"$set": body}, upsert=True)
     await audit(user, "edit", "settings", key)

@@ -59,7 +59,29 @@ SPECIALS = [
     ("spk_allocation:view", "Lihat Alokasi SPK"), ("spk_allocation:manage", "Kelola Alokasi SPK"),
     ("spk_allocation:verify", "Verifikasi Alokasi SPK"), ("vendor_contract:activate", "Aktivasi Kontrak Harga"),
     ("vendor_contract_price:manage", "Kelola Harga Kontrak"),
+    # Izin halaman yang sebelumnya tidak punya baris sendiri (hanya legacy view/edit global).
+    ("inventory.view", "Lihat Inventory / Stock"),
+    ("report_center.view", "Lihat Pusat Laporan"),
+    ("activity_log.view", "Lihat Log Aktivitas"),
+    ("print_layout.manage", "Kelola Layout Dokumen"),
+    ("excel_import.view", "Lihat Import Excel"),
+    ("excel_import.create", "Jalankan Import Excel"),
+    ("settings.edit", "Ubah Pengaturan"),
 ]
+# Default izin halaman baru per role (kebijakan disetujui pemilik):
+#  - Inventory        : Gudang, Manajer (direktur & finance ikut melihat posisi stok)
+#  - Pusat Laporan    : Direktur, Manajer, Finance, Purchasing
+#  - Log Aktivitas    : Admin saja
+#  - Layout Dokumen   : Admin saja
+#  - Import Excel     : Purchasing, Gudang
+#  - Ubah Pengaturan  : Admin saja
+NEW_DEFAULTS = {
+    "director": {"inventory.view", "report_center.view"},
+    "manager": {"inventory.view", "report_center.view"},
+    "purchasing": {"inventory.view", "report_center.view", "excel_import.view", "excel_import.create"},
+    "warehouse": {"inventory.view", "excel_import.view", "excel_import.create"},
+    "finance": {"inventory.view", "report_center.view"},
+}
 MODULES = {m: (label, acts) for _, _, mods in GROUPS for m, label, acts in mods}
 ALL_KEYS = {f"{m}.{a}" for m, (_, acts) in MODULES.items() for a in acts} | {k for k, _ in SPECIALS}
 MASTER_SIMPLE = ["items", "item_categories", "uoms", "stock_minmax", "suppliers", "supplier_categories", "taxes",
@@ -81,7 +103,7 @@ A2_SUBMIT_KEYS = {"po_approval2.view", "po_approval2.submit", "po_approval2.prin
 
 
 def role_cfg_permissions(cfg) -> set:
-    """Izin role tersimpan + migrasi aman Approval 2 untuk konfigurasi lama (sebelum izin po_approval2 ada)."""
+    """Izin role tersimpan + migrasi aman Approval 2 dan izin halaman baru untuk konfigurasi lama."""
     perms = set(cfg.get("permissions") or [])
     if not cfg.get("a2_configured") and not (perms & A2_KEYS):
         if "po.approve" in perms:
@@ -89,6 +111,11 @@ def role_cfg_permissions(cfg) -> set:
         elif cfg.get("role") == "purchasing":
             # Role purchasing ditunjuk mengajukan batch; approver tetap director/manager.
             perms |= A2_SUBMIT_KEYS
+    if not cfg.get("perm_v2"):
+        # Konfigurasi yang tersimpan sebelum izin halaman baru ada: beri default per role agar
+        # perilaku tidak berubah tanpa keputusan admin. Setelah role disimpan dari UI (perm_v2),
+        # nilai tersimpan yang berlaku (termasuk bila sengaja dicabut).
+        perms |= set(NEW_DEFAULTS.get(cfg.get("role"), ()))
     return perms
 MASTER_NAME = {"item_warehouse": "stock_minmax"}
 DIV_MASTERS = {"items", "warehouses", "units", "contacts", "projects"}
@@ -172,7 +199,7 @@ def install(server):
     app, db = server.app, lambda: server.db
 
     def role_default(role):
-        return legacy_to_granular(server.ROLE_DEFAULTS.get(role, []), role)
+        return legacy_to_granular(server.ROLE_DEFAULTS.get(role, []), role) | set(NEW_DEFAULTS.get(role, ()))
 
     async def role_cfg(role):
         import tenant_isolation_layer as TI
@@ -877,6 +904,7 @@ def _install_admin_api(server, resolve, role_default, role_div_default):
         changed = sorted(old ^ perms)
         await db().role_permissions.update_one({"role": role}, {"$set": {
             "role": role, "permissions": sorted(perms), "division_scope": scope, "a2_configured": True,
+            "perm_v2": True,
             "updated_by": user.get("email"), "updated_at": server.now_iso()}}, upsert=True)
         import tenant_isolation_layer as TI
         _CFG_CACHE.pop((TI.current_tenant_id(), role), None)

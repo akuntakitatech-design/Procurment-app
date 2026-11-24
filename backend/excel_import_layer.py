@@ -661,7 +661,7 @@ async def _import_transactions(server, key, rows, user, tracker=None):
 def install(server):
     @server.app.get("/api/excel/datasets", tags=["excel-import"])
     async def datasets(user=Depends(server.current_user)):
-        server.require(user, "view")
+        server.require(user, "excel_import.view")
         return {
             "masters": [{"key": k, "label": v["label"], "required": v.get("required", [])} for k, v in MASTER_DATASETS.items()],
             "transactions": [{"key": k, "label": v["label"], "required": v.get("required", [])} for k, v in TRANSACTION_DATASETS.items()],
@@ -669,7 +669,7 @@ def install(server):
 
     @server.app.get("/api/excel/template/{dataset}", tags=["excel-import"])
     async def template(dataset: str, user=Depends(server.current_user)):
-        server.require(user, "view")
+        server.require(user, "excel_import.view")
         spec = ALL_DATASETS.get(dataset)
         if not spec: raise HTTPException(404, "Template tidak dikenal")
         data = _template_bytes(dataset, spec)
@@ -677,7 +677,7 @@ def install(server):
 
     @server.app.post("/api/excel/import/{dataset}", tags=["excel-import"])
     async def import_excel(dataset: str, file: UploadFile = File(...), user=Depends(server.current_user)):
-        server.require(user, "create")
+        server.require(user, "excel_import.create")
         spec = ALL_DATASETS.get(dataset)
         if not spec: raise HTTPException(404, "Dataset import tidak dikenal")
         if not (file.filename or "").lower().endswith((".xlsx", ".xlsm")):
