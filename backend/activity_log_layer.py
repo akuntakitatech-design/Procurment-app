@@ -22,7 +22,7 @@ def install(server):
         size: int = Query(50, ge=10, le=200),
         user=Depends(server.current_user),
     ):
-        server.require(user, "view")
+        server.require(user, "activity_log.view")
         query = {}
 
         # Limited users may only inspect their own history; global roles can inspect all.

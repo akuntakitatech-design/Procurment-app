@@ -153,7 +153,8 @@ def install(server):
 
     @app.put("/api/settings/print_layouts", tags=["settings"])
     async def put_print_layouts(body: dict, user=Depends(server.current_user)):
-        server.require(user, "edit")
+        # Mengubah layout cetak = aksi administratif; GET tetap terbuka karena dipakai proses cetak.
+        server.require(user, "print_layout.manage")
         modules = _normalize_modules(body)
         await server.db.settings.update_one(
             {"id": "print_layouts"},
