@@ -83,10 +83,10 @@ function ReportHub({ catalog }) {
 function GroupNav({ catalog, activeKey }) {
   return (
     <nav className="space-y-4" data-testid="report-center-nav">
-      {catalog.groups.map((g, gi) => (
+      {catalog.groups.filter((g) => g.reports.length > 0).map((g, gi) => (
         <div key={g.key} data-testid={`report-group-${g.key}`}>
           <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{gi + 1}. {g.title}</div>
-          {g.reports.length === 0 && <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">Segera tersedia</div>}
+          {g.reports.length === 0 && <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">{g.planned?.length ? "Segera tersedia" : "Tidak ada laporan yang dapat Anda akses."}</div>}
           {g.reports.map((r) => (
             <Link key={r.key} to={reportPath(r.key)} data-testid={`report-link-${r.key}`}
               className={`block rounded-md px-3 py-3 sm:py-2 text-sm transition-colors ${activeKey === r.key ? "bg-primary/10 font-semibold text-primary" : "hover:bg-muted"}`}>

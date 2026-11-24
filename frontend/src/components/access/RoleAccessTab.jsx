@@ -3,7 +3,7 @@ import api, { apiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PermissionGrid, SpecialList, CheckCell } from "@/components/access/PermissionGrid";
+import { PermissionGrid, SpecialList, ReportList, CheckCell } from "@/components/access/PermissionGrid";
 import { Loader2, Lock, Search, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,6 +47,7 @@ export function RoleAccessTab() {
 
   const pick = (r) => { if (dirty && !window.confirm("Perubahan hak akses belum disimpan. Tinggalkan tanpa menyimpan?")) return; setActive(r); };
   const toggle = (k, v) => { setPerms((s) => { const n = new Set(s); v ? n.add(k) : n.delete(k); return n; }); setDirty(true); };
+  const toggleMany = (keys, v) => { setPerms((s) => { const n = new Set(s); keys.forEach((k) => (v ? n.add(k) : n.delete(k))); return n; }); setDirty(true); };
   const save = async () => {
     setSaving(true);
     try { const r = await api.put(`/access/roles/${active}`, { permissions: [...perms], division_scope: scope }); toast.success(`Hak akses role ${role.label} tersimpan (${r.data.changed} perubahan)`); setDirty(false); await load(); }
@@ -67,6 +68,7 @@ export function RoleAccessTab() {
       </div>
       <PermissionGrid catalog={catalog} search={q} renderCell={cell} testid="role-perm-grid" />
       <SpecialList catalog={catalog} renderCell={cell} />
+      <ReportList catalog={catalog} renderCell={cell} search={q} onBulk={toggleMany} />
     </>}
   </div>;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import { Input } from "@/components/ui/input";
-import { PermissionGrid, SpecialList } from "@/components/access/PermissionGrid";
+import { PermissionGrid, SpecialList, ReportList } from "@/components/access/PermissionGrid";
 import { DivisionScopeEditor } from "@/components/access/RoleAccessTab";
 import { Loader2, Search } from "lucide-react";
 
@@ -26,6 +26,7 @@ export function UserAccessPanel({ uid, divisions, onChange }) {
     const m = {};
     (catalog?.groups || []).forEach((g) => g.modules.forEach((x) => x.actions.forEach((a) => { m[`${x.key}.${a}`] = `${x.label} → ${catalog.actions[a]}`; })));
     (catalog?.specials || []).forEach((s) => { m[s.key] = s.label; });
+    (catalog?.reports || []).forEach((r) => { m[r.key] = r.label; });
     return m;
   }, [catalog]);
   if (!info || !catalog) return <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Memuat hak akses pengguna...</div>;
@@ -51,5 +52,6 @@ export function UserAccessPanel({ uid, divisions, onChange }) {
     <div className="relative max-w-xs"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari modul..." className="pl-9" data-testid="user-perm-search" /></div>
     <PermissionGrid catalog={catalog} search={q} renderCell={cell} testid="user-perm-grid" />
     <SpecialList catalog={catalog} renderCell={cell} />
+    <ReportList catalog={catalog} renderCell={cell} search={q} />
   </div>;
 }
