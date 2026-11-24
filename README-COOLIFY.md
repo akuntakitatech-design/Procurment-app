@@ -84,6 +84,9 @@ isi `FRONTEND_URL`/`CORS_ORIGINS` dengan origin frontend (cookie otomatis `SameS
 | Port mappings | *(kosong)* |
 | Domain | `https://app.domain-anda.com` (awali **https://**) |
 
+> Deployment produksi saat ini: `https://proc.akuntakita.my.id` (dipakai `FRONTEND_URL` backend).
+> `proc.akuntakita.com` masih terpasang di fqdn app sebagai alias/preview.
+
 Environment variables:
 
 ```
