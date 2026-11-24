@@ -41,6 +41,39 @@ export function SpecialList({ catalog, renderCell }) {
   </div>;
 }
 
+// Pusat Laporan: satu centang per laporan (`report.<key>`). Yang tidak dicentang tidak muncul di daftar
+// laporan maupun bisa dibuka. `onBulk` (opsional) = pilih semua / kosongkan per kategori.
+export function ReportList({ catalog, renderCell, search, onBulk }) {
+  const groups = catalog?.report_groups || [];
+  const reports = (catalog?.reports || []).filter((r) => !search || r.label.toLowerCase().includes(search.toLowerCase()));
+  if (!reports.length) return null;
+  return <div className="rounded-xl border bg-card p-4" data-testid="report-perm-list">
+    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pusat Laporan (per laporan)</div>
+    <p className="mb-3 mt-1 text-xs text-muted-foreground">Laporan yang tidak dicentang tidak muncul di daftar Pusat Laporan. Halaman Pusat Laporan tetap butuh izin <b>Lihat Pusat Laporan</b>.</p>
+    <div className="space-y-4">{groups.map((g) => {
+      const items = reports.filter((r) => r.group === g.key);
+      if (!items.length) return null;
+      const keys = items.map((r) => r.key);
+      return <div key={g.key}>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold">{g.label}</span>
+          <span className="text-xs text-muted-foreground">({items.length} laporan)</span>
+          {onBulk && <span className="ml-auto flex gap-2">
+            <button type="button" className="text-xs font-semibold text-primary hover:underline" onClick={() => onBulk(keys, true)} data-testid={`report-bulk-${g.key}-all`}>Pilih semua</button>
+            <button type="button" className="text-xs font-semibold text-muted-foreground hover:underline" onClick={() => onBulk(keys, false)} data-testid={`report-bulk-${g.key}-none`}>Kosongkan</button>
+          </span>}
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((r) => <label key={r.key} className="flex items-start gap-2 text-sm" data-testid={`report-perm-${r.key}`}>
+            <span className="mt-0.5">{renderCell(r.key, null, null)}</span>
+            <span>{r.label}{r.requires_price && <span className="ml-1 text-xs text-amber-700">(juga butuh Lihat Harga Beli)</span>}</span>
+          </label>)}
+        </div>
+      </div>;
+    })}</div>
+  </div>;
+}
+
 export function CheckCell({ checked, onChange, disabled, testid }) {
   return <Checkbox checked={checked} onCheckedChange={(v) => onChange(!!v)} disabled={disabled} data-testid={testid} />;
 }

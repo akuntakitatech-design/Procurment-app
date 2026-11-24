@@ -116,6 +116,10 @@ def role_cfg_permissions(cfg) -> set:
         # perilaku tidak berubah tanpa keputusan admin. Setelah role disimpan dari UI (perm_v2),
         # nilai tersimpan yang berlaku (termasuk bila sengaja dicabut).
         perms |= set(NEW_DEFAULTS.get(cfg.get("role"), ()))
+    if not cfg.get("perm_v3"):
+        # Izin per-laporan Pusat Laporan: isi otomatis setara aturan lama agar tidak ada laporan yang
+        # tiba-tiba hilang. Setelah role disimpan dari UI (perm_v3), pilihan admin yang berlaku.
+        perms |= report_default_keys(perms)
     return perms
 MASTER_NAME = {"item_warehouse": "stock_minmax"}
 DIV_MASTERS = {"items", "warehouses", "units", "contacts", "projects"}
@@ -124,6 +128,58 @@ LEGACY_ACTION = {"view": "view", "create": "create", "edit": "edit", "delete": "
 TRANSLATE = {"direct_mi": ["mi.direct"], "post_stock_opname": ["opname.post"], "stock_adjustment": ["adjustment.create"],
              "spk:view": ["spk.view"], "spk:manage": ["spk.create", "spk.edit"],
              "vendor_contract:view": ["vendor_contracts.view"], "vendor_contract:manage": ["vendor_contracts.create", "vendor_contracts.edit"]}
+
+# ---------------------------------------------------------------- izin per-laporan Pusat Laporan
+# Setiap laporan di katalog Pusat Laporan punya kunci sendiri `report.<key>` sehingga admin dapat
+# memilih detail laporan mana yang boleh dilihat sebuah role. Laporan yang tidak dicentang tidak
+# muncul di daftar maupun bisa dibuka.
+def report_perm(key: str) -> str:
+    return f"report.{key}"
+
+
+def report_specs() -> list:
+    """Laporan yang tampil di katalog Pusat Laporan. Import lazy: REGISTRY baru terisi saat
+    `report_center.install()` yang berjalan setelah layer ini."""
+    try:
+        import reporting.registry as R
+    except Exception:
+        return []
+    return [s for s in R.REGISTRY.values() if getattr(s, "catalog", True)]
+
+
+def report_groups() -> list:
+    try:
+        import reporting.hub as H
+        import reporting.registry as R
+    except Exception:
+        return []
+    return [{"key": g["key"], "label": H.CARD_TITLES.get(g["key"], g["title"])} for g in R.GROUPS]
+
+
+def known_keys() -> set:
+    """Semua kunci izin yang dikenal (modul + khusus + per-laporan)."""
+    return ALL_KEYS | {report_perm(s.key) for s in report_specs()}
+
+
+def spec_rule_allows(eff, perm) -> bool:
+    """Aturan izin laporan versi lama (sebelum izin per-laporan ada)."""
+    if perm in eff:
+        return True
+    if perm in TRANSLATE:
+        return any(k in eff for k in TRANSLATE[perm])
+    act = LEGACY_ACTION.get(perm)
+    return any(k.endswith("." + act) for k in eff) if act else False
+
+
+def report_default_keys(eff) -> set:
+    """Izin per-laporan yang setara aturan lama; dipakai default role & migrasi `perm_v3`.
+
+    Laporan valuasi (`view_purchase_price`) tidak ikut bila role tidak punya izin harga, dan user
+    tanpa izin baca sama sekali tidak mendapat laporan (sama seperti sebelumnya).
+    """
+    if not any(k.endswith(".view") for k in eff):
+        return set()
+    return {report_perm(s.key) for s in report_specs() if spec_rule_allows(eff, getattr(s, "permission", "view"))}
 ROLE_LABELS = {"admin": "Admin", "director": "Direktur", "manager": "Manajer", "purchasing": "Purchasing", "warehouse": "Gudang",
                "finance": "Finance"}
 GLOBAL_DIV_ROLES = ("admin", "director", "purchasing", "finance")   # default cakupan divisi: Semua Divisi
@@ -199,7 +255,8 @@ def install(server):
     app, db = server.app, lambda: server.db
 
     def role_default(role):
-        return legacy_to_granular(server.ROLE_DEFAULTS.get(role, []), role) | set(NEW_DEFAULTS.get(role, ()))
+        base = legacy_to_granular(server.ROLE_DEFAULTS.get(role, []), role) | set(NEW_DEFAULTS.get(role, ()))
+        return base | report_default_keys(base)
 
     async def role_cfg(role):
         import tenant_isolation_layer as TI
@@ -213,6 +270,7 @@ def install(server):
 
     def derived_overrides(user):
         leg, d = legacy_to_granular(user.get("permissions") or [], user.get("role")), role_default(user.get("role"))
+        leg |= report_default_keys(leg)  # legacy user: izin laporan ikut role, jangan di-deny hanya karena tidak ada di daftar legacy
         return {**{k: "allow" for k in leg - d}, **{k: "deny" for k in d - leg}}
 
     def derived_div_override(user):
@@ -228,11 +286,12 @@ def install(server):
         cfg = await role_cfg(role) if role != "admin" else None
         base = role_cfg_permissions(cfg) if cfg and cfg.get("permissions") is not None else role_default(role)
         ov = user["permission_overrides"] if isinstance(user.get("permission_overrides"), dict) else derived_overrides(user)
-        eff = ALL_KEYS if role == "admin" else (base | {k for k, v in ov.items() if v == "allow"}) - {k for k, v in ov.items() if v == "deny"}
+        keys = known_keys()
+        eff = keys if role == "admin" else (base | {k for k, v in ov.items() if v == "allow"}) - {k for k, v in ov.items() if v == "deny"}
         rdiv = (cfg or {}).get("division_scope") or role_div_default(role)
         dov = user.get("division_override") if "division_override" in user else derived_div_override(user)
         ediv = {"mode": "all", "divisions": []} if role == "admin" else (dov or rdiv)
-        return {"role_permissions": sorted(base & ALL_KEYS), "overrides": ov, "effective": sorted(eff & ALL_KEYS),
+        return {"role_permissions": sorted(base & keys), "overrides": ov, "effective": sorted(eff & keys),
                 "role_division_scope": rdiv, "division_override": dov, "division_scope": ediv}
 
     def check(user, perm):
@@ -875,7 +934,12 @@ def _install_admin_api(server, resolve, role_default, role_div_default):
     async def access_catalog(user=Depends(server.current_user)):
         return {"groups": [{"key": g, "label": gl, "modules": [{"key": m, "label": ml, "actions": acts} for m, ml, acts in mods]}
                            for g, gl, mods in GROUPS],
-                "specials": [{"key": k, "label": lbl} for k, lbl in SPECIALS], "actions": ACTION_LABELS,
+                "specials": [{"key": k, "label": lbl} for k, lbl in SPECIALS],
+                "reports": [{"key": report_perm(s.key), "label": s.title, "group": s.group,
+                             "requires_price": getattr(s, "permission", "view") == "view_purchase_price"}
+                            for s in report_specs()],
+                "report_groups": report_groups(),
+                "actions": ACTION_LABELS,
                 "roles": [{"key": r, "label": ROLE_LABELS.get(r, r)} for r in server.ROLE_DEFAULTS]}
 
     @app.get("/api/access/roles", tags=["access-control"])
@@ -883,7 +947,7 @@ def _install_admin_api(server, resolve, role_default, role_div_default):
         out = []
         for role in server.ROLE_DEFAULTS:
             cfg = await db().role_permissions.find_one({"role": role}, {"_id": 0}) if role != "admin" else None
-            perms = sorted(ALL_KEYS) if role == "admin" else sorted(role_cfg_permissions(cfg) if cfg else role_default(role))
+            perms = sorted(known_keys()) if role == "admin" else sorted(role_cfg_permissions(cfg) if cfg else role_default(role))
             out.append({"role": role, "label": ROLE_LABELS.get(role, role), "locked": role == "admin", "configured": bool(cfg),
                         "permissions": perms, "division_scope": (cfg or {}).get("division_scope") or role_div_default(role)})
         return out
@@ -895,7 +959,7 @@ def _install_admin_api(server, resolve, role_default, role_div_default):
         if role == "admin":
             raise HTTPException(400, "Role Admin selalu memiliki akses penuh dan tidak dapat diubah")
         perms = set((body or {}).get("permissions") or [])
-        if perms - ALL_KEYS:
+        if perms - known_keys():
             raise HTTPException(400, "Terdapat hak akses yang tidak dikenal")
         scope = await clean_scope((body or {}).get("division_scope") or role_div_default(role))
         cfg = await db().role_permissions.find_one({"role": role}, {"_id": 0})
@@ -904,7 +968,7 @@ def _install_admin_api(server, resolve, role_default, role_div_default):
         changed = sorted(old ^ perms)
         await db().role_permissions.update_one({"role": role}, {"$set": {
             "role": role, "permissions": sorted(perms), "division_scope": scope, "a2_configured": True,
-            "perm_v2": True,
+            "perm_v2": True, "perm_v3": True,
             "updated_by": user.get("email"), "updated_at": server.now_iso()}}, upsert=True)
         import tenant_isolation_layer as TI
         _CFG_CACHE.pop((TI.current_tenant_id(), role), None)
@@ -940,7 +1004,7 @@ def _install_admin_api(server, resolve, role_default, role_div_default):
     async def access_user_save(uid: str, body: dict, user=Depends(server.current_user)):
         u = await target_user(uid, user)
         ov = {k: v for k, v in ((body or {}).get("overrides") or {}).items() if v in ("allow", "deny")}
-        if set(ov) - ALL_KEYS:
+        if set(ov) - known_keys():
             raise HTTPException(400, "Terdapat hak akses yang tidak dikenal")
         scope = await clean_scope((body or {}).get("division_override"))
         prev = await resolve(u)

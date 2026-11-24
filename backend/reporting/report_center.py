@@ -27,6 +27,24 @@ MASTER_LABEL = {"warehouse": "warehouses", "category": "item_categories", "item"
                 "unit": "units", "supplier": "suppliers"}
 
 
+def report_allowed(server, user, spec) -> bool:
+    """Izin Pusat Laporan per-laporan (`report.<key>` dipilih di Hak Akses).
+
+    Laporan non-katalog (export daftar transaksi / master) tetap memakai aturan lama agar fungsi
+    export existing tidak putus. Laporan valuasi tetap butuh `view_purchase_price` (kebijakan harga
+    tidak berubah: tanpa izin itu kolom nilai tidak boleh terbuka).
+    """
+    if spec is None:
+        return False
+    if not getattr(spec, "catalog", True):
+        return bool(server.has_perm(user, spec.permission))
+    if not server.has_perm(user, f"report.{spec.key}"):
+        return False
+    if getattr(spec, "permission", "view") == "view_purchase_price" and not server.has_perm(user, "view_purchase_price"):
+        return False
+    return True
+
+
 def _prefer_legal_supplier(rows):
     """Nama supplier pada laporan (tampilan, pencarian, export) memakai nama legal perusahaan.
 
@@ -167,14 +185,20 @@ async def run(server, user, key, qp) -> dict:
     spec = R.REGISTRY.get(key)
     if not spec:
         raise HTTPException(404, "Laporan tidak ditemukan.")
-    server.require(user, "view")
-    if spec.permission == "view_purchase_price":
-        if not server.has_perm(user, "view_purchase_price"):
-            raise HTTPException(403, "Tidak memiliki akses nilai persediaan")
-    else:
-        if not server.has_perm(user, spec.permission):  # pesan ramah (judul laporan), bukan kunci izin mentah
+    if spec.catalog:
+        # Laporan Pusat Laporan: izin per-laporan dari Hak Akses (bukan izin modul legacy).
+        if not report_allowed(server, user, spec):
             raise HTTPException(403, f"Anda tidak memiliki izin untuk melihat laporan {spec.title}.")
-        server.require(user, spec.permission)
+    else:
+        # Export daftar transaksi / master (diakses dari halaman modul): aturan lama dipertahankan.
+        server.require(user, "view")
+        if spec.permission == "view_purchase_price":
+            if not server.has_perm(user, "view_purchase_price"):
+                raise HTTPException(403, "Tidak memiliki akses nilai persediaan")
+        else:
+            if not server.has_perm(user, spec.permission):  # pesan ramah (judul laporan), bukan kunci izin mentah
+                raise HTTPException(403, f"Anda tidak memiliki izin untuk melihat laporan {spec.title}.")
+            server.require(user, spec.permission)
     p = await parse_params(server, user, spec, qp)
     q = (qp.get("q") or "").strip()
     price_visible = bool(server.has_perm(user, "view_purchase_price"))
@@ -259,7 +283,7 @@ def install(server):
         groups = []
         for g in R.GROUPS:
             reps = [{"key": s.key, "title": s.title, "description": s.description}
-                    for s in R.REGISTRY.values() if s.group == g["key"] and s.catalog and server.has_perm(user, s.permission)]
+                    for s in R.REGISTRY.values() if s.group == g["key"] and s.catalog and report_allowed(server, user, s)]
             groups.append({**g, "title": HUB.CARD_TITLES.get(g["key"], g["title"]), "reports": reps,
                            **HUB.card_extras(server, user, g["key"])})
         return {"groups": groups, "export_limits": EXPORT_LIMITS,
@@ -305,7 +329,7 @@ def install(server):
 
 def _report_allowed(server, user, key):
     spec = R.REGISTRY.get(key)
-    return spec is None or bool(server.has_perm(user, spec.permission))
+    return spec is None or report_allowed(server, user, spec)
 
 
 def _install_audit_guard(server):
