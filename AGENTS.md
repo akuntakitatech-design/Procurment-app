@@ -7,8 +7,11 @@ Tujuan dokumen ini satu: **alur kerja mulus, 0 regresi, semua perubahan masuk le
 | Aplikasi | Repo (`akuntakitatech-design/…`) | Backend | Alias jaringan Coolify | Bucket R2 | Domain |
 |---|---|---|---|---|---|
 | Adm-Perkebunan (Payroll) | `Adm-Perkebunan` | Node/Express | `backend-perkebunan:3000` | `media-admperkebunan` | (lihat Coolify) |
-| KelolaKita Procurement | `Procurment-app` | FastAPI | `backend-procurement:8000` | `media-procurmentapp` | `proc.akuntakita.com` |
+| KelolaKita Procurement | `Procurment-app` | FastAPI | `backend-procurement:8000` | `media-procurmentapp` | `proc.akuntakita.my.id` |
 | Record F&B Control | `Recordfnb-control` | Node/Express | `backend-fnb:3000` | `media-recordfnb` | `record.akuntakita.com` |
+
+Domain resmi produksi Procurement saat ini `https://proc.akuntakita.my.id` (dipakai `FRONTEND_URL` backend).
+`proc.akuntakita.com` masih terpasang di fqdn app Coolify sebagai alias/preview, jadi masih bisa diakses.
 
 Setiap repo punya **PAT fine-grained sendiri** (diberikan pemilik lewat file `CredProd*.txt`). Ringkasan 10 detik di §0, dua prompt standar pemilik di §6.
 
